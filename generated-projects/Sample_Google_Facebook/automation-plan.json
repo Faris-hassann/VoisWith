@@ -1,0 +1,12 @@
+{
+  "projectName": "Sample_Google_Facebook",
+  "summary": "Sample generated plan.",
+  "dryRun": true,
+  "warnings": ["Credentials detected; password fields use placeholders."],
+  "requiresConfirmation": true,
+  "steps": [
+    {"id":"step-1","action":"open_browser","description":"Open Google","target":"https://www.google.com"},
+    {"id":"step-2","action":"type_into","description":"Search Facebook","selectorName":"google_search_box","selector":"<webctrl tag='TEXTAREA' name='q' />","value":"Facebook"},
+    {"id":"step-3","action":"type_into","description":"Type password","selectorName":"facebook_password","selector":"<webctrl tag='INPUT' id='pass' />","value":"[REDACTED]","sensitive":true,"requiresConfirmation":true}
+  ]
+}
