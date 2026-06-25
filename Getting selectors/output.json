@@ -1,0 +1,10 @@
+{
+  "mode": "web",
+  "target": "https://example.com/login",
+  "matches": {},
+  "unmatched": [
+    "Username",
+    "Password",
+    "Submit"
+  ]
+}

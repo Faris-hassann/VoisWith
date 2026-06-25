@@ -1,0 +1,21 @@
+{
+  "name": "getting-selectors",
+  "version": "1.0.0",
+  "description": "Playwright + Chromium web selector extraction tool for automation workflows.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
+  "keywords": [
+    "playwright",
+    "selectors",
+    "uipath",
+    "automation"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "playwright": "^1.54.1"
+  }
+}
