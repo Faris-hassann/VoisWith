@@ -3,7 +3,7 @@
   "target": "https://datatables.net/",
   "elements": [
     {
-      "label": "Software Engineer",
+      "label": "Thor Walton",
       "intent": "generic",
       "controlType": "table_cell",
       "sourceAttributes": {
@@ -13,7 +13,9 @@
         "id": null,
         "placeholder": null,
         "ariaLabel": null,
-        "text": "Software Engineer",
+        "text": "Thor Walton",
+        "visibleInnerText": "Thor Walton",
+        "hasIcon": false,
         "role": null,
         "href": null,
         "title": null,
@@ -23,7 +25,12 @@
           "ariaLabel": null,
           "role": null,
           "className": "display nowrap dataTable dtr-inline collapsed",
-          "columnIndex": 2
+          "columnIndex": 1,
+          "hasPagination": true,
+          "pagination": {
+            "page": 5,
+            "pagesScanned": 6
+          }
         },
         "parentHints": {
           "tag": "TR",
@@ -34,9 +41,9 @@
         }
       },
       "selectors": {
-        "css": "#example tbody > tr:nth-child(4) > td:nth-child(2)",
-        "uipath_strict": "<webctrl tag='TABLE' id='example' /><webctrl tag='TD' innertext='Software Engineer' />",
-        "uipath_fallback": "<webctrl tag='TD' innertext='Software Engineer' />"
+        "css": "#example tbody > tr:nth-child(10) > td:nth-child(1)",
+        "uipath_strict": "<webctrl tag='TABLE' id='example' /><webctrl tag='TD' innertext='Thor Walton' />",
+        "uipath_fallback": "<webctrl tag='TD' innertext='Thor Walton' />"
       },
       "recommendedAction": "Read Table Cell",
       "valueVariable": null,

@@ -487,6 +487,15 @@ function buildConfidence(score) {
   return "low";
 }
 
+function getUiPathInnerText(candidate) {
+  const text = candidate.visibleInnerText || candidate.text;
+  if (!text) {
+    return text;
+  }
+
+  return candidate.hasIcon ? `*${text}*` : text;
+}
+
 function buildWebUiPathSelectors(candidate) {
   const tag = String(candidate.tag || "").toUpperCase();
   const strictAttributes = { tag };
@@ -504,8 +513,8 @@ function buildWebUiPathSelectors(candidate) {
     strictAttributes.id = candidate.id;
   } else if (isLikelyStableValue(candidate.ariaLabel)) {
     strictAttributes.aaname = candidate.ariaLabel;
-  } else if (isLikelyStableValue(candidate.text)) {
-    strictAttributes.innertext = candidate.text;
+  } else if (isLikelyStableValue(candidate.visibleInnerText || candidate.text)) {
+    strictAttributes.innertext = getUiPathInnerText(candidate);
   } else if (isLikelyStableValue(candidate.placeholder)) {
     strictAttributes.placeholder = candidate.placeholder;
   }
@@ -522,7 +531,7 @@ function buildWebUiPathSelectors(candidate) {
   if (
     ["TH", "TD"].includes(tag) &&
     hasStableId(candidate.tableContext?.id) &&
-    isLikelyStableValue(candidate.text)
+    isLikelyStableValue(candidate.visibleInnerText || candidate.text)
   ) {
     const cellFragment = buildXmlFragment("webctrl", strictAttributes);
     return {
@@ -548,8 +557,8 @@ function buildWebUiPathSelectors(candidate) {
       fallbackAttributes.placeholder = candidate.placeholder;
     }
   } else if (strictAttributes.aaname) {
-    if (isLikelyStableValue(candidate.text)) {
-      fallbackAttributes.innertext = candidate.text;
+    if (isLikelyStableValue(candidate.visibleInnerText || candidate.text)) {
+      fallbackAttributes.innertext = getUiPathInnerText(candidate);
     } else if (isLikelyStableValue(candidate.name)) {
       fallbackAttributes.name = candidate.name;
     }
@@ -657,11 +666,11 @@ function buildDesktopUiPathSelectors(candidate) {
   };
 }
 
-async function captureWebCandidates(page) {
+async function captureWebCandidates(page, pagination = null) {
   return page.locator(
     "input, textarea, button, select, a, th, td, [role='button'], [role='link'], [role='textbox'], [role='columnheader'], [role='cell'], [role='gridcell']"
   ).evaluateAll(
-    (elements) => {
+    (elements, paginationState) => {
       const cssEscape =
         typeof CSS !== "undefined" && typeof CSS.escape === "function"
           ? CSS.escape.bind(CSS)
@@ -753,6 +762,19 @@ async function captureWebCandidates(page) {
 
       return elements.map((element, index) => {
         const parent = element.parentElement;
+        const computedStyle = window.getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        const isVisible =
+          computedStyle.display !== "none" &&
+          computedStyle.visibility !== "hidden" &&
+          rect.width > 0 &&
+          rect.height > 0;
+        const visibleInnerText = isVisible ? (element.innerText || "").trim() : "";
+        const hasIcon = Boolean(
+          element.querySelector(
+            "svg, img, i, [role='img'], [aria-hidden='true'], [class*='icon' i], [class*='glyph' i]"
+          )
+        );
         const table = element.closest("table, [role='table'], [role='grid']");
         const row = element.closest("tr, [role='row']");
         const tableColumnIndex =
@@ -774,6 +796,8 @@ async function captureWebCandidates(page) {
           role: element.getAttribute("role"),
           href: element.getAttribute("href"),
           text: (element.innerText || element.textContent || element.value || "").trim(),
+          visibleInnerText,
+          hasIcon,
           cssSelector: buildCssSelector(element),
           dataTestId: element.getAttribute("data-testid"),
           tableContext: table
@@ -784,6 +808,13 @@ async function captureWebCandidates(page) {
                 role: table.getAttribute("role"),
                 className: table.getAttribute("class"),
                 columnIndex: tableColumnIndex > 0 ? tableColumnIndex : null,
+                hasPagination: Boolean(paginationState?.hasPagination),
+                pagination: paginationState?.hasPagination
+                  ? {
+                      page: paginationState.page,
+                      pagesScanned: paginationState.pagesScanned,
+                    }
+                  : null,
               }
             : null,
           parentHints: parent
@@ -797,8 +828,98 @@ async function captureWebCandidates(page) {
             : null,
         };
       });
-    }
+    },
+    pagination
   );
+}
+
+async function getWebPaginationState(page) {
+  return page.evaluate(() => {
+    const nextSelector = [
+      ".dataTables_paginate .paginate_button.next",
+      ".dt-paging .dt-paging-button.next",
+      "[role='navigation'] [aria-label*='next' i]",
+      "[role='navigation'] button[title*='next' i]",
+    ].join(", ");
+    const activeSelector = [
+      ".dataTables_paginate .current",
+      ".dt-paging .current",
+      "[role='navigation'] [aria-current='page']",
+    ].join(", ");
+    const next = document.querySelector(nextSelector);
+    const active = document.querySelector(activeSelector);
+    const isDisabled = (element) =>
+      !element ||
+      element.hasAttribute("disabled") ||
+      element.getAttribute("aria-disabled") === "true" ||
+      /\b(disabled|paginate_button_disabled)\b/i.test(element.className || "");
+
+    return {
+      hasPagination: Boolean(next || active),
+      page: Number.parseInt(active?.textContent || "1", 10) || 1,
+      nextEnabled: !isDisabled(next),
+      nextSelector,
+    };
+  });
+}
+
+async function captureWebCandidatesWithPagination(page) {
+  const allCandidates = [];
+  const seenPages = new Set();
+  const maxPages = 50;
+
+  for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
+    const pagination = await getWebPaginationState(page);
+    const pageNumber = pagination.hasPagination ? pagination.page : 1;
+    const pageKey = `${pageNumber}:${pagination.nextEnabled}`;
+
+    if (seenPages.has(pageKey)) {
+      break;
+    }
+
+    seenPages.add(pageKey);
+    const candidates = await captureWebCandidates(
+      page,
+      pagination.hasPagination
+        ? { hasPagination: true, page: pageNumber, pagesScanned: pageIndex + 1 }
+        : null
+    );
+    allCandidates.push(...candidates);
+
+    if (!pagination.hasPagination || !pagination.nextEnabled) {
+      break;
+    }
+
+    const next = page.locator(pagination.nextSelector).filter({ hasNot: page.locator("[disabled]") }).first();
+    const previousPage = pageNumber;
+    await next.click({ timeout: 5000 });
+    await page.waitForFunction(
+      ({ activeSelector, previous }) => {
+        const active = document.querySelector(activeSelector);
+        const current = Number.parseInt(active?.textContent || "0", 10);
+        return current !== previous;
+      },
+      { activeSelector: ".dataTables_paginate .current, .dt-paging .current, [role='navigation'] [aria-current='page']", previous: previousPage },
+      { timeout: 5000 }
+    ).catch(() => page.waitForTimeout(300));
+  }
+
+  return allCandidates.map((candidate) => {
+    if (!candidate.tableContext?.pagination) {
+      return candidate;
+    }
+
+    return {
+      ...candidate,
+      tableContext: {
+        ...candidate.tableContext,
+        pagination: {
+          ...candidate.tableContext.pagination,
+          pagesScanned: seenPages.size,
+        },
+      },
+    };
+  });
 }
 
 function normalizeWebCandidate(candidate) {
@@ -810,7 +931,7 @@ function normalizeWebCandidate(candidate) {
       { value: candidate.placeholder, bonus: 30 },
       { value: candidate.ariaLabel, bonus: 25 },
       { value: candidate.name, bonus: 20 },
-      { value: candidate.text, bonus: 15 },
+      { value: candidate.visibleInnerText || candidate.text, bonus: 15 },
       { value: candidate.title, bonus: 10 },
       { value: candidate.id, bonus: hasStableId(candidate.id) ? 15 : 0 },
       { value: candidate.href, bonus: 10 },
@@ -930,6 +1051,8 @@ function buildElementOutput(query, candidate, score, warnings) {
             placeholder: candidate.placeholder,
             ariaLabel: candidate.ariaLabel,
             text: candidate.text,
+            visibleInnerText: candidate.visibleInnerText || null,
+            hasIcon: Boolean(candidate.hasIcon),
             role: candidate.role,
             href: candidate.href,
             title: candidate.title,
@@ -1036,7 +1159,7 @@ async function processWeb(input, outputPath) {
     await page.goto(input.target, { waitUntil: "domcontentloaded", timeout: 60000 });
     logStep(`Page opened: ${page.url()}`);
 
-    const candidates = (await captureWebCandidates(page)).map(normalizeWebCandidate);
+    const candidates = (await captureWebCandidatesWithPagination(page)).map(normalizeWebCandidate);
 
     for (const query of input.elements) {
       logStep(`Searching for "${query.label}"`);
