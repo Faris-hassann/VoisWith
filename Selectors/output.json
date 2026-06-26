@@ -1,90 +1,32 @@
 {
   "mode": "uipath_web",
-  "target": "https://www.facebook.com/",
+  "target": "https://datatables.net/",
   "elements": [
     {
-      "label": "Email address",
-      "intent": "username_or_email",
-      "controlType": "input",
+      "label": "Software Engineer",
+      "intent": "generic",
+      "controlType": "table_cell",
       "sourceAttributes": {
-        "tag": "INPUT",
-        "type": "text",
-        "name": "email",
-        "id": "_R_1h6kqsqppb6amH1_",
-        "placeholder": "Email address or mobile number",
-        "ariaLabel": null,
-        "text": "",
-        "role": null,
-        "href": null,
-        "title": null,
-        "parentHints": {
-          "tag": "DIV",
-          "id": null,
-          "name": null,
-          "ariaLabel": null,
-          "role": null
-        }
-      },
-      "selectors": {
-        "css": "[name='email']",
-        "uipath_strict": "<webctrl tag='INPUT' name='email' />",
-        "uipath_fallback": "<webctrl tag='INPUT' placeholder='Email address or mobile number' />"
-      },
-      "recommendedAction": "Type Into",
-      "valueVariable": "in_EmailAddress",
-      "confidence": "high",
-      "warnings": []
-    },
-    {
-      "label": "Password",
-      "intent": "password",
-      "controlType": "password",
-      "sourceAttributes": {
-        "tag": "INPUT",
-        "type": "password",
-        "name": "pass",
-        "id": "_R_1hmkqsqppb6amH1_",
-        "placeholder": "Password",
-        "ariaLabel": null,
-        "text": "",
-        "role": null,
-        "href": null,
-        "title": null,
-        "parentHints": {
-          "tag": "DIV",
-          "id": null,
-          "name": null,
-          "ariaLabel": null,
-          "role": null
-        }
-      },
-      "selectors": {
-        "css": "[name='pass']",
-        "uipath_strict": "<webctrl tag='INPUT' name='pass' />",
-        "uipath_fallback": "<webctrl tag='INPUT' placeholder='Password' />"
-      },
-      "recommendedAction": "Type Into",
-      "valueVariable": "in_Password",
-      "confidence": "high",
-      "warnings": []
-    },
-    {
-      "label": "Login",
-      "intent": "confirm",
-      "controlType": "button",
-      "sourceAttributes": {
-        "tag": "DIV",
+        "tag": "TD",
         "type": null,
         "name": null,
         "id": null,
         "placeholder": null,
-        "ariaLabel": "Log in",
-        "text": "Log in",
-        "role": "button",
+        "ariaLabel": null,
+        "text": "Software Engineer",
+        "role": null,
         "href": null,
         "title": null,
+        "tableContext": {
+          "id": "example",
+          "name": null,
+          "ariaLabel": null,
+          "role": null,
+          "className": "display nowrap dataTable dtr-inline collapsed",
+          "columnIndex": 2
+        },
         "parentHints": {
-          "tag": "DIV",
+          "tag": "TR",
           "id": null,
           "name": null,
           "ariaLabel": null,
@@ -92,11 +34,11 @@
         }
       },
       "selectors": {
-        "css": "[aria-label='Log in']",
-        "uipath_strict": "<webctrl tag='DIV' role='button' aaname='Log in' />",
-        "uipath_fallback": "<webctrl tag='DIV' role='button' innertext='Log in' />"
+        "css": "#example tbody > tr:nth-child(4) > td:nth-child(2)",
+        "uipath_strict": "<webctrl tag='TABLE' id='example' /><webctrl tag='TD' innertext='Software Engineer' />",
+        "uipath_fallback": "<webctrl tag='TD' innertext='Software Engineer' />"
       },
-      "recommendedAction": "Click",
+      "recommendedAction": "Read Table Cell",
       "valueVariable": null,
       "confidence": "high",
       "warnings": []

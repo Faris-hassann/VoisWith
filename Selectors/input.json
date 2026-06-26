@@ -1,5 +1,5 @@
 {
   "mode": "web",
-  "target": "https://www.facebook.com/",
-  "elements": ["Email address", "Password", "Login"]
+  "target": "https://datatables.net/",
+  "elements": ["Software Engineer"]
 }

@@ -204,6 +204,14 @@ function isQueryTypeCompatible(queryType, controlType) {
     return ["button", "link"].includes(normalizedControlType);
   }
 
+  if (["table_column", "column", "table header"].includes(normalizedQueryType)) {
+    return normalizedControlType === "table_column";
+  }
+
+  if (["table_cell", "cell"].includes(normalizedQueryType)) {
+    return normalizedControlType === "table_cell";
+  }
+
   return normalizedQueryType === normalizedControlType;
 }
 
@@ -414,6 +422,14 @@ function detectWebControlType(candidate) {
     return "input";
   }
 
+  if (tag === "TH" || role === "columnheader") {
+    return "table_column";
+  }
+
+  if (tag === "TD" || role === "cell" || role === "gridcell") {
+    return "table_cell";
+  }
+
   return "generic";
 }
 
@@ -446,6 +462,14 @@ function getRecommendedAction(controlType) {
 
   if (["button", "link"].includes(controlType)) {
     return "Click";
+  }
+
+  if (controlType === "table_column") {
+    return "Read Table Column";
+  }
+
+  if (controlType === "table_cell") {
+    return "Read Table Cell";
   }
 
   return "Use Application/Browser";
@@ -490,6 +514,20 @@ function buildWebUiPathSelectors(candidate) {
     return {
       strict: buildXmlFragment("webctrl", strictAttributes),
       fallback: null,
+    };
+  }
+
+  // Table cells are often repeated across a page. A stable table id makes the
+  // UiPath selector specific without relying on generated row or class values.
+  if (
+    ["TH", "TD"].includes(tag) &&
+    hasStableId(candidate.tableContext?.id) &&
+    isLikelyStableValue(candidate.text)
+  ) {
+    const cellFragment = buildXmlFragment("webctrl", strictAttributes);
+    return {
+      strict: `${buildXmlFragment("webctrl", { tag: "TABLE", id: candidate.tableContext.id })}${cellFragment}`,
+      fallback: cellFragment,
     };
   }
 
@@ -620,7 +658,9 @@ function buildDesktopUiPathSelectors(candidate) {
 }
 
 async function captureWebCandidates(page) {
-  return page.locator("input, textarea, button, select, a, [role='button'], [role='link'], [role='textbox']").evaluateAll(
+  return page.locator(
+    "input, textarea, button, select, a, th, td, [role='button'], [role='link'], [role='textbox'], [role='columnheader'], [role='cell'], [role='gridcell']"
+  ).evaluateAll(
     (elements) => {
       const cssEscape =
         typeof CSS !== "undefined" && typeof CSS.escape === "function"
@@ -691,6 +731,18 @@ async function captureWebCandidates(page) {
           }
         }
 
+        const table = element.closest("table");
+        const row = element.closest("tr");
+        if (table?.id && row && /^(TH|TD)$/i.test(element.tagName || "")) {
+          const section = row.parentElement?.tagName?.toLowerCase();
+          const rowIndex = Array.from(row.parentElement?.children || []).indexOf(row) + 1;
+          const columnIndex = Array.from(row.children).indexOf(element) + 1;
+          const selector = `#${cssEscape(table.id)} ${section} > tr:nth-child(${rowIndex}) > ${element.tagName.toLowerCase()}:nth-child(${columnIndex})`;
+          if (canQueryUniquely(selector)) {
+            return selector;
+          }
+        }
+
         const tag = element.tagName?.toLowerCase();
         if (tag && canQueryUniquely(tag)) {
           return tag;
@@ -701,6 +753,14 @@ async function captureWebCandidates(page) {
 
       return elements.map((element, index) => {
         const parent = element.parentElement;
+        const table = element.closest("table, [role='table'], [role='grid']");
+        const row = element.closest("tr, [role='row']");
+        const tableColumnIndex =
+          element instanceof HTMLTableCellElement || element.getAttribute("role") === "columnheader"
+            ? element.cellIndex >= 0
+              ? element.cellIndex + 1
+              : Array.from(row?.children || []).indexOf(element) + 1
+            : null;
         return {
           source: "web",
           sourceIndex: index,
@@ -716,6 +776,16 @@ async function captureWebCandidates(page) {
           text: (element.innerText || element.textContent || element.value || "").trim(),
           cssSelector: buildCssSelector(element),
           dataTestId: element.getAttribute("data-testid"),
+          tableContext: table
+            ? {
+                id: table.getAttribute("id"),
+                name: table.getAttribute("name"),
+                ariaLabel: table.getAttribute("aria-label"),
+                role: table.getAttribute("role"),
+                className: table.getAttribute("class"),
+                columnIndex: tableColumnIndex > 0 ? tableColumnIndex : null,
+              }
+            : null,
           parentHints: parent
             ? {
                 tag: parent.tagName || null,
@@ -744,6 +814,7 @@ function normalizeWebCandidate(candidate) {
       { value: candidate.title, bonus: 10 },
       { value: candidate.id, bonus: hasStableId(candidate.id) ? 15 : 0 },
       { value: candidate.href, bonus: 10 },
+      { value: candidate.tableContext?.ariaLabel, bonus: 5 },
     ],
   };
 }
@@ -862,6 +933,7 @@ function buildElementOutput(query, candidate, score, warnings) {
             role: candidate.role,
             href: candidate.href,
             title: candidate.title,
+            tableContext: candidate.tableContext || null,
             parentHints: candidate.parentHints,
           }
         : {
