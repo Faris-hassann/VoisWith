@@ -1,8 +1,31 @@
 {
   "mode": "desktop",
   "target": {
-    "processName": "explorer",
-    "windowTitle": "File Explorer"
+    "processName": "Postman"
   },
-  "elements": ["Share", "Details"]
+  "elements": [
+    {
+      "label": "Request URL input",
+      "type": "input",
+      "description": "The main URL field where the API endpoint is entered.",
+      "possibleNames": [
+        "Enter URL or paste text",
+        "Request URL",
+        "URL",
+        "https",
+        "http"
+      ],
+      "recommendedAction": "Type Into"
+    },
+    {
+      "label": "Send button",
+      "type": "button",
+      "description": "The button used to send the current request.",
+      "possibleNames": [
+        "Send",
+        "Send request"
+      ],
+      "recommendedAction": "Click"
+    }
+  ]
 }

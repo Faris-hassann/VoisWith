@@ -121,10 +121,36 @@ Desktop output:
 }
 ```
 
+Desktop query objects are also supported when you need aliases or stronger intent hints:
+
+```json
+{
+  "mode": "desktop",
+  "target": {
+    "processName": "Postman"
+  },
+  "elements": [
+    {
+      "label": "Request URL input",
+      "type": "input",
+      "possibleNames": ["Enter URL or paste text", "Request URL", "URL", "https", "http"],
+      "recommendedAction": "Type Into"
+    },
+    {
+      "label": "Send button",
+      "type": "button",
+      "possibleNames": ["Send", "Send request"],
+      "recommendedAction": "Click"
+    }
+  ]
+}
+```
+
 ## Notes
 
 - UiPath XML selectors are the primary automation output.
 - CSS selectors are included only for web debugging and discovery.
 - Web element matching tries exact and fuzzy attribute/text matching, so requests like `"Email address"` can match placeholders such as `"Email address or mobile number"`.
 - Desktop matching prioritizes stable UI Automation attributes such as `AutomationId`, `Name`, control type, and window context.
+- If a desktop app exposes weak or no UI Automation metadata, the tool restores the window, runs OCR on the visible desktop surface, and emits a Computer Vision / Native Text anchor strategy instead of inventing unsafe selectors.
 - Low-confidence or weak matches are flagged in warnings instead of silently emitting unsafe selectors.

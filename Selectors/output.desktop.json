@@ -1,0 +1,110 @@
+{
+  "mode": "uipath_desktop",
+  "target": {
+    "title": "https://newsapi.org/v2/everything - Faris Hassan's Workspace",
+    "className": "Chrome_WidgetWin_1",
+    "processId": 632,
+    "processName": "Postman"
+  },
+  "elements": [
+    {
+      "label": "Request URL input",
+      "intent": "generic",
+      "controlType": "input",
+      "sourceAttributes": {
+        "processName": "Postman",
+        "automationId": null,
+        "name": "https://newsapLorg/v2/i",
+        "className": "OCRWord",
+        "controlType": "generic",
+        "helpText": null,
+        "frameworkId": "OCR",
+        "captureKind": "ocr_word",
+        "boundingRect": {
+          "left": 297,
+          "top": 88,
+          "width": 155,
+          "height": 14
+        },
+        "parent": null,
+        "window": {
+          "title": "https://newsapi.org/v2/everything - Faris Hassan's Workspace",
+          "className": "Chrome_WidgetWin_1",
+          "processId": 632,
+          "processName": "Postman"
+        }
+      },
+      "selectors": {
+        "uipath_strict": "<wnd app='Postman.exe' cls='Chrome_WidgetWin_1' />",
+        "uipath_fallback": "<wnd app='Postman.exe' />",
+        "anchorStrategy": "Attach to the selected application, then use Computer Vision or Native Text anchored on visible text \"https://newsapLorg/v2/i\". Bounds x=297, y=88, width=155, height=14.",
+        "nativeText": "https://newsapLorg/v2/i",
+        "screenRegion": {
+          "left": 297,
+          "top": 88,
+          "width": 155,
+          "height": 14
+        }
+      },
+      "recommendedAction": "Type Into",
+      "valueVariable": "in_RequestUrlInput",
+      "confidence": "medium",
+      "warnings": [
+        "Desktop match does not have a stable AutomationId; fallback selectors are more important.",
+        "Matched through OCR fallback; validate with UiPath Computer Vision or Native Text targeting."
+      ]
+    },
+    {
+      "label": "Send button",
+      "intent": "confirm",
+      "controlType": "button",
+      "sourceAttributes": {
+        "processName": "Postman",
+        "automationId": null,
+        "name": "Send",
+        "className": "OCRWord",
+        "controlType": "generic",
+        "helpText": null,
+        "frameworkId": "OCR",
+        "captureKind": "ocr_word",
+        "boundingRect": {
+          "left": 1576,
+          "top": 207,
+          "width": 42,
+          "height": 15
+        },
+        "parent": null,
+        "window": {
+          "title": "https://newsapi.org/v2/everything - Faris Hassan's Workspace",
+          "className": "Chrome_WidgetWin_1",
+          "processId": 632,
+          "processName": "Postman"
+        }
+      },
+      "selectors": {
+        "uipath_strict": "<wnd app='Postman.exe' cls='Chrome_WidgetWin_1' />",
+        "uipath_fallback": "<wnd app='Postman.exe' />",
+        "anchorStrategy": "Attach to the selected application, then use Computer Vision or Native Text anchored on visible text \"Send\". Bounds x=1576, y=207, width=42, height=15.",
+        "nativeText": "Send",
+        "screenRegion": {
+          "left": 1576,
+          "top": 207,
+          "width": 42,
+          "height": 15
+        }
+      },
+      "recommendedAction": "Click",
+      "valueVariable": null,
+      "confidence": "high",
+      "warnings": [
+        "Desktop match does not have a stable AutomationId; fallback selectors are more important.",
+        "Matched through OCR fallback; validate with UiPath Computer Vision or Native Text targeting."
+      ]
+    }
+  ],
+  "unmatched": [],
+  "warnings": [
+    "Desktop capture found the window but no visible actionable controls with stable metadata.",
+    "OCR fallback candidates were added for desktop text anchoring."
+  ]
+}

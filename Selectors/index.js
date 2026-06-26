@@ -1,7 +1,6 @@
 const fs = require("fs/promises");
 const path = require("path");
-const os = require("os");
-const { execSync } = require("child_process");
+const { execFileSync } = require("child_process");
 const { chromium } = require("playwright");
 
 const DEFAULT_INPUT_PATH = path.join(__dirname, "input.json");
@@ -136,6 +135,78 @@ function buildValueVariable(label, controlType) {
   return null;
 }
 
+function normalizeElementQuery(element) {
+  if (typeof element === "string") {
+    const label = element.trim();
+    if (!label) {
+      return null;
+    }
+
+    return {
+      label,
+      type: null,
+      description: null,
+      possibleNames: [],
+      recommendedAction: null,
+    };
+  }
+
+  if (!isPlainObject(element) || typeof element.label !== "string" || !element.label.trim()) {
+    return null;
+  }
+
+  return {
+    label: element.label.trim(),
+    type: typeof element.type === "string" ? element.type.trim().toLowerCase() : null,
+    description: typeof element.description === "string" ? element.description.trim() : null,
+    possibleNames: Array.isArray(element.possibleNames)
+      ? element.possibleNames
+          .filter((item) => typeof item === "string")
+          .map((item) => item.trim())
+          .filter(Boolean)
+      : [],
+    recommendedAction:
+      typeof element.recommendedAction === "string" ? element.recommendedAction.trim() : null,
+  };
+}
+
+function buildSearchTerms(query) {
+  const terms = [query.label, ...(query.possibleNames || [])].filter(Boolean);
+  const uniqueTerms = [];
+
+  for (const term of terms) {
+    const normalized = normalizeSearchText(term);
+    if (!normalized) {
+      continue;
+    }
+
+    if (!uniqueTerms.some((existing) => normalizeSearchText(existing) === normalized)) {
+      uniqueTerms.push(term);
+    }
+  }
+
+  return uniqueTerms;
+}
+
+function isQueryTypeCompatible(queryType, controlType) {
+  if (!queryType) {
+    return true;
+  }
+
+  const normalizedQueryType = normalizeSearchText(queryType);
+  const normalizedControlType = normalizeSearchText(controlType);
+
+  if (normalizedQueryType === "input") {
+    return ["input", "password", "textarea", "select"].includes(normalizedControlType);
+  }
+
+  if (normalizedQueryType === "button") {
+    return ["button", "link"].includes(normalizedControlType);
+  }
+
+  return normalizedQueryType === normalizedControlType;
+}
+
 function inferIntent(label) {
   const value = normalizeSearchText(label);
 
@@ -219,14 +290,11 @@ async function loadInput(inputPath) {
   }
 
   const normalizedElements = Array.isArray(input.elements)
-    ? input.elements
-        .filter((item) => typeof item === "string")
-        .map((item) => item.trim())
-        .filter(Boolean)
+    ? input.elements.map(normalizeElementQuery).filter(Boolean)
     : [];
 
   if (normalizedElements.length === 0) {
-    throw new Error("`elements` must be a non-empty array of strings.");
+    throw new Error("`elements` must be a non-empty array of strings or selector query objects.");
   }
 
   const explicitMode = typeof input.mode === "string" ? input.mode.trim().toLowerCase() : null;
@@ -297,6 +365,16 @@ function addWarning(result, message) {
   if (!result.warnings.includes(message)) {
     result.warnings.push(message);
   }
+}
+
+function parseJsonSafely(raw) {
+  const normalized = String(raw || "")
+    .replace(/^\uFEFF/, "")
+    .replace(/^[^\[{]*/, "")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, " ")
+    .trim();
+
+  return JSON.parse(normalized);
 }
 
 function buildXmlFragment(tag, attributes) {
@@ -456,18 +534,26 @@ function buildWebUiPathSelectors(candidate) {
 
 function buildDesktopUiPathSelectors(candidate) {
   const wndAttributes = {};
+  const wndFallbackAttributes = {};
   const ctrlStrict = {};
   const ctrlFallback = {};
 
   if (candidate.window?.processName) {
     wndAttributes.app = `${candidate.window.processName}.exe`;
+    wndFallbackAttributes.app = `${candidate.window.processName}.exe`;
   }
 
   if (isLikelyStableValue(candidate.window?.className)) {
     wndAttributes.cls = candidate.window.className;
   }
 
-  if (isLikelyStableValue(candidate.window?.title)) {
+  // Window titles in Electron apps commonly include the active document or request URL.
+  // Keep a title only when it is a stable application title, not the primary selector.
+  if (
+    isLikelyStableValue(candidate.window?.title) &&
+    !/[/:?&#]/.test(candidate.window.title) &&
+    candidate.window.title.length <= 60
+  ) {
     wndAttributes.title = candidate.window.title;
   }
 
@@ -503,6 +589,22 @@ function buildDesktopUiPathSelectors(candidate) {
   }
 
   const wndFragment = buildXmlFragment("wnd", wndAttributes);
+  const wndFallbackFragment = buildXmlFragment("wnd", wndFallbackAttributes);
+
+  if (candidate.captureKind && String(candidate.captureKind).startsWith("ocr")) {
+    const boundingText = candidate.boundingRect
+      ? `Bounds x=${candidate.boundingRect.left}, y=${candidate.boundingRect.top}, width=${candidate.boundingRect.width}, height=${candidate.boundingRect.height}.`
+      : "Bounds unavailable.";
+
+    return {
+      strict: wndFragment,
+      fallback: wndFallbackFragment,
+      anchorStrategy: `Attach to the selected application, then use Computer Vision or Native Text anchored on visible text "${candidate.name}". ${boundingText}`,
+      nativeText: candidate.name || null,
+      screenRegion: candidate.boundingRect || null,
+    };
+  }
+
   const strictFragment = buildXmlFragment("ctrl", ctrlStrict);
   const fallbackFragment =
     Object.keys(ctrlFallback).length > 0 ? buildXmlFragment("ctrl", ctrlFallback) : null;
@@ -663,13 +765,19 @@ function normalizeDesktopCandidate(candidate) {
   };
 }
 
-function rankCandidate(label, candidate) {
+function rankCandidate(query, candidate) {
   let score = 0;
+  const searchTerms = buildSearchTerms(query);
 
-  for (const descriptor of candidate.matchDescriptors || []) {
-    const descriptorScore = scoreCandidateValue(label, descriptor.value);
-    if (descriptorScore > 0) {
-      score = Math.max(score, descriptorScore + (descriptor.bonus || 0));
+  for (let termIndex = 0; termIndex < searchTerms.length; termIndex += 1) {
+    const term = searchTerms[termIndex];
+    const aliasPenalty = termIndex === 0 ? 0 : 5;
+
+    for (const descriptor of candidate.matchDescriptors || []) {
+      const descriptorScore = scoreCandidateValue(term, descriptor.value);
+      if (descriptorScore > 0) {
+        score = Math.max(score, descriptorScore + (descriptor.bonus || 0) - aliasPenalty);
+      }
     }
   }
 
@@ -693,37 +801,54 @@ function rankCandidate(label, candidate) {
     score += 5;
   }
 
+  if (query.type) {
+    if (isQueryTypeCompatible(query.type, candidate.controlType)) {
+      score += 15;
+    } else {
+      score -= 20;
+    }
+  }
+
+  if (
+    candidate.captureKind &&
+    String(candidate.captureKind).startsWith("ocr") &&
+    candidate.source === "desktop"
+  ) {
+    score -= 10;
+  }
+
   return score;
 }
 
-function buildElementOutput(label, candidate, score, warnings) {
+function buildElementOutput(query, candidate, score, warnings) {
+  const effectiveControlType =
+    query.type &&
+    (candidate.captureKind && String(candidate.captureKind).startsWith("ocr")
+      ? true
+      : isQueryTypeCompatible(query.type, candidate.controlType))
+      ? query.type
+      : candidate.controlType;
+  const emittedSelectors =
+    candidate.source === "web" ? buildWebUiPathSelectors(candidate) : buildDesktopUiPathSelectors(candidate);
   const selectors =
     candidate.source === "web"
       ? {
           css: candidate.cssSelector,
-          ...(() => {
-            const emitted = buildWebUiPathSelectors(candidate);
-            return {
-              uipath_strict: emitted.strict,
-              uipath_fallback: emitted.fallback,
-            };
-          })(),
+          uipath_strict: emittedSelectors.strict,
+          uipath_fallback: emittedSelectors.fallback,
         }
       : {
-          ...(() => {
-            const emitted = buildDesktopUiPathSelectors(candidate);
-            return {
-              uipath_strict: emitted.strict,
-              uipath_fallback: emitted.fallback,
-              anchorStrategy: emitted.anchorStrategy,
-            };
-          })(),
+          uipath_strict: emittedSelectors.strict,
+          uipath_fallback: emittedSelectors.fallback,
+          anchorStrategy: emittedSelectors.anchorStrategy || null,
+          nativeText: emittedSelectors.nativeText || null,
+          screenRegion: emittedSelectors.screenRegion || null,
         };
 
   return {
-    label,
-    intent: inferIntent(label),
-    controlType: candidate.controlType,
+    label: query.label,
+    intent: inferIntent(query.label),
+    controlType: effectiveControlType,
     sourceAttributes:
       candidate.source === "web"
         ? {
@@ -747,23 +872,25 @@ function buildElementOutput(label, candidate, score, warnings) {
             controlType: candidate.controlType,
             helpText: candidate.helpText,
             frameworkId: candidate.frameworkId,
+            captureKind: candidate.captureKind || null,
+            boundingRect: candidate.boundingRect || null,
             parent: candidate.parent,
             window: candidate.window,
           },
     selectors,
-    recommendedAction: getRecommendedAction(candidate.controlType),
-    valueVariable: buildValueVariable(label, candidate.controlType),
+    recommendedAction: query.recommendedAction || getRecommendedAction(effectiveControlType),
+    valueVariable: buildValueVariable(query.label, effectiveControlType),
     confidence: buildConfidence(score),
     warnings,
   };
 }
 
-function locateBestMatch(label, candidates) {
+function locateBestMatch(query, candidates) {
   let bestCandidate = null;
   let bestScore = 0;
 
   for (const candidate of candidates) {
-    const score = rankCandidate(label, candidate);
+    const score = rankCandidate(query, candidate);
     if (score > bestScore) {
       bestScore = score;
       bestCandidate = candidate;
@@ -788,6 +915,10 @@ function locateBestMatch(label, candidates) {
     warnings.push("Desktop match does not have a stable AutomationId; fallback selectors are more important.");
   }
 
+  if (bestCandidate.captureKind && String(bestCandidate.captureKind).startsWith("ocr")) {
+    warnings.push("Matched through OCR fallback; validate with UiPath Computer Vision or Native Text targeting.");
+  }
+
   return {
     candidate: bestCandidate,
     score: bestScore,
@@ -800,26 +931,23 @@ async function writeOutput(outputPath, result) {
 }
 
 async function runDesktopCapture(inputPath) {
-  const outputPath = path.join(
-    os.tmpdir(),
-    `selector-desktop-capture-${process.pid}-${Date.now()}.json`
+  const raw = execFileSync(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      `& "${DESKTOP_CAPTURE_SCRIPT}" -InputPath "${inputPath}"`,
+    ],
+    {
+      cwd: __dirname,
+      encoding: "utf8",
+      maxBuffer: 10 * 1024 * 1024,
+    }
   );
-  const command = [
-    `powershell -NoProfile -ExecutionPolicy Bypass`,
-    `-File "${DESKTOP_CAPTURE_SCRIPT}"`,
-    `-InputPath "${inputPath}"`,
-    `| Set-Content -Path "${outputPath}"`,
-  ].join(" ");
 
-  execSync(command, {
-    cwd: __dirname,
-    stdio: "ignore",
-    shell: "powershell.exe",
-  });
-
-  const raw = await fs.readFile(outputPath, "utf8");
-  await fs.unlink(outputPath).catch(() => {});
-  return JSON.parse(raw);
+  return parseJsonSafely(raw);
 }
 
 async function processWeb(input, outputPath) {
@@ -838,24 +966,24 @@ async function processWeb(input, outputPath) {
 
     const candidates = (await captureWebCandidates(page)).map(normalizeWebCandidate);
 
-    for (const label of input.elements) {
-      logStep(`Searching for "${label}"`);
-      const match = locateBestMatch(label, candidates);
+    for (const query of input.elements) {
+      logStep(`Searching for "${query.label}"`);
+      const match = locateBestMatch(query, candidates);
 
       if (!match) {
-        logStep(`No selector found for "${label}"`);
-        result.unmatched.push(label);
+        logStep(`No selector found for "${query.label}"`);
+        result.unmatched.push(query.label);
         continue;
       }
 
-      const elementOutput = buildElementOutput(label, match.candidate, match.score, match.warnings);
+      const elementOutput = buildElementOutput(query, match.candidate, match.score, match.warnings);
       result.elements.push(elementOutput);
       logStep(
-        `Found "${label}" with confidence ${elementOutput.confidence}. UiPath selector: ${elementOutput.selectors.uipath_strict}`
+        `Found "${query.label}" with confidence ${elementOutput.confidence}. UiPath selector: ${elementOutput.selectors.uipath_strict}`
       );
 
       if (!elementOutput.selectors.uipath_fallback) {
-        addWarning(result, `Element "${label}" does not have a strong fallback selector.`);
+        addWarning(result, `Element "${query.label}" does not have a strong fallback selector.`);
       }
     }
 
@@ -887,24 +1015,24 @@ async function processDesktop(input, inputPath, outputPath) {
     addWarning(result, "Desktop target metadata is incomplete; selectors may be weaker than expected.");
   }
 
-  for (const label of input.elements) {
-    logStep(`Searching desktop controls for "${label}"`);
-    const match = locateBestMatch(label, candidates);
+  for (const query of input.elements) {
+    logStep(`Searching desktop controls for "${query.label}"`);
+    const match = locateBestMatch(query, candidates);
 
     if (!match) {
-      logStep(`No selector found for "${label}"`);
-      result.unmatched.push(label);
+      logStep(`No selector found for "${query.label}"`);
+      result.unmatched.push(query.label);
       continue;
     }
 
-    const elementOutput = buildElementOutput(label, match.candidate, match.score, match.warnings);
+    const elementOutput = buildElementOutput(query, match.candidate, match.score, match.warnings);
     result.elements.push(elementOutput);
     logStep(
-      `Found "${label}" with confidence ${elementOutput.confidence}. UiPath selector: ${elementOutput.selectors.uipath_strict}`
+      `Found "${query.label}" with confidence ${elementOutput.confidence}. UiPath selector: ${elementOutput.selectors.uipath_strict}`
     );
 
     if (!elementOutput.selectors.uipath_fallback) {
-      addWarning(result, `Element "${label}" does not have a strong fallback selector.`);
+      addWarning(result, `Element "${query.label}" does not have a strong fallback selector.`);
     }
   }
 
