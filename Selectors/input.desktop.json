@@ -1,0 +1,8 @@
+{
+  "mode": "desktop",
+  "target": {
+    "processName": "explorer",
+    "windowTitle": "File Explorer"
+  },
+  "elements": ["Share", "Details"]
+}

@@ -1,5 +1,5 @@
 {
-  "target": "https://example.com/login",
-  "isWeb": true,
-  "elements": ["Username", "Password", "Submit"]
+  "mode": "web",
+  "target": "https://www.facebook.com/",
+  "elements": ["Email address", "Password", "Login"]
 }
