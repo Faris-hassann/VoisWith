@@ -42,6 +42,62 @@ function compactText(value) {
   return normalizeSearchText(value).replace(/\s+/g, "");
 }
 
+function normalizeOptionalString(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function isLikelySapWindowMetadata(target = {}) {
+  const values = [target.processName, target.windowTitle, target.executablePath]
+    .filter(Boolean)
+    .map((value) => String(value).toLowerCase());
+
+  return values.some(
+    (value) =>
+      /\bsap(logon|gui|lgpad)?\b/.test(value) ||
+      /sap(gui)?\.exe/.test(value) ||
+      value.includes("sap easy access") ||
+      value.includes("sap logon")
+  );
+}
+
+function normalizeSapTarget(value) {
+  if (!isPlainObject(value)) {
+    return undefined;
+  }
+
+  const sessionIndex =
+    Number.isInteger(value.sessionIndex) && value.sessionIndex >= 0 ? value.sessionIndex : undefined;
+  const sapTarget = {
+    systemName: normalizeOptionalString(value.systemName),
+    connectionName: normalizeOptionalString(value.connectionName),
+    sessionIndex,
+    windowTitle: normalizeOptionalString(value.windowTitle),
+  };
+
+  return Object.values(sapTarget).some((item) => item !== undefined) ? sapTarget : undefined;
+}
+
+function classifyDesktopTarget(target) {
+  if (target.sap) {
+    return "desktop_sap";
+  }
+
+  return isLikelySapWindowMetadata(target) ? "desktop_sap" : "desktop_generic";
+}
+
+function hasStableSapIdentifier(candidate) {
+  const values = [candidate.componentId, candidate.componentPath, candidate.technicalName]
+    .filter(Boolean)
+    .map((value) => normalizeWhitespace(value));
+
+  return values.some(
+    (value) =>
+      value.length >= 3 &&
+      !/^[a-f0-9]{8,}$/i.test(value) &&
+      (value.includes("/") || value.includes("[") || /^[A-Za-z][A-Za-z0-9_]+$/.test(value))
+  );
+}
+
 function escapeForCss(value) {
   if (typeof CSS !== "undefined" && CSS.escape) {
     return CSS.escape(value);
@@ -346,14 +402,10 @@ async function loadInput(inputPath) {
   }
 
   const desktopTarget = {
-    windowTitle:
-      typeof input.target.windowTitle === "string" ? input.target.windowTitle.trim() : undefined,
-    processName:
-      typeof input.target.processName === "string" ? input.target.processName.trim() : undefined,
-    executablePath:
-      typeof input.target.executablePath === "string"
-        ? input.target.executablePath.trim()
-        : undefined,
+    windowTitle: normalizeOptionalString(input.target.windowTitle),
+    processName: normalizeOptionalString(input.target.processName),
+    executablePath: normalizeOptionalString(input.target.executablePath),
+    sap: normalizeSapTarget(input.target.sap),
   };
 
   if (!desktopTarget.windowTitle && !desktopTarget.processName && !desktopTarget.executablePath) {
@@ -365,6 +417,7 @@ async function loadInput(inputPath) {
   return {
     mode: "desktop",
     target: desktopTarget,
+    targetKind: classifyDesktopTarget(desktopTarget),
     elements: normalizedElements,
   };
 }
@@ -434,6 +487,25 @@ function detectWebControlType(candidate) {
 }
 
 function detectDesktopControlType(candidate) {
+  const sapType = normalizeSearchText(candidate.componentType);
+  if (sapType) {
+    if (/(ctxt|txt|pwd|okcode|shell|field|editor|textarea|textedit)/.test(sapType)) {
+      return "input";
+    }
+
+    if (/(btn|button|toolbarbutton|pushbutton)/.test(sapType)) {
+      return "button";
+    }
+
+    if (/(cmb|combobox|listbox)/.test(sapType)) {
+      return "select";
+    }
+
+    if (/(link|hyperlink)/.test(sapType)) {
+      return "link";
+    }
+  }
+
   const controlType = normalizeSearchText(candidate.controlType);
 
   if (controlType.includes("edit") || controlType.includes("document")) {
@@ -637,6 +709,27 @@ function buildDesktopUiPathSelectors(candidate) {
 
   const wndFragment = buildXmlFragment("wnd", wndAttributes);
   const wndFallbackFragment = buildXmlFragment("wnd", wndFallbackAttributes);
+
+  if (candidate.captureKind === "sap") {
+    return {
+      strict: wndFragment,
+      fallback: null,
+      anchorStrategy: null,
+      sap: {
+        source: "sap_scripting",
+        sessionId: candidate.sessionId || null,
+        windowId: candidate.windowId || null,
+        componentId: candidate.componentId || null,
+        path: candidate.componentPath || null,
+        componentType: candidate.componentType || null,
+        technicalName: candidate.technicalName || null,
+        parentPath: candidate.parentPath || null,
+        transactionCode: candidate.transactionCode || null,
+        systemName: candidate.systemName || null,
+        connectionName: candidate.connectionName || null,
+      },
+    };
+  }
 
   if (candidate.captureKind && String(candidate.captureKind).startsWith("ocr")) {
     const boundingText = candidate.boundingRect
@@ -942,9 +1035,29 @@ function normalizeWebCandidate(candidate) {
 
 function normalizeDesktopCandidate(candidate) {
   const controlType = detectDesktopControlType(candidate);
+  const source = candidate.captureKind === "sap" ? "desktop_sap" : "desktop";
+
+  if (source === "desktop_sap") {
+    return {
+      ...candidate,
+      source,
+      controlType,
+      matchDescriptors: [
+        { value: candidate.componentId, bonus: 60 },
+        { value: candidate.componentPath, bonus: 55 },
+        { value: candidate.technicalName, bonus: 50 },
+        { value: candidate.tooltip, bonus: 30 },
+        { value: candidate.name || candidate.text, bonus: 25 },
+        { value: candidate.parentPath, bonus: 15 },
+        { value: candidate.window?.title, bonus: 10 },
+        { value: candidate.transactionCode, bonus: 10 },
+      ],
+    };
+  }
+
   return {
     ...candidate,
-    source: "desktop",
+    source,
     controlType,
     matchDescriptors: [
       { value: candidate.name, bonus: 30 },
@@ -983,6 +1096,10 @@ function rankCandidate(query, candidate) {
 
   if (["button", "link"].includes(candidate.controlType)) {
     score += 10;
+  }
+
+  if (candidate.source === "desktop_sap" && hasStableSapIdentifier(candidate)) {
+    score += 25;
   }
 
   if (candidate.source === "desktop" && isLikelyStableValue(candidate.automationId)) {
@@ -1035,6 +1152,7 @@ function buildElementOutput(query, candidate, score, warnings) {
           anchorStrategy: emittedSelectors.anchorStrategy || null,
           nativeText: emittedSelectors.nativeText || null,
           screenRegion: emittedSelectors.screenRegion || null,
+          sap: emittedSelectors.sap || null,
         };
 
   return {
@@ -1063,6 +1181,7 @@ function buildElementOutput(query, candidate, score, warnings) {
             processName: candidate.processName,
             automationId: candidate.automationId,
             name: candidate.name,
+            text: candidate.text || null,
             className: candidate.className,
             controlType: candidate.controlType,
             helpText: candidate.helpText,
@@ -1071,6 +1190,17 @@ function buildElementOutput(query, candidate, score, warnings) {
             boundingRect: candidate.boundingRect || null,
             parent: candidate.parent,
             window: candidate.window,
+            sessionId: candidate.sessionId || null,
+            windowId: candidate.windowId || null,
+            systemName: candidate.systemName || null,
+            connectionName: candidate.connectionName || null,
+            transactionCode: candidate.transactionCode || null,
+            componentId: candidate.componentId || null,
+            componentPath: candidate.componentPath || null,
+            componentType: candidate.componentType || null,
+            technicalName: candidate.technicalName || null,
+            tooltip: candidate.tooltip || null,
+            parentPath: candidate.parentPath || null,
           },
     selectors,
     recommendedAction: query.recommendedAction || getRecommendedAction(effectiveControlType),
@@ -1092,13 +1222,26 @@ function locateBestMatch(query, candidates) {
     }
   }
 
-  if (!bestCandidate || bestScore < 45) {
+  if (!bestCandidate) {
     return null;
+  }
+
+  const minimumScore = bestCandidate.source === "desktop_sap" ? 70 : 45;
+  if (bestScore < minimumScore) {
+    return null;
+  }
+
+  if (bestCandidate.source === "desktop_sap" && !hasStableSapIdentifier(bestCandidate)) {
+    return {
+      candidate: null,
+      score: bestScore,
+      warnings: ["SAP element found only as visible text; no native selector emitted"],
+    };
   }
 
   const warnings = [];
 
-  if (bestScore < 70) {
+  if (bestScore < (bestCandidate.source === "desktop_sap" ? 90 : 70)) {
     warnings.push("Low-confidence match based on weak or partial attributes.");
   }
 
@@ -1108,6 +1251,10 @@ function locateBestMatch(query, candidates) {
 
   if (bestCandidate.source === "desktop" && !isLikelyStableValue(bestCandidate.automationId)) {
     warnings.push("Desktop match does not have a stable AutomationId; fallback selectors are more important.");
+  }
+
+  if (bestCandidate.source === "desktop_sap") {
+    warnings.push("SAP native selector emitted");
   }
 
   if (bestCandidate.captureKind && String(bestCandidate.captureKind).startsWith("ocr")) {
@@ -1198,9 +1345,13 @@ async function processWeb(input, outputPath) {
 }
 
 async function processDesktop(input, inputPath, outputPath) {
-  logStep("Enumerating Windows UI Automation tree for the requested desktop target");
+  logStep("Capturing desktop selectors for the requested target");
   const captured = await runDesktopCapture(inputPath);
   const result = buildOutputSkeleton("uipath_desktop", captured.targetWindow || input.target);
+  const resolvedTargetKind = captured.targetKind || input.targetKind || "desktop_generic";
+  if (isPlainObject(result.target) && !result.target.kind) {
+    result.target.kind = resolvedTargetKind;
+  }
 
   const candidates = Array.isArray(captured.candidates)
     ? captured.candidates.map(normalizeDesktopCandidate)
@@ -1214,9 +1365,14 @@ async function processDesktop(input, inputPath, outputPath) {
     logStep(`Searching desktop controls for "${query.label}"`);
     const match = locateBestMatch(query, candidates);
 
-    if (!match) {
+    if (!match || !match.candidate) {
       logStep(`No selector found for "${query.label}"`);
       result.unmatched.push(query.label);
+      if (match?.warnings) {
+        for (const warning of match.warnings) {
+          addWarning(result, warning);
+        }
+      }
       continue;
     }
 
@@ -1226,7 +1382,7 @@ async function processDesktop(input, inputPath, outputPath) {
       `Found "${query.label}" with confidence ${elementOutput.confidence}. UiPath selector: ${elementOutput.selectors.uipath_strict}`
     );
 
-    if (!elementOutput.selectors.uipath_fallback) {
+    if (!elementOutput.selectors.uipath_fallback && match.candidate.source !== "desktop_sap") {
       addWarning(result, `Element "${query.label}" does not have a strong fallback selector.`);
     }
   }

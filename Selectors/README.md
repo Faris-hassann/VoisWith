@@ -1,13 +1,14 @@
 # Getting UiPath Selectors
 
-Small Node.js tool for extracting UiPath-ready selectors from both web pages and Windows desktop applications.
+Small Node.js tool for extracting UiPath-ready selectors from both web pages and Windows desktop applications, with SAP GUI for Windows handled as a first-class desktop target.
 
 ## What it does
 
 - Uses Playwright to inspect web pages and collect stable DOM attributes.
-- Uses Windows UI Automation through PowerShell to inspect desktop application controls.
-- Normalizes both sources into one shared output contract.
-- Emits UiPath-oriented XML selectors as the primary output.
+- Uses Windows UI Automation through PowerShell for generic desktop applications.
+- Uses SAP GUI Scripting first for SAP desktop applications.
+- Normalizes all supported sources into one shared output contract.
+- Emits UiPath-oriented selectors as the primary output.
 - Keeps CSS selectors only for web debugging and browser-side discovery.
 
 ## How it works
@@ -16,7 +17,7 @@ Small Node.js tool for extracting UiPath-ready selectors from both web pages and
 2. Run `npm install`
 3. Run `npm start`
 4. For web targets, watch Chromium open and follow the console logs.
-5. Read the extracted UiPath selector payload in `output.json`.
+5. Read the extracted selector payload in `output.json`.
 
 You can also run:
 
@@ -40,6 +41,8 @@ Backward compatibility is kept for `isWeb: true`, but `mode` is the preferred fi
 
 Desktop targets accept a descriptor object. At least one of `windowTitle`, `processName`, or `executablePath` must be present.
 
+Generic desktop example:
+
 ```json
 {
   "mode": "desktop",
@@ -48,6 +51,36 @@ Desktop targets accept a descriptor object. At least one of `windowTitle`, `proc
     "windowTitle": "File Explorer"
   },
   "elements": ["Share", "Details"]
+}
+```
+
+SAP desktop example:
+
+```json
+{
+  "mode": "desktop",
+  "target": {
+    "processName": "saplogon",
+    "windowTitle": "SAP Easy Access",
+    "sap": {
+      "systemName": "PRD",
+      "connectionName": "ECC Production",
+      "sessionIndex": 0,
+      "windowTitle": "SAP Easy Access"
+    }
+  },
+  "elements": [
+    {
+      "label": "Command field",
+      "type": "input",
+      "possibleNames": ["/n", "ok code", "command"]
+    },
+    {
+      "label": "Enter button",
+      "type": "button",
+      "possibleNames": ["Enter", "Execute"]
+    }
+  ]
 }
 ```
 
@@ -85,7 +118,7 @@ Web output:
 }
 ```
 
-Desktop output:
+Generic desktop output:
 
 ```json
 {
@@ -93,7 +126,8 @@ Desktop output:
   "target": {
     "title": "about - File Explorer",
     "className": "CabinetWClass",
-    "processName": "explorer"
+    "processName": "explorer",
+    "kind": "desktop_generic"
   },
   "elements": [
     {
@@ -108,7 +142,10 @@ Desktop output:
       "selectors": {
         "uipath_strict": "<wnd app='explorer.exe' cls='CabinetWClass' title='about - File Explorer' /><ctrl automationid='shareButton' role='button' />",
         "uipath_fallback": "<wnd app='explorer.exe' cls='CabinetWClass' title='about - File Explorer' /><ctrl role='button' name='Share' />",
-        "anchorStrategy": null
+        "anchorStrategy": null,
+        "nativeText": null,
+        "screenRegion": null,
+        "sap": null
       },
       "recommendedAction": "Click",
       "valueVariable": null,
@@ -121,36 +158,74 @@ Desktop output:
 }
 ```
 
-Desktop query objects are also supported when you need aliases or stronger intent hints:
+SAP desktop output:
 
 ```json
 {
-  "mode": "desktop",
+  "mode": "uipath_desktop",
   "target": {
-    "processName": "Postman"
+    "title": "SAP Easy Access",
+    "className": "SAP_FRONTEND_SESSION",
+    "processName": "saplogon",
+    "kind": "desktop_sap"
   },
   "elements": [
     {
-      "label": "Request URL input",
-      "type": "input",
-      "possibleNames": ["Enter URL or paste text", "Request URL", "URL", "https", "http"],
-      "recommendedAction": "Type Into"
-    },
-    {
-      "label": "Send button",
-      "type": "button",
-      "possibleNames": ["Send", "Send request"],
-      "recommendedAction": "Click"
+      "label": "Command field",
+      "intent": "generic",
+      "controlType": "input",
+      "sourceAttributes": {
+        "processName": "saplogon",
+        "frameworkId": "SAP",
+        "captureKind": "sap",
+        "sessionId": "/app/con[0]/ses[0]",
+        "windowId": "wnd[0]",
+        "systemName": "PRD",
+        "connectionName": "ECC Production",
+        "transactionCode": "SESSION_MANAGER",
+        "componentId": "ctxtRSYST-BCODE",
+        "componentPath": "wnd[0]/tbar[0]/okcd",
+        "componentType": "GuiOkCodeField",
+        "technicalName": "okcd",
+        "tooltip": "Command field"
+      },
+      "selectors": {
+        "uipath_strict": "<wnd app='saplogon.exe' cls='SAP_FRONTEND_SESSION' title='SAP Easy Access' />",
+        "uipath_fallback": null,
+        "anchorStrategy": null,
+        "nativeText": null,
+        "screenRegion": null,
+        "sap": {
+          "source": "sap_scripting",
+          "sessionId": "/app/con[0]/ses[0]",
+          "windowId": "wnd[0]",
+          "componentId": "ctxtRSYST-BCODE",
+          "path": "wnd[0]/tbar[0]/okcd",
+          "componentType": "GuiOkCodeField",
+          "technicalName": "okcd",
+          "parentPath": "wnd[0]/tbar[0]",
+          "transactionCode": "SESSION_MANAGER",
+          "systemName": "PRD",
+          "connectionName": "ECC Production"
+        }
+      },
+      "recommendedAction": "Type Into",
+      "valueVariable": "in_CommandField",
+      "confidence": "high",
+      "warnings": ["SAP native selector emitted"]
     }
-  ]
+  ],
+  "unmatched": [],
+  "warnings": []
 }
 ```
 
 ## Notes
 
-- UiPath XML selectors are the primary automation output.
+- UiPath XML selectors remain the primary automation output.
 - CSS selectors are included only for web debugging and discovery.
 - Web element matching tries exact and fuzzy attribute/text matching, so requests like `"Email address"` can match placeholders such as `"Email address or mobile number"`.
-- Desktop matching prioritizes stable UI Automation attributes such as `AutomationId`, `Name`, control type, and window context.
-- If a desktop app exposes weak or no UI Automation metadata, the tool restores the window, runs OCR on the visible desktop surface, and emits a Computer Vision / Native Text anchor strategy instead of inventing unsafe selectors.
-- Low-confidence or weak matches are flagged in warnings instead of silently emitting unsafe selectors.
+- Generic desktop matching prioritizes stable UI Automation attributes such as `AutomationId`, `Name`, control type, and window context.
+- Generic desktop apps can still fall back to OCR when UI Automation metadata is too weak.
+- SAP desktop requests never fall back to OCR. If SAP GUI Scripting cannot provide a stable native selector, the element is returned as unmatched.
+- SAP-native selector payloads are emitted under `selectors.sap` so downstream UiPath mapping can use session, window, and component IDs directly.

@@ -1,110 +1,150 @@
 {
   "mode": "uipath_desktop",
   "target": {
-    "title": "https://newsapi.org/v2/everything - Faris Hassan's Workspace",
-    "className": "Chrome_WidgetWin_1",
-    "processId": 632,
-    "processName": "Postman"
+    "title": "SAP Easy Access",
+    "className": "SAP_FRONTEND_SESSION",
+    "processId": 7420,
+    "processName": "saplogon",
+    "kind": "desktop_sap"
   },
   "elements": [
     {
-      "label": "Request URL input",
+      "label": "Command field",
       "intent": "generic",
       "controlType": "input",
       "sourceAttributes": {
-        "processName": "Postman",
+        "processName": "saplogon",
         "automationId": null,
-        "name": "https://newsapLorg/v2/i",
-        "className": "OCRWord",
-        "controlType": "generic",
-        "helpText": null,
-        "frameworkId": "OCR",
-        "captureKind": "ocr_word",
+        "name": "Command field",
+        "text": "/n",
+        "className": "SAP_FRONTEND_SESSION",
+        "controlType": "input",
+        "helpText": "Command field",
+        "frameworkId": "SAP",
+        "captureKind": "sap",
         "boundingRect": {
-          "left": 297,
-          "top": 88,
-          "width": 155,
-          "height": 14
+          "left": 145,
+          "top": 79,
+          "width": 180,
+          "height": 22
         },
         "parent": null,
         "window": {
-          "title": "https://newsapi.org/v2/everything - Faris Hassan's Workspace",
-          "className": "Chrome_WidgetWin_1",
-          "processId": 632,
-          "processName": "Postman"
-        }
+          "title": "SAP Easy Access",
+          "className": "SAP_FRONTEND_SESSION",
+          "processId": 7420,
+          "processName": "saplogon",
+          "sapWindowTitle": "SAP Easy Access",
+          "sapWindowId": "wnd[0]"
+        },
+        "sessionId": "/app/con[0]/ses[0]",
+        "windowId": "wnd[0]",
+        "systemName": "PRD",
+        "connectionName": "ECC Production",
+        "transactionCode": "SESSION_MANAGER",
+        "componentId": "ctxtRSYST-BCODE",
+        "componentPath": "wnd[0]/tbar[0]/okcd",
+        "componentType": "GuiOkCodeField",
+        "technicalName": "okcd",
+        "tooltip": "Command field",
+        "parentPath": "wnd[0]/tbar[0]"
       },
       "selectors": {
-        "uipath_strict": "<wnd app='Postman.exe' cls='Chrome_WidgetWin_1' />",
-        "uipath_fallback": "<wnd app='Postman.exe' />",
-        "anchorStrategy": "Attach to the selected application, then use Computer Vision or Native Text anchored on visible text \"https://newsapLorg/v2/i\". Bounds x=297, y=88, width=155, height=14.",
-        "nativeText": "https://newsapLorg/v2/i",
-        "screenRegion": {
-          "left": 297,
-          "top": 88,
-          "width": 155,
-          "height": 14
+        "uipath_strict": "<wnd app='saplogon.exe' cls='SAP_FRONTEND_SESSION' title='SAP Easy Access' />",
+        "uipath_fallback": null,
+        "anchorStrategy": null,
+        "nativeText": null,
+        "screenRegion": null,
+        "sap": {
+          "source": "sap_scripting",
+          "sessionId": "/app/con[0]/ses[0]",
+          "windowId": "wnd[0]",
+          "componentId": "ctxtRSYST-BCODE",
+          "path": "wnd[0]/tbar[0]/okcd",
+          "componentType": "GuiOkCodeField",
+          "technicalName": "okcd",
+          "parentPath": "wnd[0]/tbar[0]",
+          "transactionCode": "SESSION_MANAGER",
+          "systemName": "PRD",
+          "connectionName": "ECC Production"
         }
       },
       "recommendedAction": "Type Into",
-      "valueVariable": "in_RequestUrlInput",
-      "confidence": "medium",
+      "valueVariable": "in_CommandField",
+      "confidence": "high",
       "warnings": [
-        "Desktop match does not have a stable AutomationId; fallback selectors are more important.",
-        "Matched through OCR fallback; validate with UiPath Computer Vision or Native Text targeting."
+        "SAP native selector emitted"
       ]
     },
     {
-      "label": "Send button",
+      "label": "Enter button",
       "intent": "confirm",
       "controlType": "button",
       "sourceAttributes": {
-        "processName": "Postman",
+        "processName": "saplogon",
         "automationId": null,
-        "name": "Send",
-        "className": "OCRWord",
-        "controlType": "generic",
-        "helpText": null,
-        "frameworkId": "OCR",
-        "captureKind": "ocr_word",
+        "name": "Enter",
+        "text": "Enter",
+        "className": "SAP_FRONTEND_SESSION",
+        "controlType": "button",
+        "helpText": "Enter",
+        "frameworkId": "SAP",
+        "captureKind": "sap",
         "boundingRect": {
-          "left": 1576,
-          "top": 207,
-          "width": 42,
-          "height": 15
+          "left": 58,
+          "top": 79,
+          "width": 24,
+          "height": 22
         },
         "parent": null,
         "window": {
-          "title": "https://newsapi.org/v2/everything - Faris Hassan's Workspace",
-          "className": "Chrome_WidgetWin_1",
-          "processId": 632,
-          "processName": "Postman"
-        }
+          "title": "SAP Easy Access",
+          "className": "SAP_FRONTEND_SESSION",
+          "processId": 7420,
+          "processName": "saplogon",
+          "sapWindowTitle": "SAP Easy Access",
+          "sapWindowId": "wnd[0]"
+        },
+        "sessionId": "/app/con[0]/ses[0]",
+        "windowId": "wnd[0]",
+        "systemName": "PRD",
+        "connectionName": "ECC Production",
+        "transactionCode": "SESSION_MANAGER",
+        "componentId": "btn[0]",
+        "componentPath": "wnd[0]/tbar[0]/btn[0]",
+        "componentType": "GuiButton",
+        "technicalName": "btn[0]",
+        "tooltip": "Enter",
+        "parentPath": "wnd[0]/tbar[0]"
       },
       "selectors": {
-        "uipath_strict": "<wnd app='Postman.exe' cls='Chrome_WidgetWin_1' />",
-        "uipath_fallback": "<wnd app='Postman.exe' />",
-        "anchorStrategy": "Attach to the selected application, then use Computer Vision or Native Text anchored on visible text \"Send\". Bounds x=1576, y=207, width=42, height=15.",
-        "nativeText": "Send",
-        "screenRegion": {
-          "left": 1576,
-          "top": 207,
-          "width": 42,
-          "height": 15
+        "uipath_strict": "<wnd app='saplogon.exe' cls='SAP_FRONTEND_SESSION' title='SAP Easy Access' />",
+        "uipath_fallback": null,
+        "anchorStrategy": null,
+        "nativeText": null,
+        "screenRegion": null,
+        "sap": {
+          "source": "sap_scripting",
+          "sessionId": "/app/con[0]/ses[0]",
+          "windowId": "wnd[0]",
+          "componentId": "btn[0]",
+          "path": "wnd[0]/tbar[0]/btn[0]",
+          "componentType": "GuiButton",
+          "technicalName": "btn[0]",
+          "parentPath": "wnd[0]/tbar[0]",
+          "transactionCode": "SESSION_MANAGER",
+          "systemName": "PRD",
+          "connectionName": "ECC Production"
         }
       },
       "recommendedAction": "Click",
       "valueVariable": null,
       "confidence": "high",
       "warnings": [
-        "Desktop match does not have a stable AutomationId; fallback selectors are more important.",
-        "Matched through OCR fallback; validate with UiPath Computer Vision or Native Text targeting."
+        "SAP native selector emitted"
       ]
     }
   ],
   "unmatched": [],
-  "warnings": [
-    "Desktop capture found the window but no visible actionable controls with stable metadata.",
-    "OCR fallback candidates were added for desktop text anchoring."
-  ]
+  "warnings": []
 }

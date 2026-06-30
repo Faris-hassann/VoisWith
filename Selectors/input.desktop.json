@@ -1,29 +1,34 @@
 {
   "mode": "desktop",
   "target": {
-    "processName": "Postman"
+    "processName": "saplogon",
+    "windowTitle": "SAP Easy Access",
+    "sap": {
+      "systemName": "PRD",
+      "connectionName": "ECC Production",
+      "sessionIndex": 0,
+      "windowTitle": "SAP Easy Access"
+    }
   },
   "elements": [
     {
-      "label": "Request URL input",
+      "label": "Command field",
       "type": "input",
-      "description": "The main URL field where the API endpoint is entered.",
+      "description": "The SAP OK code / command field.",
       "possibleNames": [
-        "Enter URL or paste text",
-        "Request URL",
-        "URL",
-        "https",
-        "http"
+        "Command field",
+        "ok code",
+        "command"
       ],
       "recommendedAction": "Type Into"
     },
     {
-      "label": "Send button",
+      "label": "Enter button",
       "type": "button",
-      "description": "The button used to send the current request.",
+      "description": "The toolbar button that executes the current command.",
       "possibleNames": [
-        "Send",
-        "Send request"
+        "Enter",
+        "Execute"
       ],
       "recommendedAction": "Click"
     }
