@@ -3,8 +3,8 @@ const path = require("path");
 const { execFileSync } = require("child_process");
 const { chromium } = require("playwright");
 
-const DEFAULT_INPUT_PATH = path.join(__dirname, "input.json");
-const DEFAULT_OUTPUT_PATH = path.join(__dirname, "output.json");
+const DEFAULT_INPUT_PATH = path.join(__dirname, "input.desktop.json");
+const DEFAULT_OUTPUT_PATH = path.join(__dirname, "output.desktop.json");
 const DESKTOP_CAPTURE_SCRIPT = path.join(__dirname, "capture-desktop.ps1");
 const BROWSER_CLOSE_DELAY_MS = 5000;
 
@@ -136,25 +136,38 @@ function hasStableId(value) {
   return /^[a-z][a-z0-9_-]*$/i.test(trimmed) && !/\d{4,}/.test(trimmed);
 }
 
-function isLikelyStableValue(value) {
+function isLikelyStableDesktopAutomationId(value) {
   if (!value) {
     return false;
   }
 
-  const trimmed = normalizeWhitespace(value);
-  if (trimmed.length < 2 || trimmed.length > 80) {
+  const trimmed = String(value).trim();
+
+  if (!trimmed) {
     return false;
   }
 
-  if (/\b[a-f0-9]{8,}\b/i.test(trimmed)) {
+  // SAP Logon Win32 controls often expose numeric AutomationIds like 1091 and 1068.
+  if (/^\d{1,6}$/.test(trimmed)) {
+    return true;
+  }
+
+  return isLikelyStableValue(trimmed);
+}
+
+function isLikelyStableDesktopCtrlId(value) {
+  if (!value) {
     return false;
   }
 
-  if (/[_-]?\d{4,}/.test(trimmed)) {
+  const trimmed = String(value).trim();
+
+  if (!trimmed) {
     return false;
   }
 
-  return true;
+  // UiPath ctrlid for Win32 controls is usually numeric.
+  return /^\d{1,6}$/.test(trimmed);
 }
 
 function buildFlexibleRegex(value) {
@@ -217,9 +230,9 @@ function normalizeElementQuery(element) {
     description: typeof element.description === "string" ? element.description.trim() : null,
     possibleNames: Array.isArray(element.possibleNames)
       ? element.possibleNames
-          .filter((item) => typeof item === "string")
-          .map((item) => item.trim())
-          .filter(Boolean)
+        .filter((item) => typeof item === "string")
+        .map((item) => item.trim())
+        .filter(Boolean)
       : [],
     recommendedAction:
       typeof element.recommendedAction === "string" ? element.recommendedAction.trim() : null,
@@ -488,6 +501,7 @@ function detectWebControlType(candidate) {
 
 function detectDesktopControlType(candidate) {
   const sapType = normalizeSearchText(candidate.componentType);
+
   if (sapType) {
     if (/(ctxt|txt|pwd|okcode|shell|field|editor|textarea|textedit)/.test(sapType)) {
       return "input";
@@ -507,12 +521,20 @@ function detectDesktopControlType(candidate) {
   }
 
   const controlType = normalizeSearchText(candidate.controlType);
+  const className = normalizeSearchText(candidate.className);
 
-  if (controlType.includes("edit") || controlType.includes("document")) {
+  if (
+    controlType.includes("edit") ||
+    controlType.includes("document") ||
+    className === "edit"
+  ) {
     return "input";
   }
 
-  if (controlType.includes("button")) {
+  if (
+    controlType.includes("button") ||
+    className === "button"
+  ) {
     return "button";
   }
 
@@ -520,7 +542,10 @@ function detectDesktopControlType(candidate) {
     return "link";
   }
 
-  if (controlType.includes("combobox")) {
+  if (
+    controlType.includes("combobox") ||
+    className === "combobox"
+  ) {
     return "select";
   }
 
@@ -662,8 +687,18 @@ function buildDesktopUiPathSelectors(candidate) {
     wndFallbackAttributes.app = `${candidate.window.processName}.exe`;
   }
 
-  if (isLikelyStableValue(candidate.window?.className)) {
-    wndAttributes.cls = candidate.window.className;
+  if (isLikelyStableDesktopAutomationId(candidate.automationId)) {
+    ctrlStrict.automationid = candidate.automationId;
+  }
+
+  if (isLikelyStableDesktopCtrlId(candidate.ctrlId || candidate.automationId)) {
+    ctrlStrict.ctrlid = candidate.ctrlId || candidate.automationId;
+    ctrlFallback.ctrlid = candidate.ctrlId || candidate.automationId;
+  }
+
+  if (candidate.idx !== undefined && candidate.idx !== null) {
+    ctrlStrict.idx = candidate.idx;
+    ctrlFallback.idx = candidate.idx;
   }
 
   // Window titles in Electron apps commonly include the active document or request URL.
@@ -676,8 +711,13 @@ function buildDesktopUiPathSelectors(candidate) {
     wndAttributes.title = candidate.window.title;
   }
 
-  if (isLikelyStableValue(candidate.automationId)) {
+  if (isLikelyStableDesktopAutomationId(candidate.automationId)) {
     ctrlStrict.automationid = candidate.automationId;
+  }
+
+  if (candidate.idx !== undefined && candidate.idx !== null) {
+    ctrlStrict.idx = candidate.idx;
+    ctrlFallback.idx = candidate.idx;
   }
 
   if (candidate.controlType) {
@@ -895,29 +935,29 @@ async function captureWebCandidates(page, pagination = null) {
           dataTestId: element.getAttribute("data-testid"),
           tableContext: table
             ? {
-                id: table.getAttribute("id"),
-                name: table.getAttribute("name"),
-                ariaLabel: table.getAttribute("aria-label"),
-                role: table.getAttribute("role"),
-                className: table.getAttribute("class"),
-                columnIndex: tableColumnIndex > 0 ? tableColumnIndex : null,
-                hasPagination: Boolean(paginationState?.hasPagination),
-                pagination: paginationState?.hasPagination
-                  ? {
-                      page: paginationState.page,
-                      pagesScanned: paginationState.pagesScanned,
-                    }
-                  : null,
-              }
+              id: table.getAttribute("id"),
+              name: table.getAttribute("name"),
+              ariaLabel: table.getAttribute("aria-label"),
+              role: table.getAttribute("role"),
+              className: table.getAttribute("class"),
+              columnIndex: tableColumnIndex > 0 ? tableColumnIndex : null,
+              hasPagination: Boolean(paginationState?.hasPagination),
+              pagination: paginationState?.hasPagination
+                ? {
+                  page: paginationState.page,
+                  pagesScanned: paginationState.pagesScanned,
+                }
+                : null,
+            }
             : null,
           parentHints: parent
             ? {
-                tag: parent.tagName || null,
-                id: parent.getAttribute("id"),
-                name: parent.getAttribute("name"),
-                ariaLabel: parent.getAttribute("aria-label"),
-                role: parent.getAttribute("role"),
-              }
+              tag: parent.tagName || null,
+              id: parent.getAttribute("id"),
+              name: parent.getAttribute("name"),
+              ariaLabel: parent.getAttribute("aria-label"),
+              role: parent.getAttribute("role"),
+            }
             : null,
         };
       });
@@ -1061,11 +1101,36 @@ function normalizeDesktopCandidate(candidate) {
     controlType,
     matchDescriptors: [
       { value: candidate.name, bonus: 30 },
-      { value: candidate.automationId, bonus: isLikelyStableValue(candidate.automationId) ? 35 : 0 },
-      { value: candidate.helpText, bonus: 20 },
-      { value: candidate.className, bonus: isLikelyStableValue(candidate.className) ? 10 : 0 },
-      { value: candidate.parent?.name, bonus: 10 },
-      { value: candidate.window?.title, bonus: 5 },
+
+      {
+        value: candidate.automationId,
+        bonus: isLikelyStableDesktopAutomationId(candidate.automationId) ? 35 : 0,
+      },
+
+      {
+        value: candidate.ctrlId,
+        bonus: isLikelyStableDesktopCtrlId(candidate.ctrlId) ? 35 : 0,
+      },
+
+      {
+        value: candidate.helpText,
+        bonus: 20,
+      },
+
+      {
+        value: candidate.className,
+        bonus: isLikelyStableValue(candidate.className) ? 10 : 0,
+      },
+
+      {
+        value: candidate.parent?.name,
+        bonus: 10,
+      },
+
+      {
+        value: candidate.window?.title,
+        bonus: 5,
+      },
     ],
   };
 }
@@ -1102,7 +1167,13 @@ function rankCandidate(query, candidate) {
     score += 25;
   }
 
-  if (candidate.source === "desktop" && isLikelyStableValue(candidate.automationId)) {
+  if (
+    candidate.source === "desktop" &&
+    (
+      isLikelyStableDesktopAutomationId(candidate.automationId) ||
+      isLikelyStableDesktopCtrlId(candidate.ctrlId)
+    )
+  ) {
     score += 15;
   }
 
@@ -1132,9 +1203,9 @@ function rankCandidate(query, candidate) {
 function buildElementOutput(query, candidate, score, warnings) {
   const effectiveControlType =
     query.type &&
-    (candidate.captureKind && String(candidate.captureKind).startsWith("ocr")
-      ? true
-      : isQueryTypeCompatible(query.type, candidate.controlType))
+      (candidate.captureKind && String(candidate.captureKind).startsWith("ocr")
+        ? true
+        : isQueryTypeCompatible(query.type, candidate.controlType))
       ? query.type
       : candidate.controlType;
   const emittedSelectors =
@@ -1142,18 +1213,18 @@ function buildElementOutput(query, candidate, score, warnings) {
   const selectors =
     candidate.source === "web"
       ? {
-          css: candidate.cssSelector,
-          uipath_strict: emittedSelectors.strict,
-          uipath_fallback: emittedSelectors.fallback,
-        }
+        css: candidate.cssSelector,
+        uipath_strict: emittedSelectors.strict,
+        uipath_fallback: emittedSelectors.fallback,
+      }
       : {
-          uipath_strict: emittedSelectors.strict,
-          uipath_fallback: emittedSelectors.fallback,
-          anchorStrategy: emittedSelectors.anchorStrategy || null,
-          nativeText: emittedSelectors.nativeText || null,
-          screenRegion: emittedSelectors.screenRegion || null,
-          sap: emittedSelectors.sap || null,
-        };
+        uipath_strict: emittedSelectors.strict,
+        uipath_fallback: emittedSelectors.fallback,
+        anchorStrategy: emittedSelectors.anchorStrategy || null,
+        nativeText: emittedSelectors.nativeText || null,
+        screenRegion: emittedSelectors.screenRegion || null,
+        sap: emittedSelectors.sap || null,
+      };
 
   return {
     label: query.label,
@@ -1162,52 +1233,77 @@ function buildElementOutput(query, candidate, score, warnings) {
     sourceAttributes:
       candidate.source === "web"
         ? {
-            tag: candidate.tag,
-            type: candidate.type,
-            name: candidate.name,
-            id: candidate.id,
-            placeholder: candidate.placeholder,
-            ariaLabel: candidate.ariaLabel,
-            text: candidate.text,
-            visibleInnerText: candidate.visibleInnerText || null,
-            hasIcon: Boolean(candidate.hasIcon),
-            role: candidate.role,
-            href: candidate.href,
-            title: candidate.title,
-            tableContext: candidate.tableContext || null,
-            parentHints: candidate.parentHints,
-          }
+          tag: candidate.tag,
+          type: candidate.type,
+          name: candidate.name,
+          ctrlId: candidate.ctrlId || null,
+          id: candidate.id,
+          placeholder: candidate.placeholder,
+          ariaLabel: candidate.ariaLabel,
+          text: candidate.text,
+          visibleInnerText: candidate.visibleInnerText || null,
+          hasIcon: Boolean(candidate.hasIcon),
+          role: candidate.role,
+          href: candidate.href,
+          title: candidate.title,
+          tableContext: candidate.tableContext || null,
+          parentHints: candidate.parentHints,
+        }
         : {
-            processName: candidate.processName,
-            automationId: candidate.automationId,
-            name: candidate.name,
-            text: candidate.text || null,
-            className: candidate.className,
-            controlType: candidate.controlType,
-            helpText: candidate.helpText,
-            frameworkId: candidate.frameworkId,
-            captureKind: candidate.captureKind || null,
-            boundingRect: candidate.boundingRect || null,
-            parent: candidate.parent,
-            window: candidate.window,
-            sessionId: candidate.sessionId || null,
-            windowId: candidate.windowId || null,
-            systemName: candidate.systemName || null,
-            connectionName: candidate.connectionName || null,
-            transactionCode: candidate.transactionCode || null,
-            componentId: candidate.componentId || null,
-            componentPath: candidate.componentPath || null,
-            componentType: candidate.componentType || null,
-            technicalName: candidate.technicalName || null,
-            tooltip: candidate.tooltip || null,
-            parentPath: candidate.parentPath || null,
-          },
+          processName: candidate.processName,
+          automationId: candidate.automationId,
+          name: candidate.name,
+          ctrlId: candidate.ctrlId || null,
+          text: candidate.text || null,
+          className: candidate.className,
+          controlType: candidate.controlType,
+          idx: candidate.idx || null,
+          helpText: candidate.helpText,
+          frameworkId: candidate.frameworkId,
+          captureKind: candidate.captureKind || null,
+          boundingRect: candidate.boundingRect || null,
+          parent: candidate.parent,
+          window: candidate.window,
+          sessionId: candidate.sessionId || null,
+          windowId: candidate.windowId || null,
+          systemName: candidate.systemName || null,
+          connectionName: candidate.connectionName || null,
+          transactionCode: candidate.transactionCode || null,
+          componentId: candidate.componentId || null,
+          componentPath: candidate.componentPath || null,
+          componentType: candidate.componentType || null,
+          technicalName: candidate.technicalName || null,
+          tooltip: candidate.tooltip || null,
+          parentPath: candidate.parentPath || null,
+        },
     selectors,
     recommendedAction: query.recommendedAction || getRecommendedAction(effectiveControlType),
     valueVariable: buildValueVariable(query.label, effectiveControlType),
     confidence: buildConfidence(score),
     warnings,
   };
+}
+
+function isLikelyStableValue(value) {
+  if (!value) {
+    return false;
+  }
+
+  const trimmed = normalizeWhitespace(value);
+
+  if (trimmed.length < 2 || trimmed.length > 80) {
+    return false;
+  }
+
+  if (/\b[a-f0-9]{8,}\b/i.test(trimmed)) {
+    return false;
+  }
+
+  if (/[_-]?\d{4,}/.test(trimmed)) {
+    return false;
+  }
+
+  return true;
 }
 
 function locateBestMatch(query, candidates) {
@@ -1249,7 +1345,10 @@ function locateBestMatch(query, candidates) {
     warnings.push("No stable CSS debug selector was found; rely on UiPath selectors.");
   }
 
-  if (bestCandidate.source === "desktop" && !isLikelyStableValue(bestCandidate.automationId)) {
+  if (
+    bestCandidate.source === "desktop" &&
+    !isLikelyStableDesktopAutomationId(bestCandidate.automationId)
+  ) {
     warnings.push("Desktop match does not have a stable AutomationId; fallback selectors are more important.");
   }
 
@@ -1285,7 +1384,7 @@ async function runDesktopCapture(inputPath) {
     {
       cwd: __dirname,
       encoding: "utf8",
-      maxBuffer: 10 * 1024 * 1024,
+      maxBuffer: 50 * 1024 * 1024,
     }
   );
 

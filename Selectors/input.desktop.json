@@ -2,33 +2,55 @@
   "mode": "desktop",
   "target": {
     "processName": "saplogon",
-    "windowTitle": "SAP Easy Access",
-    "sap": {
-      "systemName": "PRD",
-      "connectionName": "ECC Production",
-      "sessionIndex": 0,
-      "windowTitle": "SAP Easy Access"
-    }
+    "windowTitle": "SAP Logon"
   },
   "elements": [
     {
-      "label": "Command field",
+      "label": "Filter input",
       "type": "input",
-      "description": "The SAP OK code / command field.",
+      "description": "The Filter Items text box in SAP Logon.",
       "possibleNames": [
-        "Command field",
-        "ok code",
-        "command"
+        "Filter Items",
+        "Filter",
+        "Search",
+        "filter items"
       ],
       "recommendedAction": "Type Into"
     },
     {
-      "label": "Enter button",
-      "type": "button",
-      "description": "The toolbar button that executes the current command.",
+      "label": "AB1@GCP PUBLIC table row",
+      "type": "generic",
+      "description": "The AB1@GCP [PUBLIC] system row inside the SAP Logon systems table.",
       "possibleNames": [
-        "Enter",
-        "Execute"
+        "AB1@GCP",
+        "AB1",
+        "PUBLIC",
+        "AB1@GCP [PUBLIC]",
+        "AB1@GCP PUBLIC"
+      ],
+      "recommendedAction": "Click"
+    },
+    {
+      "label": "New Item button",
+      "type": "button",
+      "description": "The New Item button in the SAP Logon toolbar.",
+      "possibleNames": [
+        "New Item",
+        "New",
+        "Create",
+        "Add Item"
+      ],
+      "recommendedAction": "Click"
+    },
+    {
+      "label": "Log On button",
+      "type": "button",
+      "description": "The Log On button at the bottom-right of SAP Logon.",
+      "possibleNames": [
+        "Log On",
+        "Logon",
+        "Log on",
+        "Login"
       ],
       "recommendedAction": "Click"
     }

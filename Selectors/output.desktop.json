@@ -1,150 +1,195 @@
 {
   "mode": "uipath_desktop",
   "target": {
-    "title": "SAP Easy Access",
-    "className": "SAP_FRONTEND_SESSION",
-    "processId": 7420,
+    "title": "SAP Logon 770",
+    "className": "#32770",
+    "processId": 7112,
     "processName": "saplogon",
-    "kind": "desktop_sap"
+    "kind": "desktop_generic"
   },
   "elements": [
     {
-      "label": "Command field",
+      "label": "Filter input",
       "intent": "generic",
       "controlType": "input",
       "sourceAttributes": {
         "processName": "saplogon",
-        "automationId": null,
-        "name": "Command field",
-        "text": "/n",
-        "className": "SAP_FRONTEND_SESSION",
+        "automationId": "1091",
+        "name": "Filter Items",
+        "ctrlId": "1091",
+        "text": null,
+        "className": "Edit",
         "controlType": "input",
-        "helpText": "Command field",
-        "frameworkId": "SAP",
-        "captureKind": "sap",
+        "idx": 2,
+        "helpText": null,
+        "frameworkId": "Win32",
+        "captureKind": "uia",
         "boundingRect": {
-          "left": 145,
-          "top": 79,
-          "width": 180,
-          "height": 22
+          "left": 986,
+          "top": 309,
+          "width": 185,
+          "height": 26
         },
-        "parent": null,
+        "parent": {
+          "name": "SAP Logon 770",
+          "automationId": null,
+          "className": "#32770",
+          "controlType": "Window"
+        },
         "window": {
-          "title": "SAP Easy Access",
-          "className": "SAP_FRONTEND_SESSION",
-          "processId": 7420,
-          "processName": "saplogon",
-          "sapWindowTitle": "SAP Easy Access",
-          "sapWindowId": "wnd[0]"
+          "title": "SAP Logon 770",
+          "className": "#32770",
+          "processId": 7112,
+          "processName": "saplogon"
         },
-        "sessionId": "/app/con[0]/ses[0]",
-        "windowId": "wnd[0]",
-        "systemName": "PRD",
-        "connectionName": "ECC Production",
-        "transactionCode": "SESSION_MANAGER",
-        "componentId": "ctxtRSYST-BCODE",
-        "componentPath": "wnd[0]/tbar[0]/okcd",
-        "componentType": "GuiOkCodeField",
-        "technicalName": "okcd",
-        "tooltip": "Command field",
-        "parentPath": "wnd[0]/tbar[0]"
+        "sessionId": null,
+        "windowId": null,
+        "systemName": null,
+        "connectionName": null,
+        "transactionCode": null,
+        "componentId": null,
+        "componentPath": null,
+        "componentType": null,
+        "technicalName": null,
+        "tooltip": null,
+        "parentPath": null
       },
       "selectors": {
-        "uipath_strict": "<wnd app='saplogon.exe' cls='SAP_FRONTEND_SESSION' title='SAP Easy Access' />",
-        "uipath_fallback": null,
-        "anchorStrategy": null,
+        "uipath_strict": "<wnd app='saplogon.exe' title='SAP Logon 770' /><ctrl automationid='1091' ctrlid='1091' idx='2' role='input' />",
+        "uipath_fallback": "<wnd app='saplogon.exe' title='SAP Logon 770' /><ctrl ctrlid='1091' idx='2' role='input' name='Filter Items' />",
+        "anchorStrategy": "Use window \"SAP Logon 770\" and parent \"SAP Logon 770\" as anchors.",
         "nativeText": null,
         "screenRegion": null,
-        "sap": {
-          "source": "sap_scripting",
-          "sessionId": "/app/con[0]/ses[0]",
-          "windowId": "wnd[0]",
-          "componentId": "ctxtRSYST-BCODE",
-          "path": "wnd[0]/tbar[0]/okcd",
-          "componentType": "GuiOkCodeField",
-          "technicalName": "okcd",
-          "parentPath": "wnd[0]/tbar[0]",
-          "transactionCode": "SESSION_MANAGER",
-          "systemName": "PRD",
-          "connectionName": "ECC Production"
-        }
+        "sap": null
       },
       "recommendedAction": "Type Into",
-      "valueVariable": "in_CommandField",
+      "valueVariable": "in_FilterInput",
       "confidence": "high",
-      "warnings": [
-        "SAP native selector emitted"
-      ]
+      "warnings": []
     },
     {
-      "label": "Enter button",
-      "intent": "confirm",
+      "label": "New Item button",
+      "intent": "generic",
       "controlType": "button",
       "sourceAttributes": {
         "processName": "saplogon",
-        "automationId": null,
-        "name": "Enter",
-        "text": "Enter",
-        "className": "SAP_FRONTEND_SESSION",
+        "automationId": "1070",
+        "name": "New Item",
+        "ctrlId": "1070",
+        "text": null,
+        "className": "Button",
         "controlType": "button",
-        "helpText": "Enter",
-        "frameworkId": "SAP",
-        "captureKind": "sap",
+        "idx": 3,
+        "helpText": null,
+        "frameworkId": "Win32",
+        "captureKind": "uia",
         "boundingRect": {
-          "left": 58,
-          "top": 79,
-          "width": 24,
-          "height": 22
+          "left": 725,
+          "top": 309,
+          "width": 69,
+          "height": 26
         },
-        "parent": null,
+        "parent": {
+          "name": "SAP Logon 770",
+          "automationId": null,
+          "className": "#32770",
+          "controlType": "Window"
+        },
         "window": {
-          "title": "SAP Easy Access",
-          "className": "SAP_FRONTEND_SESSION",
-          "processId": 7420,
-          "processName": "saplogon",
-          "sapWindowTitle": "SAP Easy Access",
-          "sapWindowId": "wnd[0]"
+          "title": "SAP Logon 770",
+          "className": "#32770",
+          "processId": 7112,
+          "processName": "saplogon"
         },
-        "sessionId": "/app/con[0]/ses[0]",
-        "windowId": "wnd[0]",
-        "systemName": "PRD",
-        "connectionName": "ECC Production",
-        "transactionCode": "SESSION_MANAGER",
-        "componentId": "btn[0]",
-        "componentPath": "wnd[0]/tbar[0]/btn[0]",
-        "componentType": "GuiButton",
-        "technicalName": "btn[0]",
-        "tooltip": "Enter",
-        "parentPath": "wnd[0]/tbar[0]"
+        "sessionId": null,
+        "windowId": null,
+        "systemName": null,
+        "connectionName": null,
+        "transactionCode": null,
+        "componentId": null,
+        "componentPath": null,
+        "componentType": null,
+        "technicalName": null,
+        "tooltip": null,
+        "parentPath": null
       },
       "selectors": {
-        "uipath_strict": "<wnd app='saplogon.exe' cls='SAP_FRONTEND_SESSION' title='SAP Easy Access' />",
-        "uipath_fallback": null,
-        "anchorStrategy": null,
+        "uipath_strict": "<wnd app='saplogon.exe' title='SAP Logon 770' /><ctrl automationid='1070' ctrlid='1070' idx='3' role='button' />",
+        "uipath_fallback": "<wnd app='saplogon.exe' title='SAP Logon 770' /><ctrl ctrlid='1070' idx='3' role='button' name='New Item' />",
+        "anchorStrategy": "Use window \"SAP Logon 770\" and parent \"SAP Logon 770\" as anchors.",
         "nativeText": null,
         "screenRegion": null,
-        "sap": {
-          "source": "sap_scripting",
-          "sessionId": "/app/con[0]/ses[0]",
-          "windowId": "wnd[0]",
-          "componentId": "btn[0]",
-          "path": "wnd[0]/tbar[0]/btn[0]",
-          "componentType": "GuiButton",
-          "technicalName": "btn[0]",
-          "parentPath": "wnd[0]/tbar[0]",
-          "transactionCode": "SESSION_MANAGER",
-          "systemName": "PRD",
-          "connectionName": "ECC Production"
-        }
+        "sap": null
       },
       "recommendedAction": "Click",
       "valueVariable": null,
       "confidence": "high",
-      "warnings": [
-        "SAP native selector emitted"
-      ]
+      "warnings": []
+    },
+    {
+      "label": "Log On button",
+      "intent": "generic",
+      "controlType": "button",
+      "sourceAttributes": {
+        "processName": "saplogon",
+        "automationId": "1068",
+        "name": "Log On",
+        "ctrlId": "1068",
+        "text": null,
+        "className": "Button",
+        "controlType": "button",
+        "idx": 1,
+        "helpText": null,
+        "frameworkId": "Win32",
+        "captureKind": "uia",
+        "boundingRect": {
+          "left": 1121,
+          "top": 815,
+          "width": 58,
+          "height": 26
+        },
+        "parent": {
+          "name": "SAP Logon 770",
+          "automationId": null,
+          "className": "#32770",
+          "controlType": "Window"
+        },
+        "window": {
+          "title": "SAP Logon 770",
+          "className": "#32770",
+          "processId": 7112,
+          "processName": "saplogon"
+        },
+        "sessionId": null,
+        "windowId": null,
+        "systemName": null,
+        "connectionName": null,
+        "transactionCode": null,
+        "componentId": null,
+        "componentPath": null,
+        "componentType": null,
+        "technicalName": null,
+        "tooltip": null,
+        "parentPath": null
+      },
+      "selectors": {
+        "uipath_strict": "<wnd app='saplogon.exe' title='SAP Logon 770' /><ctrl automationid='1068' ctrlid='1068' idx='1' role='button' />",
+        "uipath_fallback": "<wnd app='saplogon.exe' title='SAP Logon 770' /><ctrl ctrlid='1068' idx='1' role='button' name='Log On' />",
+        "anchorStrategy": "Use window \"SAP Logon 770\" and parent \"SAP Logon 770\" as anchors.",
+        "nativeText": null,
+        "screenRegion": null,
+        "sap": null
+      },
+      "recommendedAction": "Click",
+      "valueVariable": null,
+      "confidence": "high",
+      "warnings": []
     }
   ],
-  "unmatched": [],
-  "warnings": []
+  "unmatched": [
+    "AB1@GCP PUBLIC table row"
+  ],
+  "warnings": [
+    "Some requested desktop elements could not be matched with enough confidence."
+  ]
 }
