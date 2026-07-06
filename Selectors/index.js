@@ -594,6 +594,7 @@ function getUiPathInnerText(candidate) {
 }
 
 function buildWebUiPathSelectors(candidate) {
+  const htmlFragment = buildXmlFragment("html", {});
   const tag = String(candidate.tag || "").toUpperCase();
   const strictAttributes = { tag };
   const fallbackAttributes = { tag };
@@ -618,7 +619,7 @@ function buildWebUiPathSelectors(candidate) {
 
   if (Object.keys(strictAttributes).length === 1) {
     return {
-      strict: buildXmlFragment("webctrl", strictAttributes),
+      strict: `${htmlFragment}${buildXmlFragment("webctrl", strictAttributes)}`,
       fallback: null,
     };
   }
@@ -632,8 +633,8 @@ function buildWebUiPathSelectors(candidate) {
   ) {
     const cellFragment = buildXmlFragment("webctrl", strictAttributes);
     return {
-      strict: `${buildXmlFragment("webctrl", { tag: "TABLE", id: candidate.tableContext.id })}${cellFragment}`,
-      fallback: cellFragment,
+      strict: `${htmlFragment}${buildXmlFragment("webctrl", { tag: "TABLE", id: candidate.tableContext.id })}${cellFragment}`,
+      fallback: `${htmlFragment}${cellFragment}`,
     };
   }
 
@@ -673,7 +674,7 @@ function buildWebUiPathSelectors(candidate) {
   const fallback =
     Object.keys(fallbackAttributes).length > 1 ? buildXmlFragment("webctrl", fallbackAttributes) : null;
 
-  return { strict, fallback };
+  return { strict: `${htmlFragment}${strict}`, fallback: fallback ? `${htmlFragment}${fallback}` : null };
 }
 
 function buildDesktopUiPathSelectors(candidate) {
