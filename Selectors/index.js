@@ -3,8 +3,8 @@ const path = require("path");
 const { execFileSync } = require("child_process");
 const { chromium } = require("playwright");
 
-const DEFAULT_INPUT_PATH = path.join(__dirname, "input.desktop.json");
-const DEFAULT_OUTPUT_PATH = path.join(__dirname, "output.desktop.json");
+const DEFAULT_INPUT_PATH = path.join(__dirname, "input.json");
+const DEFAULT_OUTPUT_PATH = path.join(__dirname, "output.json");
 const DESKTOP_CAPTURE_SCRIPT = path.join(__dirname, "capture-desktop.ps1");
 const BROWSER_CLOSE_DELAY_MS = 5000;
 

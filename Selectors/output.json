@@ -3,18 +3,19 @@
   "target": "https://datatables.net/",
   "elements": [
     {
-      "label": "Thor Walton",
+      "label": "Airi Satou",
       "intent": "generic",
       "controlType": "table_cell",
       "sourceAttributes": {
         "tag": "TD",
         "type": null,
         "name": null,
+        "ctrlId": null,
         "id": null,
         "placeholder": null,
         "ariaLabel": null,
-        "text": "Thor Walton",
-        "visibleInnerText": "Thor Walton",
+        "text": "Airi Satou",
+        "visibleInnerText": "Airi Satou",
         "hasIcon": false,
         "role": null,
         "href": null,
@@ -28,7 +29,7 @@
           "columnIndex": 1,
           "hasPagination": true,
           "pagination": {
-            "page": 5,
+            "page": 1,
             "pagesScanned": 6
           }
         },
@@ -41,9 +42,9 @@
         }
       },
       "selectors": {
-        "css": "#example tbody > tr:nth-child(10) > td:nth-child(1)",
-        "uipath_strict": "<webctrl tag='TABLE' id='example' /><webctrl tag='TD' innertext='Thor Walton' />",
-        "uipath_fallback": "<webctrl tag='TD' innertext='Thor Walton' />"
+        "css": "#example tbody > tr:nth-child(1) > td:nth-child(1)",
+        "uipath_strict": "<webctrl tag='TABLE' id='example' /><webctrl tag='TD' innertext='Airi Satou' />",
+        "uipath_fallback": "<webctrl tag='TD' innertext='Airi Satou' />"
       },
       "recommendedAction": "Read Table Cell",
       "valueVariable": null,
