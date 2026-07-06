@@ -594,16 +594,20 @@ function getUiPathInnerText(candidate) {
 }
 
 function buildWebUiPathSelectors(candidate) {
-  const htmlFragment = buildXmlFragment("html", {});
   const tag = String(candidate.tag || "").toUpperCase();
+
   const htmlAttributes = {
     app: candidate.browserApp || "msedge.exe",
     title: candidate.documentTitle || "Citrix Gateway",
   };
+
   const strictAttributes = {};
   const fallbackAttributes = {};
   const normalizedRole = normalizeSearchText(candidate.role);
 
+  // For INPUT fields, prefer ID first.
+  // Output becomes:
+  // <webctrl id='login' tag='INPUT' />
   if (tag === "INPUT" && hasStableId(candidate.id)) {
     strictAttributes.id = candidate.id;
   } else if (isLikelyStableValue(candidate.name)) {
@@ -619,35 +623,9 @@ function buildWebUiPathSelectors(candidate) {
   }
 
   strictAttributes.tag = tag;
-  fallbackAttributes.tag = tag;
 
-  if (normalizedRole && !strictAttributes.role) {
+  if (normalizedRole) {
     strictAttributes.role = normalizedRole;
-    fallbackAttributes.role = normalizedRole;
-  }
-
-  const htmlFragment = buildXmlFragment("html", htmlAttributes);
-
-  if (Object.keys(strictAttributes).length === 1) {
-    return {
-      strict: `${htmlFragment}${buildXmlFragment("webctrl", strictAttributes)}`,
-      fallback: null,
-    };
-  }
-
-  // Table cells are often repeated across a page. A stable table id makes the
-  // UiPath selector specific without relying on generated row or class values.
-  if (
-    ["TH", "TD"].includes(tag) &&
-    hasStableId(candidate.tableContext?.id) &&
-    isLikelyStableValue(candidate.visibleInnerText || candidate.text)
-  ) {
-    const tableFragment = buildXmlFragment("webctrl", { tag: "TABLE", id: candidate.tableContext.id });
-    const cellFragment = buildXmlFragment("webctrl", strictAttributes);
-    return {
-      strict: `${htmlFragment}${tableFragment}${cellFragment}`,
-      fallback: `${htmlFragment}${cellFragment}`,
-    };
   }
 
   if (strictAttributes.id) {
@@ -682,9 +660,15 @@ function buildWebUiPathSelectors(candidate) {
     fallbackAttributes.name = candidate.name;
   }
 
+  fallbackAttributes.tag = tag;
+
+  const htmlFragment = buildXmlFragment("html", htmlAttributes);
   const strictWebCtrl = buildXmlFragment("webctrl", strictAttributes);
+
   const fallbackWebCtrl =
-    Object.keys(fallbackAttributes).length > 1 ? buildXmlFragment("webctrl", fallbackAttributes) : null;
+    Object.keys(fallbackAttributes).length > 1
+      ? buildXmlFragment("webctrl", fallbackAttributes)
+      : null;
 
   return {
     strict: `${htmlFragment}${strictWebCtrl}`,
@@ -813,116 +797,6 @@ function buildDesktopUiPathSelectors(candidate) {
         ? `Use window "${candidate.window?.title || candidate.window?.processName}" and parent "${candidate.parent.name}" as anchors.`
         : null,
   };
-}
-
-async function capturePriorityWebCandidates(page) {
-  return page.locator("input, textarea").evaluateAll((elements) => {
-    const normalize = (value) => String(value || "").replace(/\s+/g, " ").trim();
-    const getLabelText = (element) => {
-      const labels = Array.from(element.labels || []).map((label) => label.innerText || label.textContent);
-      const ariaLabelledBy = (element.getAttribute("aria-labelledby") || "")
-        .split(/\s+/)
-        .filter(Boolean)
-        .map((id) => document.getElementById(id)?.innerText || document.getElementById(id)?.textContent);
-      return normalize([...labels, ...ariaLabelledBy].filter(Boolean).join(" "));
-    };
-    const getParentText = (element) => {
-      const parent = element.closest("label, div, p, section, fieldset, form") || element.parentElement;
-      if (!parent) {
-        return "";
-      }
-
-      const clone = parent.cloneNode(true);
-      for (const control of clone.querySelectorAll("input, textarea, select, button, script, style")) {
-        control.remove();
-      }
-      return normalize(clone.innerText || clone.textContent || "");
-    };
-    const cssEscape =
-      typeof CSS !== "undefined" && typeof CSS.escape === "function"
-        ? CSS.escape.bind(CSS)
-        : (value) => String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&");
-    const attributeEscape = (value) => String(value).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-    const canQueryUniquely = (selector) => {
-      try {
-        return document.querySelectorAll(selector).length === 1;
-      } catch {
-        return false;
-      }
-    };
-    const buildPriorityCssSelector = (element) => {
-      const selectors = [];
-      if (element.id) {
-        selectors.push(`#${cssEscape(element.id)}`);
-      }
-      for (const attribute of ["data-testid", "name", "aria-label", "placeholder"]) {
-        const value = element.getAttribute(attribute);
-        if (value) {
-          selectors.push(`[${attribute}='${attributeEscape(value)}']`);
-        }
-      }
-      return selectors.find(canQueryUniquely) || null;
-    };
-    const isPriorityField = (element) => {
-      const haystack = [
-        element.getAttribute("type"),
-        element.getAttribute("name"),
-        element.getAttribute("id"),
-        element.getAttribute("autocomplete"),
-        element.getAttribute("placeholder"),
-        element.getAttribute("aria-label"),
-        getLabelText(element),
-        getParentText(element),
-      ].join(" ").toLowerCase();
-      return /\b(user(name)?|login|email|e-mail|mail|phone|account|password|passwd|passcode|pin)\b/.test(haystack);
-    };
-
-    return elements.filter(isPriorityField).map((element, index) => {
-      const parent = element.parentElement;
-      const computedStyle = window.getComputedStyle(element);
-      const rect = element.getBoundingClientRect();
-      const isVisible =
-        computedStyle.display !== "none" &&
-        computedStyle.visibility !== "hidden" &&
-        rect.width > 0 &&
-        rect.height > 0;
-      const visibleInnerText = isVisible ? normalize(element.innerText || "") : "";
-      const labelText = getLabelText(element);
-      const parentText = getParentText(element);
-
-      return {
-        source: "web",
-        sourceIndex: `priority-${index}`,
-        priorityMatch: true,
-        tag: element.tagName || null,
-        type: element.getAttribute("type"),
-        name: element.getAttribute("name"),
-        id: element.getAttribute("id"),
-        labelText: labelText || null,
-        placeholder: element.getAttribute("placeholder"),
-        ariaLabel: element.getAttribute("aria-label"),
-        title: element.getAttribute("title"),
-        role: element.getAttribute("role"),
-        href: element.getAttribute("href"),
-        text: normalize(element.innerText || element.textContent || element.value || labelText || parentText),
-        visibleInnerText,
-        hasIcon: false,
-        cssSelector: buildPriorityCssSelector(element),
-        dataTestId: element.getAttribute("data-testid"),
-        tableContext: null,
-        parentHints: parent
-          ? {
-            tag: parent.tagName || null,
-            id: parent.getAttribute("id"),
-            name: parent.getAttribute("name"),
-            ariaLabel: parent.getAttribute("aria-label"),
-            role: parent.getAttribute("role"),
-            text: parentText || null,
-          }
-          : null,
-      };
-    });
-  });
 }
 
 async function captureWebCandidates(page, pagination = null) {
@@ -1135,45 +1009,6 @@ async function getWebPaginationState(page) {
   });
 }
 
-async function capturePriorityWebCandidates(page, input) {
-  const queries = Array.isArray(input?.elements) ? input.elements : [];
-  if (queries.length === 0) {
-    return [];
-  }
-
-  const currentPageCandidates = await captureWebCandidates(page);
-  const queryTexts = queries
-    .map((query) => normalizeSearchText(query.label || query.name || query.text || query.selector || ""))
-    .filter(Boolean);
-
-  if (queryTexts.length === 0) {
-    return [];
-  }
-
-  return currentPageCandidates.filter((candidate) => {
-    const descriptorText = normalizeSearchText(
-      [
-        candidate.placeholder,
-        candidate.ariaLabel,
-        candidate.name,
-        candidate.visibleInnerText || candidate.text,
-        candidate.title,
-        candidate.id,
-        candidate.href,
-        candidate.tableContext?.ariaLabel,
-      ]
-        .filter(Boolean)
-        .join(" ")
-    );
-
-    if (!descriptorText) {
-      return false;
-    }
-
-    return queryTexts.some((queryText) => descriptorText.includes(queryText) || queryText.includes(descriptorText));
-  });
-}
-
 async function captureWebCandidatesWithPagination(page) {
   const allCandidates = [];
   const seenPages = new Set();
@@ -1231,209 +1066,6 @@ async function captureWebCandidatesWithPagination(page) {
       },
     };
   });
-}
-
-async function capturePriorityWebCandidates(page, input) {
-  const priorityCandidates = [];
-  const frames = page.frames();
-  const wanted = [];
-
-  for (const query of input.elements || []) {
-    const label = normalizeSearchText(query.label);
-    const possibleNames = (query.possibleNames || []).map(normalizeSearchText);
-    const allTerms = [label, ...possibleNames].filter(Boolean);
-
-    const isUsername =
-      query.type === "input" &&
-      allTerms.some((term) =>
-        ["user name", "username", "login", "login id", "user"].includes(term)
-      );
-
-    const isPassword =
-      query.type === "password" ||
-      allTerms.some((term) => ["ad password", "password", "passwd", "pwd"].includes(term));
-
-    if (isUsername) {
-      wanted.push({
-        kind: "username",
-        selectors: [
-          "#login",
-          "input#login",
-          "input[name='login']",
-          "input[id='login']",
-          "input[name='username']",
-          "input[id='username']",
-          "input[name='user']",
-          "input[id='user']",
-        ],
-      });
-    }
-
-    if (isPassword) {
-      wanted.push({
-        kind: "password",
-        selectors: [
-          "#passwd",
-          "input#passwd",
-          "input[name='passwd']",
-          "input[id='passwd']",
-          "input[type='password']",
-          "input[name='password']",
-          "input[id='password']",
-          "input[name='pwd']",
-          "input[id='pwd']",
-        ],
-      });
-    }
-  }
-
-  if (wanted.length === 0) {
-    return priorityCandidates;
-  }
-
-  for (let frameIndex = 0; frameIndex < frames.length; frameIndex += 1) {
-    const frame = frames[frameIndex];
-
-    for (const item of wanted) {
-      for (const selector of item.selectors) {
-        try {
-          const candidate = await frame.evaluate(
-            ({ selector, kind, frameIndex, frameName, frameUrl }) => {
-              const element = document.querySelector(selector);
-
-              if (!element) {
-                return null;
-              }
-
-              const cleanText = (value) =>
-                String(value || "")
-                  .replace(/\s+/g, " ")
-                  .trim();
-
-              const getAssociatedLabelText = (targetElement) => {
-                const labels = [];
-
-                if (targetElement.labels && targetElement.labels.length > 0) {
-                  for (const label of Array.from(targetElement.labels)) {
-                    const text = cleanText(label.innerText || label.textContent);
-                    if (text) {
-                      labels.push(text);
-                    }
-                  }
-                }
-
-                if (targetElement.id) {
-                  const directLabel = Array.from(document.querySelectorAll("label")).find(
-                    (label) => label.getAttribute("for") === targetElement.id
-                  );
-                  const text = cleanText(directLabel?.innerText || directLabel?.textContent);
-                  if (text) {
-                    labels.push(text);
-                  }
-                }
-
-                const ariaLabelledBy = targetElement.getAttribute("aria-labelledby");
-                if (ariaLabelledBy) {
-                  const ids = ariaLabelledBy.split(/\s+/).filter(Boolean);
-                  for (const id of ids) {
-                    const labelElement = document.getElementById(id);
-                    const text = cleanText(labelElement?.innerText || labelElement?.textContent);
-                    if (text) {
-                      labels.push(text);
-                    }
-                  }
-                }
-
-                const ariaLabel = cleanText(targetElement.getAttribute("aria-label"));
-                if (ariaLabel) {
-                  labels.push(ariaLabel);
-                }
-
-                const parentText = cleanText(targetElement.parentElement?.innerText || "");
-                if (parentText && parentText.length <= 250) {
-                  labels.push(parentText);
-                }
-
-                const unique = [];
-                for (const label of labels) {
-                  const cleaned = cleanText(label).replace(/:$/, "");
-                  if (cleaned && !unique.includes(cleaned)) {
-                    unique.push(cleaned);
-                  }
-                }
-
-                return unique.length > 0 ? unique.join(" ") : null;
-              };
-
-              const computedStyle = window.getComputedStyle(element);
-              const rect = element.getBoundingClientRect();
-              const isVisible =
-                computedStyle.display !== "none" &&
-                computedStyle.visibility !== "hidden" &&
-                rect.width > 0 &&
-                rect.height > 0;
-
-              return {
-                source: "web",
-                sourceIndex: -1,
-                priorityMatch: true,
-                priorityKind: kind,
-                frameIndex,
-                frameName,
-                frameUrl,
-                documentTitle: document.title || null,
-                browserApp: "msedge.exe",
-                tag: element.tagName || null,
-                type: element.getAttribute("type"),
-                name: element.getAttribute("name"),
-                id: element.getAttribute("id"),
-                placeholder: element.getAttribute("placeholder"),
-                ariaLabel: element.getAttribute("aria-label"),
-                ariaLabelledBy: element.getAttribute("aria-labelledby"),
-                labelText: getAssociatedLabelText(element),
-                title: element.getAttribute("title"),
-                role: element.getAttribute("role"),
-                href: element.getAttribute("href"),
-                text: cleanText(element.innerText || element.textContent || element.value || ""),
-                visibleInnerText: isVisible ? cleanText(element.innerText || "") : "",
-                hasIcon: false,
-                cssSelector: element.id ? `#${element.id}` : selector,
-                dataTestId: element.getAttribute("data-testid"),
-                tableContext: null,
-                parentHints: element.parentElement
-                  ? {
-                      tag: element.parentElement.tagName || null,
-                      id: element.parentElement.getAttribute("id"),
-                      name: element.parentElement.getAttribute("name"),
-                      className: element.parentElement.getAttribute("class"),
-                      ariaLabel: element.parentElement.getAttribute("aria-label"),
-                      role: element.parentElement.getAttribute("role"),
-                      text: cleanText(element.parentElement.innerText || element.parentElement.textContent || ""),
-                    }
-                  : null,
-              };
-            },
-            {
-              selector,
-              kind: item.kind,
-              frameIndex,
-              frameName: frame.name(),
-              frameUrl: frame.url(),
-            }
-          );
-
-          if (candidate) {
-            priorityCandidates.push(candidate);
-            break;
-          }
-        } catch {
-          // Ignore inaccessible frames/selectors.
-        }
-      }
-    }
-  }
-
-  return priorityCandidates;
 }
 
 function normalizeWebCandidate(candidate) {
@@ -1784,6 +1416,7 @@ async function runDesktopCapture(inputPath) {
 async function capturePriorityWebCandidates(page, input) {
   const usernameQueryTerms = new Set(["user name", "username", "login", "login id", "user"]);
   const passwordQueryTerms = new Set(["ad password", "password", "passwd", "pwd"]);
+
   const usernameSelectors = [
     "#login",
     "input#login",
@@ -1794,6 +1427,7 @@ async function capturePriorityWebCandidates(page, input) {
     "input[name='user']",
     "input[id='user']",
   ];
+
   const passwordSelectors = [
     "#passwd",
     "input#passwd",
@@ -1807,11 +1441,13 @@ async function capturePriorityWebCandidates(page, input) {
   ];
 
   const elementQueries = Array.isArray(input?.elements) ? input.elements : [];
+
   const queryTerms = elementQueries.flatMap((element) =>
     [element?.label, ...(Array.isArray(element?.possibleNames) ? element.possibleNames : [])]
       .filter(Boolean)
       .map(normalizeSearchText)
   );
+
   const shouldCaptureUsername = queryTerms.some((term) => usernameQueryTerms.has(term));
   const shouldCapturePassword = queryTerms.some((term) => passwordQueryTerms.has(term));
 
@@ -1823,8 +1459,9 @@ async function capturePriorityWebCandidates(page, input) {
     ...(shouldCaptureUsername ? [{ kind: "username", selectors: usernameSelectors }] : []),
     ...(shouldCapturePassword ? [{ kind: "password", selectors: passwordSelectors }] : []),
   ];
+
   const candidates = [];
-  const browserApp = page.context().browser()?.browserType().name() || null;
+  const browserApp = "msedge.exe";
 
   for (const [frameIndex, frame] of page.frames().entries()) {
     for (const { kind, selectors } of selectorGroups) {
@@ -1833,34 +1470,35 @@ async function capturePriorityWebCandidates(page, input) {
           const candidate = await frame.evaluate(
             ({ selector: candidateSelector, priorityKind, sourceIndex, browserAppName, frameIndexValue, frameNameValue, frameUrlValue }) => {
               const element = document.querySelector(candidateSelector);
+
               if (!element) {
                 return null;
               }
 
+              const cleanText = (value) =>
+                String(value || "")
+                  .replace(/\s+/g, " ")
+                  .trim();
+
               const parent = element.parentElement;
               const computedStyle = window.getComputedStyle(element);
               const rect = element.getBoundingClientRect();
+
               const isVisible =
                 computedStyle.display !== "none" &&
                 computedStyle.visibility !== "hidden" &&
                 rect.width > 0 &&
                 rect.height > 0;
+
               const labelledBy = element.getAttribute("aria-labelledby");
+
               const labelText = labelledBy
                 ? labelledBy
-                  .split(/\s+/)
-                  .map((id) => document.getElementById(id)?.innerText || document.getElementById(id)?.textContent || "")
-                  .join(" ")
-                  .trim()
+                    .split(/\s+/)
+                    .map((id) => document.getElementById(id)?.innerText || document.getElementById(id)?.textContent || "")
+                    .join(" ")
+                    .trim()
                 : "";
-              const table = element.closest("table, [role='table'], [role='grid']");
-              const row = element.closest("tr, [role='row']");
-              const tableColumnIndex =
-                element instanceof HTMLTableCellElement || element.getAttribute("role") === "columnheader"
-                  ? element.cellIndex >= 0
-                    ? element.cellIndex + 1
-                    : Array.from(row?.children || []).indexOf(element) + 1
-                  : null;
 
               return {
                 source: "web",
@@ -1876,35 +1514,24 @@ async function capturePriorityWebCandidates(page, input) {
                 title: element.getAttribute("title"),
                 role: element.getAttribute("role"),
                 href: element.getAttribute("href"),
-                text: (element.innerText || element.textContent || element.value || "").trim(),
-                visibleInnerText: isVisible ? (element.innerText || "").trim() : "",
-                hasIcon: Boolean(
-                  element.querySelector(
-                    "svg, img, i, [role='img'], [aria-hidden='true'], [class*='icon' i], [class*='glyph' i]"
-                  )
-                ),
-                cssSelector: candidateSelector,
+                text: cleanText(element.innerText || element.textContent || element.value || ""),
+                visibleInnerText: isVisible ? cleanText(element.innerText || "") : "",
+                hasIcon: false,
+                cssSelector: element.id ? `#${element.id}` : candidateSelector,
                 dataTestId: element.getAttribute("data-testid"),
-                tableContext: table
-                  ? {
-                    id: table.getAttribute("id"),
-                    name: table.getAttribute("name"),
-                    ariaLabel: table.getAttribute("aria-label"),
-                    role: table.getAttribute("role"),
-                    className: table.getAttribute("class"),
-                    columnIndex: tableColumnIndex > 0 ? tableColumnIndex : null,
-                  }
-                  : null,
+                tableContext: null,
                 parentHints: parent
                   ? {
-                    tag: parent.tagName || null,
-                    id: parent.getAttribute("id"),
-                    name: parent.getAttribute("name"),
-                    ariaLabel: parent.getAttribute("aria-label"),
-                    role: parent.getAttribute("role"),
-                  }
+                      tag: parent.tagName || null,
+                      id: parent.getAttribute("id"),
+                      name: parent.getAttribute("name"),
+                      className: parent.getAttribute("class"),
+                      ariaLabel: parent.getAttribute("aria-label"),
+                      role: parent.getAttribute("role"),
+                      text: cleanText(parent.innerText || parent.textContent || ""),
+                    }
                   : null,
-                documentTitle: document.title || null,
+                documentTitle: document.title || "Citrix Gateway",
                 browserApp: browserAppName,
                 frameIndex: frameIndexValue,
                 frameName: frameNameValue,
@@ -1926,9 +1553,10 @@ async function capturePriorityWebCandidates(page, input) {
 
           if (candidate) {
             candidates.push(candidate);
+            break;
           }
         } catch {
-          // Ignore inaccessible or cross-origin frame errors during priority probing.
+          // Ignore inaccessible or cross-origin frames.
         }
       }
     }
@@ -1938,7 +1566,7 @@ async function capturePriorityWebCandidates(page, input) {
 }
 
 async function processWeb(input, outputPath) {
-  const browser = await chromium.launch({ headless: false, channel: "chromium" });
+  const browser = await chromium.launch({ headless: false, channel: "msedge" });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const result = buildOutputSkeleton("uipath_web", input.target);
 
