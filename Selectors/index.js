@@ -799,6 +799,116 @@ function buildDesktopUiPathSelectors(candidate) {
   };
 }
 
+async function capturePriorityWebCandidates(page) {
+  return page.locator("input, textarea").evaluateAll((elements) => {
+    const normalize = (value) => String(value || "").replace(/\s+/g, " ").trim();
+    const getLabelText = (element) => {
+      const labels = Array.from(element.labels || []).map((label) => label.innerText || label.textContent);
+      const ariaLabelledBy = (element.getAttribute("aria-labelledby") || "")
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((id) => document.getElementById(id)?.innerText || document.getElementById(id)?.textContent);
+      return normalize([...labels, ...ariaLabelledBy].filter(Boolean).join(" "));
+    };
+    const getParentText = (element) => {
+      const parent = element.closest("label, div, p, section, fieldset, form") || element.parentElement;
+      if (!parent) {
+        return "";
+      }
+
+      const clone = parent.cloneNode(true);
+      for (const control of clone.querySelectorAll("input, textarea, select, button, script, style")) {
+        control.remove();
+      }
+      return normalize(clone.innerText || clone.textContent || "");
+    };
+    const cssEscape =
+      typeof CSS !== "undefined" && typeof CSS.escape === "function"
+        ? CSS.escape.bind(CSS)
+        : (value) => String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+    const attributeEscape = (value) => String(value).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+    const canQueryUniquely = (selector) => {
+      try {
+        return document.querySelectorAll(selector).length === 1;
+      } catch {
+        return false;
+      }
+    };
+    const buildPriorityCssSelector = (element) => {
+      const selectors = [];
+      if (element.id) {
+        selectors.push(`#${cssEscape(element.id)}`);
+      }
+      for (const attribute of ["data-testid", "name", "aria-label", "placeholder"]) {
+        const value = element.getAttribute(attribute);
+        if (value) {
+          selectors.push(`[${attribute}='${attributeEscape(value)}']`);
+        }
+      }
+      return selectors.find(canQueryUniquely) || null;
+    };
+    const isPriorityField = (element) => {
+      const haystack = [
+        element.getAttribute("type"),
+        element.getAttribute("name"),
+        element.getAttribute("id"),
+        element.getAttribute("autocomplete"),
+        element.getAttribute("placeholder"),
+        element.getAttribute("aria-label"),
+        getLabelText(element),
+        getParentText(element),
+      ].join(" ").toLowerCase();
+      return /\b(user(name)?|login|email|e-mail|mail|phone|account|password|passwd|passcode|pin)\b/.test(haystack);
+    };
+
+    return elements.filter(isPriorityField).map((element, index) => {
+      const parent = element.parentElement;
+      const computedStyle = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      const isVisible =
+        computedStyle.display !== "none" &&
+        computedStyle.visibility !== "hidden" &&
+        rect.width > 0 &&
+        rect.height > 0;
+      const visibleInnerText = isVisible ? normalize(element.innerText || "") : "";
+      const labelText = getLabelText(element);
+      const parentText = getParentText(element);
+
+      return {
+        source: "web",
+        sourceIndex: `priority-${index}`,
+        priorityMatch: true,
+        tag: element.tagName || null,
+        type: element.getAttribute("type"),
+        name: element.getAttribute("name"),
+        id: element.getAttribute("id"),
+        labelText: labelText || null,
+        placeholder: element.getAttribute("placeholder"),
+        ariaLabel: element.getAttribute("aria-label"),
+        title: element.getAttribute("title"),
+        role: element.getAttribute("role"),
+        href: element.getAttribute("href"),
+        text: normalize(element.innerText || element.textContent || element.value || labelText || parentText),
+        visibleInnerText,
+        hasIcon: false,
+        cssSelector: buildPriorityCssSelector(element),
+        dataTestId: element.getAttribute("data-testid"),
+        tableContext: null,
+        parentHints: parent
+          ? {
+            tag: parent.tagName || null,
+            id: parent.getAttribute("id"),
+            name: parent.getAttribute("name"),
+            ariaLabel: parent.getAttribute("aria-label"),
+            role: parent.getAttribute("role"),
+            text: parentText || null,
+          }
+          : null,
+      };
+    });
+  });
+}
+
 async function captureWebCandidates(page, pagination = null) {
   return page.locator(
     "input, textarea, button, select, a, th, td, [role='button'], [role='link'], [role='textbox'], [role='columnheader'], [role='cell'], [role='gridcell']"
@@ -916,6 +1026,15 @@ async function captureWebCandidates(page, pagination = null) {
               ? element.cellIndex + 1
               : Array.from(row?.children || []).indexOf(element) + 1
             : null;
+        const labelText = (() => {
+          const labels = Array.from(element.labels || []).map((label) => label.innerText || label.textContent);
+          const ariaLabelledBy = (element.getAttribute("aria-labelledby") || "")
+            .split(/\s+/)
+            .filter(Boolean)
+            .map((id) => document.getElementById(id)?.innerText || document.getElementById(id)?.textContent);
+          return [...labels, ...ariaLabelledBy].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+        })();
+        const parentText = parent ? (parent.innerText || parent.textContent || "").replace(/\s+/g, " ").trim() : "";
         return {
           source: "web",
           sourceIndex: index,
@@ -923,6 +1042,7 @@ async function captureWebCandidates(page, pagination = null) {
           type: element.getAttribute("type"),
           name: element.getAttribute("name"),
           id: element.getAttribute("id"),
+          labelText: labelText || null,
           placeholder: element.getAttribute("placeholder"),
           ariaLabel: element.getAttribute("aria-label"),
           title: element.getAttribute("title"),
@@ -957,6 +1077,7 @@ async function captureWebCandidates(page, pagination = null) {
               name: parent.getAttribute("name"),
               ariaLabel: parent.getAttribute("aria-label"),
               role: parent.getAttribute("role"),
+              text: parentText || null,
             }
             : null,
         };
@@ -1064,7 +1185,9 @@ function normalizeWebCandidate(candidate) {
       { value: candidate.placeholder, bonus: 30 },
       { value: candidate.ariaLabel, bonus: 25 },
       { value: candidate.name, bonus: 20 },
+      { value: candidate.labelText, bonus: 25 },
       { value: candidate.visibleInnerText || candidate.text, bonus: 15 },
+      { value: candidate.parentHints?.text, bonus: 10 },
       { value: candidate.title, bonus: 10 },
       { value: candidate.id, bonus: hasStableId(candidate.id) ? 15 : 0 },
       { value: candidate.href, bonus: 10 },
@@ -1181,6 +1304,15 @@ function rankCandidate(query, candidate) {
     score += 5;
   }
 
+  if (
+    candidate.priorityMatch === true &&
+    candidate.source === "web" &&
+    ["username_or_email", "password"].includes(inferIntent(query.label)) &&
+    ["input", "password"].includes(candidate.controlType)
+  ) {
+    score += 12;
+  }
+
   if (query.type) {
     if (isQueryTypeCompatible(query.type, candidate.controlType)) {
       score += 15;
@@ -1240,6 +1372,7 @@ function buildElementOutput(query, candidate, score, warnings) {
           id: candidate.id,
           placeholder: candidate.placeholder,
           ariaLabel: candidate.ariaLabel,
+          labelText: candidate.labelText || null,
           text: candidate.text,
           visibleInnerText: candidate.visibleInnerText || null,
           hasIcon: Boolean(candidate.hasIcon),
@@ -1405,7 +1538,8 @@ async function processWeb(input, outputPath) {
     await page.goto(input.target, { waitUntil: "domcontentloaded", timeout: 60000 });
     logStep(`Page opened: ${page.url()}`);
 
-    const candidates = (await captureWebCandidatesWithPagination(page)).map(normalizeWebCandidate);
+    const priorityCandidates = await capturePriorityWebCandidates(page);
+    const candidates = [...priorityCandidates, ...(await captureWebCandidatesWithPagination(page))].map(normalizeWebCandidate);
 
     for (const query of input.elements) {
       logStep(`Searching for "${query.label}"`);
