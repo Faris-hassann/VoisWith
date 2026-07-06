@@ -996,6 +996,45 @@ async function getWebPaginationState(page) {
   });
 }
 
+async function capturePriorityWebCandidates(page, input) {
+  const queries = Array.isArray(input?.elements) ? input.elements : [];
+  if (queries.length === 0) {
+    return [];
+  }
+
+  const currentPageCandidates = await captureWebCandidates(page);
+  const queryTexts = queries
+    .map((query) => normalizeSearchText(query.label || query.name || query.text || query.selector || ""))
+    .filter(Boolean);
+
+  if (queryTexts.length === 0) {
+    return [];
+  }
+
+  return currentPageCandidates.filter((candidate) => {
+    const descriptorText = normalizeSearchText(
+      [
+        candidate.placeholder,
+        candidate.ariaLabel,
+        candidate.name,
+        candidate.visibleInnerText || candidate.text,
+        candidate.title,
+        candidate.id,
+        candidate.href,
+        candidate.tableContext?.ariaLabel,
+      ]
+        .filter(Boolean)
+        .join(" ")
+    );
+
+    if (!descriptorText) {
+      return false;
+    }
+
+    return queryTexts.some((queryText) => descriptorText.includes(queryText) || queryText.includes(descriptorText));
+  });
+}
+
 async function captureWebCandidatesWithPagination(page) {
   const allCandidates = [];
   const seenPages = new Set();
@@ -1405,7 +1444,11 @@ async function processWeb(input, outputPath) {
     await page.goto(input.target, { waitUntil: "domcontentloaded", timeout: 60000 });
     logStep(`Page opened: ${page.url()}`);
 
-    const candidates = (await captureWebCandidatesWithPagination(page)).map(normalizeWebCandidate);
+    await page.waitForLoadState("networkidle").catch(() => {});
+    await page.waitForTimeout(2000);
+    const priorityCandidates = await capturePriorityWebCandidates(page, input);
+    const normalCandidates = await captureWebCandidatesWithPagination(page);
+    const candidates = [...priorityCandidates, ...normalCandidates].map(normalizeWebCandidate);
 
     for (const query of input.elements) {
       logStep(`Searching for "${query.label}"`);
