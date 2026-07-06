@@ -595,16 +595,35 @@ function getUiPathInnerText(candidate) {
 
 function buildWebUiPathSelectors(candidate) {
   const tag = String(candidate.tag || "").toUpperCase();
-  const strictAttributes = { tag };
+  const htmlAttributes = {
+    app: candidate.browserApp || "msedge.exe",
+    title: candidate.documentTitle || "Citrix Gateway",
+  };
+  const htmlFragment = buildXmlFragment("html", htmlAttributes);
+  const strictAttributes = {};
   const fallbackAttributes = { tag };
   const normalizedRole = normalizeSearchText(candidate.role);
+
+  strictAttributes.tag = tag;
 
   if (normalizedRole) {
     strictAttributes.role = normalizedRole;
     fallbackAttributes.role = normalizedRole;
   }
 
-  if (isLikelyStableValue(candidate.name)) {
+  if (tag === "INPUT") {
+    if (hasStableId(candidate.id)) {
+      strictAttributes.id = candidate.id;
+    } else if (isLikelyStableValue(candidate.name)) {
+      strictAttributes.name = candidate.name;
+    } else if (isLikelyStableValue(candidate.ariaLabel)) {
+      strictAttributes.aaname = candidate.ariaLabel;
+    } else if (isLikelyStableValue(candidate.visibleInnerText || candidate.text)) {
+      strictAttributes.innertext = getUiPathInnerText(candidate);
+    } else if (isLikelyStableValue(candidate.placeholder)) {
+      strictAttributes.placeholder = candidate.placeholder;
+    }
+  } else if (isLikelyStableValue(candidate.name)) {
     strictAttributes.name = candidate.name;
   } else if (hasStableId(candidate.id)) {
     strictAttributes.id = candidate.id;
@@ -614,27 +633,6 @@ function buildWebUiPathSelectors(candidate) {
     strictAttributes.innertext = getUiPathInnerText(candidate);
   } else if (isLikelyStableValue(candidate.placeholder)) {
     strictAttributes.placeholder = candidate.placeholder;
-  }
-
-  if (Object.keys(strictAttributes).length === 1) {
-    return {
-      strict: buildXmlFragment("webctrl", strictAttributes),
-      fallback: null,
-    };
-  }
-
-  // Table cells are often repeated across a page. A stable table id makes the
-  // UiPath selector specific without relying on generated row or class values.
-  if (
-    ["TH", "TD"].includes(tag) &&
-    hasStableId(candidate.tableContext?.id) &&
-    isLikelyStableValue(candidate.visibleInnerText || candidate.text)
-  ) {
-    const cellFragment = buildXmlFragment("webctrl", strictAttributes);
-    return {
-      strict: `${buildXmlFragment("webctrl", { tag: "TABLE", id: candidate.tableContext.id })}${cellFragment}`,
-      fallback: cellFragment,
-    };
   }
 
   if (strictAttributes.name) {
@@ -669,11 +667,14 @@ function buildWebUiPathSelectors(candidate) {
     fallbackAttributes.name = candidate.name;
   }
 
-  const strict = buildXmlFragment("webctrl", strictAttributes);
-  const fallback =
+  const strictWebCtrl = buildXmlFragment("webctrl", strictAttributes);
+  const fallbackWebCtrl =
     Object.keys(fallbackAttributes).length > 1 ? buildXmlFragment("webctrl", fallbackAttributes) : null;
 
-  return { strict, fallback };
+  return {
+    strict: `${htmlFragment}${strictWebCtrl}`,
+    fallback: fallbackWebCtrl ? `${htmlFragment}${fallbackWebCtrl}` : null,
+  };
 }
 
 function buildDesktopUiPathSelectors(candidate) {
