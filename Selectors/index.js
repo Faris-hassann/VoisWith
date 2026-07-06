@@ -594,6 +594,7 @@ function getUiPathInnerText(candidate) {
 }
 
 function buildWebUiPathSelectors(candidate) {
+  const htmlFragment = buildXmlFragment("html", {});
   const tag = String(candidate.tag || "").toUpperCase();
   const htmlAttributes = {
     app: candidate.browserApp || "msedge.exe",
@@ -635,6 +636,27 @@ function buildWebUiPathSelectors(candidate) {
     strictAttributes.placeholder = candidate.placeholder;
   }
 
+  if (Object.keys(strictAttributes).length === 1) {
+    return {
+      strict: `${htmlFragment}${buildXmlFragment("webctrl", strictAttributes)}`,
+      fallback: null,
+    };
+  }
+
+  // Table cells are often repeated across a page. A stable table id makes the
+  // UiPath selector specific without relying on generated row or class values.
+  if (
+    ["TH", "TD"].includes(tag) &&
+    hasStableId(candidate.tableContext?.id) &&
+    isLikelyStableValue(candidate.visibleInnerText || candidate.text)
+  ) {
+    const cellFragment = buildXmlFragment("webctrl", strictAttributes);
+    return {
+      strict: `${htmlFragment}${buildXmlFragment("webctrl", { tag: "TABLE", id: candidate.tableContext.id })}${cellFragment}`,
+      fallback: `${htmlFragment}${cellFragment}`,
+    };
+  }
+
   if (strictAttributes.name) {
     if (hasStableId(candidate.id)) {
       fallbackAttributes.id = candidate.id;
@@ -671,10 +693,7 @@ function buildWebUiPathSelectors(candidate) {
   const fallbackWebCtrl =
     Object.keys(fallbackAttributes).length > 1 ? buildXmlFragment("webctrl", fallbackAttributes) : null;
 
-  return {
-    strict: `${htmlFragment}${strictWebCtrl}`,
-    fallback: fallbackWebCtrl ? `${htmlFragment}${fallbackWebCtrl}` : null,
-  };
+  return { strict: `${htmlFragment}${strict}`, fallback: fallback ? `${htmlFragment}${fallback}` : null };
 }
 
 function buildDesktopUiPathSelectors(candidate) {
