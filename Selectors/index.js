@@ -594,6 +594,7 @@ function getUiPathInnerText(candidate) {
 }
 
 function buildWebUiPathSelectors(candidate) {
+  const htmlFragment = buildXmlFragment("html", {});
   const tag = String(candidate.tag || "").toUpperCase();
   const htmlAttributes = {
     app: candidate.browserApp || "msedge.exe",
@@ -814,6 +815,116 @@ function buildDesktopUiPathSelectors(candidate) {
   };
 }
 
+async function capturePriorityWebCandidates(page) {
+  return page.locator("input, textarea").evaluateAll((elements) => {
+    const normalize = (value) => String(value || "").replace(/\s+/g, " ").trim();
+    const getLabelText = (element) => {
+      const labels = Array.from(element.labels || []).map((label) => label.innerText || label.textContent);
+      const ariaLabelledBy = (element.getAttribute("aria-labelledby") || "")
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((id) => document.getElementById(id)?.innerText || document.getElementById(id)?.textContent);
+      return normalize([...labels, ...ariaLabelledBy].filter(Boolean).join(" "));
+    };
+    const getParentText = (element) => {
+      const parent = element.closest("label, div, p, section, fieldset, form") || element.parentElement;
+      if (!parent) {
+        return "";
+      }
+
+      const clone = parent.cloneNode(true);
+      for (const control of clone.querySelectorAll("input, textarea, select, button, script, style")) {
+        control.remove();
+      }
+      return normalize(clone.innerText || clone.textContent || "");
+    };
+    const cssEscape =
+      typeof CSS !== "undefined" && typeof CSS.escape === "function"
+        ? CSS.escape.bind(CSS)
+        : (value) => String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+    const attributeEscape = (value) => String(value).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+    const canQueryUniquely = (selector) => {
+      try {
+        return document.querySelectorAll(selector).length === 1;
+      } catch {
+        return false;
+      }
+    };
+    const buildPriorityCssSelector = (element) => {
+      const selectors = [];
+      if (element.id) {
+        selectors.push(`#${cssEscape(element.id)}`);
+      }
+      for (const attribute of ["data-testid", "name", "aria-label", "placeholder"]) {
+        const value = element.getAttribute(attribute);
+        if (value) {
+          selectors.push(`[${attribute}='${attributeEscape(value)}']`);
+        }
+      }
+      return selectors.find(canQueryUniquely) || null;
+    };
+    const isPriorityField = (element) => {
+      const haystack = [
+        element.getAttribute("type"),
+        element.getAttribute("name"),
+        element.getAttribute("id"),
+        element.getAttribute("autocomplete"),
+        element.getAttribute("placeholder"),
+        element.getAttribute("aria-label"),
+        getLabelText(element),
+        getParentText(element),
+      ].join(" ").toLowerCase();
+      return /\b(user(name)?|login|email|e-mail|mail|phone|account|password|passwd|passcode|pin)\b/.test(haystack);
+    };
+
+    return elements.filter(isPriorityField).map((element, index) => {
+      const parent = element.parentElement;
+      const computedStyle = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      const isVisible =
+        computedStyle.display !== "none" &&
+        computedStyle.visibility !== "hidden" &&
+        rect.width > 0 &&
+        rect.height > 0;
+      const visibleInnerText = isVisible ? normalize(element.innerText || "") : "";
+      const labelText = getLabelText(element);
+      const parentText = getParentText(element);
+
+      return {
+        source: "web",
+        sourceIndex: `priority-${index}`,
+        priorityMatch: true,
+        tag: element.tagName || null,
+        type: element.getAttribute("type"),
+        name: element.getAttribute("name"),
+        id: element.getAttribute("id"),
+        labelText: labelText || null,
+        placeholder: element.getAttribute("placeholder"),
+        ariaLabel: element.getAttribute("aria-label"),
+        title: element.getAttribute("title"),
+        role: element.getAttribute("role"),
+        href: element.getAttribute("href"),
+        text: normalize(element.innerText || element.textContent || element.value || labelText || parentText),
+        visibleInnerText,
+        hasIcon: false,
+        cssSelector: buildPriorityCssSelector(element),
+        dataTestId: element.getAttribute("data-testid"),
+        tableContext: null,
+        parentHints: parent
+          ? {
+            tag: parent.tagName || null,
+            id: parent.getAttribute("id"),
+            name: parent.getAttribute("name"),
+            ariaLabel: parent.getAttribute("aria-label"),
+            role: parent.getAttribute("role"),
+            text: parentText || null,
+          }
+          : null,
+      };
+    });
+  });
+}
+
 async function captureWebCandidates(page, pagination = null) {
   return page.locator(
     "input, textarea, button, select, a, th, td, [role='button'], [role='link'], [role='textbox'], [role='columnheader'], [role='cell'], [role='gridcell']"
@@ -931,6 +1042,15 @@ async function captureWebCandidates(page, pagination = null) {
               ? element.cellIndex + 1
               : Array.from(row?.children || []).indexOf(element) + 1
             : null;
+        const labelText = (() => {
+          const labels = Array.from(element.labels || []).map((label) => label.innerText || label.textContent);
+          const ariaLabelledBy = (element.getAttribute("aria-labelledby") || "")
+            .split(/\s+/)
+            .filter(Boolean)
+            .map((id) => document.getElementById(id)?.innerText || document.getElementById(id)?.textContent);
+          return [...labels, ...ariaLabelledBy].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+        })();
+        const parentText = parent ? (parent.innerText || parent.textContent || "").replace(/\s+/g, " ").trim() : "";
         return {
           source: "web",
           sourceIndex: index,
@@ -940,6 +1060,7 @@ async function captureWebCandidates(page, pagination = null) {
           type: element.getAttribute("type"),
           name: element.getAttribute("name"),
           id: element.getAttribute("id"),
+          labelText: labelText || null,
           placeholder: element.getAttribute("placeholder"),
           ariaLabel: element.getAttribute("aria-label"),
           title: element.getAttribute("title"),
@@ -974,6 +1095,7 @@ async function captureWebCandidates(page, pagination = null) {
               name: parent.getAttribute("name"),
               ariaLabel: parent.getAttribute("aria-label"),
               role: parent.getAttribute("role"),
+              text: parentText || null,
             }
             : null,
         };
@@ -1010,6 +1132,45 @@ async function getWebPaginationState(page) {
       nextEnabled: !isDisabled(next),
       nextSelector,
     };
+  });
+}
+
+async function capturePriorityWebCandidates(page, input) {
+  const queries = Array.isArray(input?.elements) ? input.elements : [];
+  if (queries.length === 0) {
+    return [];
+  }
+
+  const currentPageCandidates = await captureWebCandidates(page);
+  const queryTexts = queries
+    .map((query) => normalizeSearchText(query.label || query.name || query.text || query.selector || ""))
+    .filter(Boolean);
+
+  if (queryTexts.length === 0) {
+    return [];
+  }
+
+  return currentPageCandidates.filter((candidate) => {
+    const descriptorText = normalizeSearchText(
+      [
+        candidate.placeholder,
+        candidate.ariaLabel,
+        candidate.name,
+        candidate.visibleInnerText || candidate.text,
+        candidate.title,
+        candidate.id,
+        candidate.href,
+        candidate.tableContext?.ariaLabel,
+      ]
+        .filter(Boolean)
+        .join(" ")
+    );
+
+    if (!descriptorText) {
+      return false;
+    }
+
+    return queryTexts.some((queryText) => descriptorText.includes(queryText) || queryText.includes(descriptorText));
   });
 }
 
@@ -1281,11 +1442,14 @@ function normalizeWebCandidate(candidate) {
     ...candidate,
     controlType,
     matchDescriptors: [
+      { value: candidate.priorityMatch ? candidate.priorityKind : null, bonus: 80 },
       { value: candidate.placeholder, bonus: 30 },
       { value: candidate.labelText, bonus: 30 },
       { value: candidate.ariaLabel, bonus: 25 },
       { value: candidate.name, bonus: 20 },
+      { value: candidate.labelText, bonus: 25 },
       { value: candidate.visibleInnerText || candidate.text, bonus: 15 },
+      { value: candidate.parentHints?.text, bonus: 10 },
       { value: candidate.title, bonus: 10 },
       { value: candidate.id, bonus: hasStableId(candidate.id) ? 15 : 0 },
       { value: candidate.href, bonus: 10 },
@@ -1465,6 +1629,7 @@ function buildElementOutput(query, candidate, score, warnings) {
           id: candidate.id,
           placeholder: candidate.placeholder,
           ariaLabel: candidate.ariaLabel,
+          labelText: candidate.labelText || null,
           text: candidate.text,
           visibleInnerText: candidate.visibleInnerText || null,
           hasIcon: Boolean(candidate.hasIcon),
@@ -1614,6 +1779,162 @@ async function runDesktopCapture(inputPath) {
   );
 
   return parseJsonSafely(raw);
+}
+
+async function capturePriorityWebCandidates(page, input) {
+  const usernameQueryTerms = new Set(["user name", "username", "login", "login id", "user"]);
+  const passwordQueryTerms = new Set(["ad password", "password", "passwd", "pwd"]);
+  const usernameSelectors = [
+    "#login",
+    "input#login",
+    "input[name='login']",
+    "input[id='login']",
+    "input[name='username']",
+    "input[id='username']",
+    "input[name='user']",
+    "input[id='user']",
+  ];
+  const passwordSelectors = [
+    "#passwd",
+    "input#passwd",
+    "input[name='passwd']",
+    "input[id='passwd']",
+    "input[type='password']",
+    "input[name='password']",
+    "input[id='password']",
+    "input[name='pwd']",
+    "input[id='pwd']",
+  ];
+
+  const elementQueries = Array.isArray(input?.elements) ? input.elements : [];
+  const queryTerms = elementQueries.flatMap((element) =>
+    [element?.label, ...(Array.isArray(element?.possibleNames) ? element.possibleNames : [])]
+      .filter(Boolean)
+      .map(normalizeSearchText)
+  );
+  const shouldCaptureUsername = queryTerms.some((term) => usernameQueryTerms.has(term));
+  const shouldCapturePassword = queryTerms.some((term) => passwordQueryTerms.has(term));
+
+  if (!shouldCaptureUsername && !shouldCapturePassword) {
+    return [];
+  }
+
+  const selectorGroups = [
+    ...(shouldCaptureUsername ? [{ kind: "username", selectors: usernameSelectors }] : []),
+    ...(shouldCapturePassword ? [{ kind: "password", selectors: passwordSelectors }] : []),
+  ];
+  const candidates = [];
+  const browserApp = page.context().browser()?.browserType().name() || null;
+
+  for (const [frameIndex, frame] of page.frames().entries()) {
+    for (const { kind, selectors } of selectorGroups) {
+      for (const selector of selectors) {
+        try {
+          const candidate = await frame.evaluate(
+            ({ selector: candidateSelector, priorityKind, sourceIndex, browserAppName, frameIndexValue, frameNameValue, frameUrlValue }) => {
+              const element = document.querySelector(candidateSelector);
+              if (!element) {
+                return null;
+              }
+
+              const parent = element.parentElement;
+              const computedStyle = window.getComputedStyle(element);
+              const rect = element.getBoundingClientRect();
+              const isVisible =
+                computedStyle.display !== "none" &&
+                computedStyle.visibility !== "hidden" &&
+                rect.width > 0 &&
+                rect.height > 0;
+              const labelledBy = element.getAttribute("aria-labelledby");
+              const labelText = labelledBy
+                ? labelledBy
+                  .split(/\s+/)
+                  .map((id) => document.getElementById(id)?.innerText || document.getElementById(id)?.textContent || "")
+                  .join(" ")
+                  .trim()
+                : "";
+              const table = element.closest("table, [role='table'], [role='grid']");
+              const row = element.closest("tr, [role='row']");
+              const tableColumnIndex =
+                element instanceof HTMLTableCellElement || element.getAttribute("role") === "columnheader"
+                  ? element.cellIndex >= 0
+                    ? element.cellIndex + 1
+                    : Array.from(row?.children || []).indexOf(element) + 1
+                  : null;
+
+              return {
+                source: "web",
+                sourceIndex,
+                tag: element.tagName || null,
+                type: element.getAttribute("type"),
+                name: element.getAttribute("name"),
+                id: element.getAttribute("id"),
+                placeholder: element.getAttribute("placeholder"),
+                ariaLabel: element.getAttribute("aria-label"),
+                ariaLabelledBy: labelledBy,
+                labelText,
+                title: element.getAttribute("title"),
+                role: element.getAttribute("role"),
+                href: element.getAttribute("href"),
+                text: (element.innerText || element.textContent || element.value || "").trim(),
+                visibleInnerText: isVisible ? (element.innerText || "").trim() : "",
+                hasIcon: Boolean(
+                  element.querySelector(
+                    "svg, img, i, [role='img'], [aria-hidden='true'], [class*='icon' i], [class*='glyph' i]"
+                  )
+                ),
+                cssSelector: candidateSelector,
+                dataTestId: element.getAttribute("data-testid"),
+                tableContext: table
+                  ? {
+                    id: table.getAttribute("id"),
+                    name: table.getAttribute("name"),
+                    ariaLabel: table.getAttribute("aria-label"),
+                    role: table.getAttribute("role"),
+                    className: table.getAttribute("class"),
+                    columnIndex: tableColumnIndex > 0 ? tableColumnIndex : null,
+                  }
+                  : null,
+                parentHints: parent
+                  ? {
+                    tag: parent.tagName || null,
+                    id: parent.getAttribute("id"),
+                    name: parent.getAttribute("name"),
+                    ariaLabel: parent.getAttribute("aria-label"),
+                    role: parent.getAttribute("role"),
+                  }
+                  : null,
+                documentTitle: document.title || null,
+                browserApp: browserAppName,
+                frameIndex: frameIndexValue,
+                frameName: frameNameValue,
+                frameUrl: frameUrlValue,
+                priorityMatch: true,
+                priorityKind,
+              };
+            },
+            {
+              selector,
+              priorityKind: kind,
+              sourceIndex: candidates.length,
+              browserAppName: browserApp,
+              frameIndexValue: frameIndex,
+              frameNameValue: frame.name() || null,
+              frameUrlValue: frame.url() || null,
+            }
+          );
+
+          if (candidate) {
+            candidates.push(candidate);
+          }
+        } catch {
+          // Ignore inaccessible or cross-origin frame errors during priority probing.
+        }
+      }
+    }
+  }
+
+  return candidates;
 }
 
 async function processWeb(input, outputPath) {
