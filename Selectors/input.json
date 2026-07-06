@@ -1,5 +1,29 @@
 {
   "mode": "web",
-  "target": "https://datatables.net/",
-  "elements": ["Airi Satou"]
+  "target": "https://ukcc.caas-int.vodafone.com/logon/LogonPoint/tmindex.html",
+  "elements": [
+    {
+      "label": "User Name",
+      "type": "input",
+      "possibleNames": [
+        "User Name",
+        "Username",
+        "Login",
+        "Login ID",
+        "login"
+      ],
+      "recommendedAction": "Type Into"
+    },
+    {
+      "label": "AD Password",
+      "type": "password",
+      "possibleNames": [
+        "AD Password",
+        "Password",
+        "Passwd",
+        "passwd"
+      ],
+      "recommendedAction": "Type Into"
+    }
+  ]
 }
