@@ -595,16 +595,17 @@ function getUiPathInnerText(candidate) {
 
 function buildWebUiPathSelectors(candidate) {
   const tag = String(candidate.tag || "").toUpperCase();
-  const strictAttributes = { tag };
-  const fallbackAttributes = { tag };
+  const htmlAttributes = {
+    app: candidate.browserApp || "msedge.exe",
+    title: candidate.documentTitle || "Citrix Gateway",
+  };
+  const strictAttributes = {};
+  const fallbackAttributes = {};
   const normalizedRole = normalizeSearchText(candidate.role);
 
-  if (normalizedRole) {
-    strictAttributes.role = normalizedRole;
-    fallbackAttributes.role = normalizedRole;
-  }
-
-  if (isLikelyStableValue(candidate.name)) {
+  if (tag === "INPUT" && hasStableId(candidate.id)) {
+    strictAttributes.id = candidate.id;
+  } else if (isLikelyStableValue(candidate.name)) {
     strictAttributes.name = candidate.name;
   } else if (hasStableId(candidate.id)) {
     strictAttributes.id = candidate.id;
@@ -616,9 +617,19 @@ function buildWebUiPathSelectors(candidate) {
     strictAttributes.placeholder = candidate.placeholder;
   }
 
+  strictAttributes.tag = tag;
+  fallbackAttributes.tag = tag;
+
+  if (normalizedRole && !strictAttributes.role) {
+    strictAttributes.role = normalizedRole;
+    fallbackAttributes.role = normalizedRole;
+  }
+
+  const htmlFragment = buildXmlFragment("html", htmlAttributes);
+
   if (Object.keys(strictAttributes).length === 1) {
     return {
-      strict: buildXmlFragment("webctrl", strictAttributes),
+      strict: `${htmlFragment}${buildXmlFragment("webctrl", strictAttributes)}`,
       fallback: null,
     };
   }
@@ -630,22 +641,15 @@ function buildWebUiPathSelectors(candidate) {
     hasStableId(candidate.tableContext?.id) &&
     isLikelyStableValue(candidate.visibleInnerText || candidate.text)
   ) {
+    const tableFragment = buildXmlFragment("webctrl", { tag: "TABLE", id: candidate.tableContext.id });
     const cellFragment = buildXmlFragment("webctrl", strictAttributes);
     return {
-      strict: `${buildXmlFragment("webctrl", { tag: "TABLE", id: candidate.tableContext.id })}${cellFragment}`,
-      fallback: cellFragment,
+      strict: `${htmlFragment}${tableFragment}${cellFragment}`,
+      fallback: `${htmlFragment}${cellFragment}`,
     };
   }
 
-  if (strictAttributes.name) {
-    if (hasStableId(candidate.id)) {
-      fallbackAttributes.id = candidate.id;
-    } else if (isLikelyStableValue(candidate.placeholder)) {
-      fallbackAttributes.placeholder = candidate.placeholder;
-    } else if (isLikelyStableValue(candidate.ariaLabel)) {
-      fallbackAttributes.aaname = candidate.ariaLabel;
-    }
-  } else if (strictAttributes.id) {
+  if (strictAttributes.id) {
     if (isLikelyStableValue(candidate.name)) {
       fallbackAttributes.name = candidate.name;
     } else if (isLikelyStableValue(candidate.ariaLabel)) {
@@ -653,11 +657,19 @@ function buildWebUiPathSelectors(candidate) {
     } else if (isLikelyStableValue(candidate.placeholder)) {
       fallbackAttributes.placeholder = candidate.placeholder;
     }
+  } else if (strictAttributes.name) {
+    if (hasStableId(candidate.id)) {
+      fallbackAttributes.id = candidate.id;
+    } else if (isLikelyStableValue(candidate.placeholder)) {
+      fallbackAttributes.placeholder = candidate.placeholder;
+    } else if (isLikelyStableValue(candidate.ariaLabel)) {
+      fallbackAttributes.aaname = candidate.ariaLabel;
+    }
   } else if (strictAttributes.aaname) {
-    if (isLikelyStableValue(candidate.visibleInnerText || candidate.text)) {
-      fallbackAttributes.innertext = getUiPathInnerText(candidate);
-    } else if (isLikelyStableValue(candidate.name)) {
+    if (isLikelyStableValue(candidate.name)) {
       fallbackAttributes.name = candidate.name;
+    } else if (hasStableId(candidate.id)) {
+      fallbackAttributes.id = candidate.id;
     }
   } else if (strictAttributes.innertext) {
     if (isLikelyStableValue(candidate.ariaLabel) && candidate.ariaLabel !== candidate.text) {
@@ -669,11 +681,14 @@ function buildWebUiPathSelectors(candidate) {
     fallbackAttributes.name = candidate.name;
   }
 
-  const strict = buildXmlFragment("webctrl", strictAttributes);
-  const fallback =
+  const strictWebCtrl = buildXmlFragment("webctrl", strictAttributes);
+  const fallbackWebCtrl =
     Object.keys(fallbackAttributes).length > 1 ? buildXmlFragment("webctrl", fallbackAttributes) : null;
 
-  return { strict, fallback };
+  return {
+    strict: `${htmlFragment}${strictWebCtrl}`,
+    fallback: fallbackWebCtrl ? `${htmlFragment}${fallbackWebCtrl}` : null,
+  };
 }
 
 function buildDesktopUiPathSelectors(candidate) {
@@ -919,6 +934,8 @@ async function captureWebCandidates(page, pagination = null) {
         return {
           source: "web",
           sourceIndex: index,
+          documentTitle: document.title || null,
+          browserApp: "msedge.exe",
           tag: element.tagName || null,
           type: element.getAttribute("type"),
           name: element.getAttribute("name"),
@@ -1055,6 +1072,209 @@ async function captureWebCandidatesWithPagination(page) {
   });
 }
 
+async function capturePriorityWebCandidates(page, input) {
+  const priorityCandidates = [];
+  const frames = page.frames();
+  const wanted = [];
+
+  for (const query of input.elements || []) {
+    const label = normalizeSearchText(query.label);
+    const possibleNames = (query.possibleNames || []).map(normalizeSearchText);
+    const allTerms = [label, ...possibleNames].filter(Boolean);
+
+    const isUsername =
+      query.type === "input" &&
+      allTerms.some((term) =>
+        ["user name", "username", "login", "login id", "user"].includes(term)
+      );
+
+    const isPassword =
+      query.type === "password" ||
+      allTerms.some((term) => ["ad password", "password", "passwd", "pwd"].includes(term));
+
+    if (isUsername) {
+      wanted.push({
+        kind: "username",
+        selectors: [
+          "#login",
+          "input#login",
+          "input[name='login']",
+          "input[id='login']",
+          "input[name='username']",
+          "input[id='username']",
+          "input[name='user']",
+          "input[id='user']",
+        ],
+      });
+    }
+
+    if (isPassword) {
+      wanted.push({
+        kind: "password",
+        selectors: [
+          "#passwd",
+          "input#passwd",
+          "input[name='passwd']",
+          "input[id='passwd']",
+          "input[type='password']",
+          "input[name='password']",
+          "input[id='password']",
+          "input[name='pwd']",
+          "input[id='pwd']",
+        ],
+      });
+    }
+  }
+
+  if (wanted.length === 0) {
+    return priorityCandidates;
+  }
+
+  for (let frameIndex = 0; frameIndex < frames.length; frameIndex += 1) {
+    const frame = frames[frameIndex];
+
+    for (const item of wanted) {
+      for (const selector of item.selectors) {
+        try {
+          const candidate = await frame.evaluate(
+            ({ selector, kind, frameIndex, frameName, frameUrl }) => {
+              const element = document.querySelector(selector);
+
+              if (!element) {
+                return null;
+              }
+
+              const cleanText = (value) =>
+                String(value || "")
+                  .replace(/\s+/g, " ")
+                  .trim();
+
+              const getAssociatedLabelText = (targetElement) => {
+                const labels = [];
+
+                if (targetElement.labels && targetElement.labels.length > 0) {
+                  for (const label of Array.from(targetElement.labels)) {
+                    const text = cleanText(label.innerText || label.textContent);
+                    if (text) {
+                      labels.push(text);
+                    }
+                  }
+                }
+
+                if (targetElement.id) {
+                  const directLabel = Array.from(document.querySelectorAll("label")).find(
+                    (label) => label.getAttribute("for") === targetElement.id
+                  );
+                  const text = cleanText(directLabel?.innerText || directLabel?.textContent);
+                  if (text) {
+                    labels.push(text);
+                  }
+                }
+
+                const ariaLabelledBy = targetElement.getAttribute("aria-labelledby");
+                if (ariaLabelledBy) {
+                  const ids = ariaLabelledBy.split(/\s+/).filter(Boolean);
+                  for (const id of ids) {
+                    const labelElement = document.getElementById(id);
+                    const text = cleanText(labelElement?.innerText || labelElement?.textContent);
+                    if (text) {
+                      labels.push(text);
+                    }
+                  }
+                }
+
+                const ariaLabel = cleanText(targetElement.getAttribute("aria-label"));
+                if (ariaLabel) {
+                  labels.push(ariaLabel);
+                }
+
+                const parentText = cleanText(targetElement.parentElement?.innerText || "");
+                if (parentText && parentText.length <= 250) {
+                  labels.push(parentText);
+                }
+
+                const unique = [];
+                for (const label of labels) {
+                  const cleaned = cleanText(label).replace(/:$/, "");
+                  if (cleaned && !unique.includes(cleaned)) {
+                    unique.push(cleaned);
+                  }
+                }
+
+                return unique.length > 0 ? unique.join(" ") : null;
+              };
+
+              const computedStyle = window.getComputedStyle(element);
+              const rect = element.getBoundingClientRect();
+              const isVisible =
+                computedStyle.display !== "none" &&
+                computedStyle.visibility !== "hidden" &&
+                rect.width > 0 &&
+                rect.height > 0;
+
+              return {
+                source: "web",
+                sourceIndex: -1,
+                priorityMatch: true,
+                priorityKind: kind,
+                frameIndex,
+                frameName,
+                frameUrl,
+                documentTitle: document.title || null,
+                browserApp: "msedge.exe",
+                tag: element.tagName || null,
+                type: element.getAttribute("type"),
+                name: element.getAttribute("name"),
+                id: element.getAttribute("id"),
+                placeholder: element.getAttribute("placeholder"),
+                ariaLabel: element.getAttribute("aria-label"),
+                ariaLabelledBy: element.getAttribute("aria-labelledby"),
+                labelText: getAssociatedLabelText(element),
+                title: element.getAttribute("title"),
+                role: element.getAttribute("role"),
+                href: element.getAttribute("href"),
+                text: cleanText(element.innerText || element.textContent || element.value || ""),
+                visibleInnerText: isVisible ? cleanText(element.innerText || "") : "",
+                hasIcon: false,
+                cssSelector: element.id ? `#${element.id}` : selector,
+                dataTestId: element.getAttribute("data-testid"),
+                tableContext: null,
+                parentHints: element.parentElement
+                  ? {
+                      tag: element.parentElement.tagName || null,
+                      id: element.parentElement.getAttribute("id"),
+                      name: element.parentElement.getAttribute("name"),
+                      className: element.parentElement.getAttribute("class"),
+                      ariaLabel: element.parentElement.getAttribute("aria-label"),
+                      role: element.parentElement.getAttribute("role"),
+                      text: cleanText(element.parentElement.innerText || element.parentElement.textContent || ""),
+                    }
+                  : null,
+              };
+            },
+            {
+              selector,
+              kind: item.kind,
+              frameIndex,
+              frameName: frame.name(),
+              frameUrl: frame.url(),
+            }
+          );
+
+          if (candidate) {
+            priorityCandidates.push(candidate);
+            break;
+          }
+        } catch {
+          // Ignore inaccessible frames/selectors.
+        }
+      }
+    }
+  }
+
+  return priorityCandidates;
+}
+
 function normalizeWebCandidate(candidate) {
   const controlType = detectWebControlType(candidate);
   return {
@@ -1062,6 +1282,7 @@ function normalizeWebCandidate(candidate) {
     controlType,
     matchDescriptors: [
       { value: candidate.placeholder, bonus: 30 },
+      { value: candidate.labelText, bonus: 30 },
       { value: candidate.ariaLabel, bonus: 25 },
       { value: candidate.name, bonus: 20 },
       { value: candidate.visibleInnerText || candidate.text, bonus: 15 },
@@ -1179,6 +1400,10 @@ function rankCandidate(query, candidate) {
 
   if (candidate.source === "web" && candidate.cssSelector) {
     score += 5;
+  }
+
+  if (candidate.source === "web" && candidate.priorityMatch) {
+    score += 35;
   }
 
   if (query.type) {
@@ -1405,7 +1630,12 @@ async function processWeb(input, outputPath) {
     await page.goto(input.target, { waitUntil: "domcontentloaded", timeout: 60000 });
     logStep(`Page opened: ${page.url()}`);
 
-    const candidates = (await captureWebCandidatesWithPagination(page)).map(normalizeWebCandidate);
+    await page.waitForLoadState("networkidle").catch(() => {});
+    await page.waitForTimeout(2000);
+
+    const priorityCandidates = await capturePriorityWebCandidates(page, input);
+    const normalCandidates = await captureWebCandidatesWithPagination(page);
+    const candidates = [...priorityCandidates, ...normalCandidates].map(normalizeWebCandidate);
 
     for (const query of input.elements) {
       logStep(`Searching for "${query.label}"`);
