@@ -1061,6 +1061,7 @@ function normalizeWebCandidate(candidate) {
     ...candidate,
     controlType,
     matchDescriptors: [
+      { value: candidate.priorityMatch ? candidate.priorityKind : null, bonus: 80 },
       { value: candidate.placeholder, bonus: 30 },
       { value: candidate.ariaLabel, bonus: 25 },
       { value: candidate.name, bonus: 20 },
@@ -1391,6 +1392,162 @@ async function runDesktopCapture(inputPath) {
   return parseJsonSafely(raw);
 }
 
+async function capturePriorityWebCandidates(page, input) {
+  const usernameQueryTerms = new Set(["user name", "username", "login", "login id", "user"]);
+  const passwordQueryTerms = new Set(["ad password", "password", "passwd", "pwd"]);
+  const usernameSelectors = [
+    "#login",
+    "input#login",
+    "input[name='login']",
+    "input[id='login']",
+    "input[name='username']",
+    "input[id='username']",
+    "input[name='user']",
+    "input[id='user']",
+  ];
+  const passwordSelectors = [
+    "#passwd",
+    "input#passwd",
+    "input[name='passwd']",
+    "input[id='passwd']",
+    "input[type='password']",
+    "input[name='password']",
+    "input[id='password']",
+    "input[name='pwd']",
+    "input[id='pwd']",
+  ];
+
+  const elementQueries = Array.isArray(input?.elements) ? input.elements : [];
+  const queryTerms = elementQueries.flatMap((element) =>
+    [element?.label, ...(Array.isArray(element?.possibleNames) ? element.possibleNames : [])]
+      .filter(Boolean)
+      .map(normalizeSearchText)
+  );
+  const shouldCaptureUsername = queryTerms.some((term) => usernameQueryTerms.has(term));
+  const shouldCapturePassword = queryTerms.some((term) => passwordQueryTerms.has(term));
+
+  if (!shouldCaptureUsername && !shouldCapturePassword) {
+    return [];
+  }
+
+  const selectorGroups = [
+    ...(shouldCaptureUsername ? [{ kind: "username", selectors: usernameSelectors }] : []),
+    ...(shouldCapturePassword ? [{ kind: "password", selectors: passwordSelectors }] : []),
+  ];
+  const candidates = [];
+  const browserApp = page.context().browser()?.browserType().name() || null;
+
+  for (const [frameIndex, frame] of page.frames().entries()) {
+    for (const { kind, selectors } of selectorGroups) {
+      for (const selector of selectors) {
+        try {
+          const candidate = await frame.evaluate(
+            ({ selector: candidateSelector, priorityKind, sourceIndex, browserAppName, frameIndexValue, frameNameValue, frameUrlValue }) => {
+              const element = document.querySelector(candidateSelector);
+              if (!element) {
+                return null;
+              }
+
+              const parent = element.parentElement;
+              const computedStyle = window.getComputedStyle(element);
+              const rect = element.getBoundingClientRect();
+              const isVisible =
+                computedStyle.display !== "none" &&
+                computedStyle.visibility !== "hidden" &&
+                rect.width > 0 &&
+                rect.height > 0;
+              const labelledBy = element.getAttribute("aria-labelledby");
+              const labelText = labelledBy
+                ? labelledBy
+                  .split(/\s+/)
+                  .map((id) => document.getElementById(id)?.innerText || document.getElementById(id)?.textContent || "")
+                  .join(" ")
+                  .trim()
+                : "";
+              const table = element.closest("table, [role='table'], [role='grid']");
+              const row = element.closest("tr, [role='row']");
+              const tableColumnIndex =
+                element instanceof HTMLTableCellElement || element.getAttribute("role") === "columnheader"
+                  ? element.cellIndex >= 0
+                    ? element.cellIndex + 1
+                    : Array.from(row?.children || []).indexOf(element) + 1
+                  : null;
+
+              return {
+                source: "web",
+                sourceIndex,
+                tag: element.tagName || null,
+                type: element.getAttribute("type"),
+                name: element.getAttribute("name"),
+                id: element.getAttribute("id"),
+                placeholder: element.getAttribute("placeholder"),
+                ariaLabel: element.getAttribute("aria-label"),
+                ariaLabelledBy: labelledBy,
+                labelText,
+                title: element.getAttribute("title"),
+                role: element.getAttribute("role"),
+                href: element.getAttribute("href"),
+                text: (element.innerText || element.textContent || element.value || "").trim(),
+                visibleInnerText: isVisible ? (element.innerText || "").trim() : "",
+                hasIcon: Boolean(
+                  element.querySelector(
+                    "svg, img, i, [role='img'], [aria-hidden='true'], [class*='icon' i], [class*='glyph' i]"
+                  )
+                ),
+                cssSelector: candidateSelector,
+                dataTestId: element.getAttribute("data-testid"),
+                tableContext: table
+                  ? {
+                    id: table.getAttribute("id"),
+                    name: table.getAttribute("name"),
+                    ariaLabel: table.getAttribute("aria-label"),
+                    role: table.getAttribute("role"),
+                    className: table.getAttribute("class"),
+                    columnIndex: tableColumnIndex > 0 ? tableColumnIndex : null,
+                  }
+                  : null,
+                parentHints: parent
+                  ? {
+                    tag: parent.tagName || null,
+                    id: parent.getAttribute("id"),
+                    name: parent.getAttribute("name"),
+                    ariaLabel: parent.getAttribute("aria-label"),
+                    role: parent.getAttribute("role"),
+                  }
+                  : null,
+                documentTitle: document.title || null,
+                browserApp: browserAppName,
+                frameIndex: frameIndexValue,
+                frameName: frameNameValue,
+                frameUrl: frameUrlValue,
+                priorityMatch: true,
+                priorityKind,
+              };
+            },
+            {
+              selector,
+              priorityKind: kind,
+              sourceIndex: candidates.length,
+              browserAppName: browserApp,
+              frameIndexValue: frameIndex,
+              frameNameValue: frame.name() || null,
+              frameUrlValue: frame.url() || null,
+            }
+          );
+
+          if (candidate) {
+            candidates.push(candidate);
+          }
+        } catch {
+          // Ignore inaccessible or cross-origin frame errors during priority probing.
+        }
+      }
+    }
+  }
+
+  return candidates;
+}
+
 async function processWeb(input, outputPath) {
   const browser = await chromium.launch({ headless: false, channel: "chromium" });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
@@ -1405,7 +1562,11 @@ async function processWeb(input, outputPath) {
     await page.goto(input.target, { waitUntil: "domcontentloaded", timeout: 60000 });
     logStep(`Page opened: ${page.url()}`);
 
-    const candidates = (await captureWebCandidatesWithPagination(page)).map(normalizeWebCandidate);
+    const priorityCandidates = await capturePriorityWebCandidates(page, input);
+    const candidates = [
+      ...priorityCandidates,
+      ...(await captureWebCandidatesWithPagination(page)),
+    ].map(normalizeWebCandidate);
 
     for (const query of input.elements) {
       logStep(`Searching for "${query.label}"`);
