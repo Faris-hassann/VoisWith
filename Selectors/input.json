@@ -1,27 +1,69 @@
 {
   "mode": "web",
-  "target": "https://ukcc.caas-int.vodafone.com/logon/LogonPoint/tmindex.html",
-  "elements": [
+  "target": "https://portal.azure.com/#home",
+  "flow": [
     {
-      "label": "User Name",
-      "type": "input",
-      "possibleNames": [
-        "User Name",
-        "Username",
-        "Login",
-        "Login ID",
-        "login"
+      "action": "manual",
+      "message": "Sign in to Azure Portal and wait on the home page.",
+      "resumeOnNotUrlIncludes": [
+        "login.microsoftonline.com"
       ],
-      "recommendedAction": "Type Into"
+      "resumeOnElement": {
+        "label": "Kubernetes center",
+        "type": "link",
+        "possibleNames": [
+          "Kubernetes center",
+          "Kubernetes Center"
+        ]
+      },
+      "requireEnter": false,
+      "timeoutMs": 900000,
+      "pollIntervalMs": 2000,
+      "postWaitMs": 1500
     },
     {
-      "label": "AD Password",
-      "type": "password",
+      "action": "click",
+      "target": "Kubernetes center",
+      "elementType": "link",
       "possibleNames": [
-        "AD Password",
-        "Password",
-        "Passwd",
-        "passwd"
+        "Kubernetes center",
+        "Kubernetes Center"
+      ],
+      "postWaitMs": 3000
+    },
+    {
+      "action": "manual",
+      "message": "Wait while Kubernetes Center finishes loading.",
+      "resumeOnElement": {
+        "label": "Search",
+        "type": "input",
+        "possibleNames": [
+          "Search",
+          "Search resources",
+          "Search by keyword",
+          "Search..."
+        ]
+      },
+      "requireEnter": false,
+      "timeoutMs": 300000,
+      "pollIntervalMs": 2000,
+      "postWaitMs": 1500
+    }
+  ],
+  "microsoftLogin": {
+    "username": "",
+    "password": "",
+    "staySignedIn": false
+  },
+  "elements": [
+    {
+      "label": "Search",
+      "type": "input",
+      "possibleNames": [
+        "Search",
+        "Search resources",
+        "Search by keyword",
+        "Search..."
       ],
       "recommendedAction": "Type Into"
     }

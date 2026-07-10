@@ -11,6 +11,21 @@ Small Node.js tool for extracting UiPath-ready selectors from both web pages and
 - Emits UiPath-oriented selectors as the primary output.
 - Keeps CSS selectors only for web debugging and browser-side discovery.
 
+## Folder structure
+
+The selector tool is now split so shared concerns can live in focused components:
+
+```text
+index.js                         CLI entrypoint and orchestration
+src/config/paths.js              Runtime paths and defaults
+src/shared/logger.js             Consistent console logging
+src/services/manualCheckpointService.js
+                                 Pause the run and wait for user confirmation
+capture-desktop.ps1              Desktop capture integration
+input.json                       Default runtime input
+output.json                      Generated selector output
+```
+
 ## How it works
 
 1. Edit `input.json` or pass a different input file path to `node index.js`.
@@ -28,14 +43,140 @@ node index.js path/to/input.json path/to/output.json
 ## Web input
 
 Backward compatibility is kept for `isWeb: true`, but `mode` is the preferred field.
+Web targets can now execute a small interaction flow before selector extraction. This lets you open a page, click links or buttons, optionally pass through Microsoft sign-in, and then extract the selector from the final page state.
 
 ```json
 {
   "mode": "web",
-  "target": "https://www.facebook.com/",
-  "elements": ["Email address", "Password", "Login"]
+  "target": "https://portal.azure.com/",
+  "flow": [
+    {
+      "action": "manual",
+      "message": "Sign in to Azure Portal and wait on the home page.",
+      "resumeOnNotUrlIncludes": ["login.microsoftonline.com"],
+      "resumeOnElement": {
+        "label": "Kubernetes center",
+        "type": "link",
+        "possibleNames": ["Kubernetes center", "Kubernetes Center"]
+      },
+      "requireEnter": false,
+      "timeoutMs": 900000,
+      "pollIntervalMs": 2000
+    },
+    {
+      "action": "click",
+      "target": "Kubernetes center",
+      "elementType": "link",
+      "possibleNames": ["Kubernetes center", "Kubernetes Center"],
+      "postWaitMs": 3000
+    },
+    {
+      "action": "manual",
+      "message": "Wait while Kubernetes Center finishes loading.",
+      "resumeOnElement": {
+        "label": "Search",
+        "type": "input",
+        "possibleNames": ["Search", "Search resources", "Search by keyword", "Search..."]
+      },
+      "requireEnter": false,
+      "postWaitMs": 1500
+    }
+  ],
+  "microsoftLogin": {
+    "username": "",
+    "password": "",
+    "staySignedIn": false
+  },
+  "elements": [
+    {
+      "label": "Search",
+      "type": "input",
+      "possibleNames": ["Search", "Search resources", "Search by keyword", "Search..."]
+    }
+  ]
 }
 ```
+
+### Supported `flow` actions
+
+- `click`: find an element on the current page using the same fuzzy matching logic as selector extraction, then click it.
+- `type`: find an input-like element, then fill it with `value` or `credentialField`.
+- `goto`: navigate to a specific `url`.
+- `wait`: pause for `ms`.
+- `manual`: keep the browser open while you do a manual step, then continue after you press Enter in the terminal.
+- `waitForNavigation`: wait for the current page to finish loading.
+
+`manual` also supports automatic resume conditions:
+
+```json
+{
+  "action": "manual",
+  "message": "Sign in and open the target page.",
+  "resumeOnNotUrlIncludes": ["login.microsoftonline.com"],
+  "resumeOnElement": {
+    "label": "Search",
+    "type": "input",
+    "possibleNames": ["Search", "Search..."]
+  },
+  "requireEnter": false,
+  "timeoutMs": 900000,
+  "pollIntervalMs": 2000
+}
+```
+
+Useful `manual` fields:
+
+- `resumeOnUrlIncludes`: continue when the current URL contains one of these values.
+- `resumeOnNotUrlIncludes`: continue when the current URL no longer contains these values.
+- `resumeOnElement`: continue when a target element becomes detectable on the page.
+- `requireEnter`: if `true`, still wait for Enter; if `false`, auto-resume is enough.
+- `timeoutMs`: maximum wait time for the manual step.
+- `pollIntervalMs`: how often to re-check the page state.
+
+`click` and `type` accept either:
+
+```json
+{
+  "action": "click",
+  "target": "Manual",
+  "elementType": "link",
+  "possibleNames": ["Manual"]
+}
+```
+
+or:
+
+```json
+{
+  "action": "type",
+  "element": {
+    "label": "User Name",
+    "type": "input",
+    "possibleNames": ["Username", "Login"]
+  },
+  "value": "someone@example.com"
+}
+```
+
+### Microsoft sign-in
+
+If the page redirects to a Microsoft sign-in screen, you can provide credentials in `microsoftLogin`:
+
+```json
+{
+  "microsoftLogin": {
+    "username": "someone@example.com",
+    "password": "secret",
+    "staySignedIn": false
+  }
+}
+```
+
+The tool will try to fill the Microsoft username page, continue, fill the password page, and optionally click `No` on the "Stay signed in?" prompt when `staySignedIn` is `false`.
+
+### Azure Portal workflow
+
+For Azure Portal, the safest flow is usually a manual checkpoint because tenants can add MFA, conditional access, and extra prompts. The default `input.json` now opens `https://portal.azure.com/`, waits for you to sign in, clicks `Kubernetes center`, and then auto-resumes once the page search input is detectable.
 
 ## Desktop input
 

@@ -2,15 +2,14 @@ const fs = require("fs/promises");
 const path = require("path");
 const { execFileSync } = require("child_process");
 const { chromium } = require("playwright");
-
-const DEFAULT_INPUT_PATH = path.join(__dirname, "input.json");
-const DEFAULT_OUTPUT_PATH = path.join(__dirname, "output.json");
-const DESKTOP_CAPTURE_SCRIPT = path.join(__dirname, "capture-desktop.ps1");
-const BROWSER_CLOSE_DELAY_MS = 5000;
-
-function logStep(message) {
-  console.log(`[selector-tool] ${message}`);
-}
+const { logStep, logError } = require("./src/shared/logger");
+const { waitForEnter, createEnterWaiter } = require("./src/services/manualCheckpointService");
+const {
+  DEFAULT_INPUT_PATH,
+  DEFAULT_OUTPUT_PATH,
+  DESKTOP_CAPTURE_SCRIPT,
+  BROWSER_CLOSE_DELAY_MS,
+} = require("./src/config/paths");
 
 function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -239,6 +238,191 @@ function normalizeElementQuery(element) {
   };
 }
 
+function normalizeMicrosoftLogin(value) {
+  if (!isPlainObject(value)) {
+    return undefined;
+  }
+
+  const username = normalizeOptionalString(value.username);
+  const password = normalizeOptionalString(value.password);
+  const staySignedIn =
+    typeof value.staySignedIn === "boolean" ? value.staySignedIn : undefined;
+
+  if (!username && !password && staySignedIn === undefined) {
+    return undefined;
+  }
+
+  return {
+    username,
+    password,
+    staySignedIn,
+  };
+}
+
+function normalizeWebAction(action, index) {
+  if (!isPlainObject(action)) {
+    throw new Error(`flow[${index}] must be an object.`);
+  }
+
+  const rawAction =
+    typeof action.action === "string"
+      ? action.action
+      : typeof action.type === "string"
+        ? action.type
+        : null;
+  const actionName = normalizeSearchText(rawAction);
+
+  if (!actionName) {
+    throw new Error(`flow[${index}] requires an action name.`);
+  }
+
+  if (["goto", "navigate", "open"].includes(actionName)) {
+    const url = normalizeOptionalString(action.url || action.target);
+    if (!url || !isValidHttpUrl(url)) {
+      throw new Error(`flow[${index}] goto action requires a valid http or https url.`);
+    }
+
+    return {
+      kind: "goto",
+      url,
+    };
+  }
+
+  if (["wait", "delay", "sleep"].includes(actionName)) {
+    const ms = Number(action.ms ?? action.timeout ?? action.duration ?? 1000);
+    if (!Number.isFinite(ms) || ms < 0) {
+      throw new Error(`flow[${index}] wait action requires a non-negative ms value.`);
+    }
+
+    return {
+      kind: "wait",
+      ms,
+    };
+  }
+
+  if (["manual", "checkpoint", "pause", "waitforuser", "wait for user"].includes(actionName)) {
+    const message =
+      normalizeOptionalString(action.message) ||
+      "Complete the manual steps in the open browser window, then continue here.";
+    const resumeOnUrlIncludes = Array.isArray(action.resumeOnUrlIncludes)
+      ? action.resumeOnUrlIncludes.map(normalizeOptionalString).filter(Boolean)
+      : normalizeOptionalString(action.resumeOnUrlIncludes)
+        ? [normalizeOptionalString(action.resumeOnUrlIncludes)]
+        : [];
+    const resumeOnNotUrlIncludes = Array.isArray(action.resumeOnNotUrlIncludes)
+      ? action.resumeOnNotUrlIncludes.map(normalizeOptionalString).filter(Boolean)
+      : normalizeOptionalString(action.resumeOnNotUrlIncludes)
+        ? [normalizeOptionalString(action.resumeOnNotUrlIncludes)]
+        : [];
+    const resumeOnElement = action.resumeOnElement
+      ? normalizeElementQuery(action.resumeOnElement)
+      : null;
+    const timeoutMs = Number(action.timeoutMs ?? action.timeout ?? 10 * 60 * 1000);
+    const pollIntervalMs = Number(action.pollIntervalMs ?? 2000);
+    const hasAutoResumeCondition =
+      resumeOnUrlIncludes.length > 0 || resumeOnNotUrlIncludes.length > 0 || Boolean(resumeOnElement);
+
+    return {
+      kind: "manual",
+      message,
+      resumeOnUrlIncludes,
+      resumeOnNotUrlIncludes,
+      resumeOnElement,
+      timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 10 * 60 * 1000,
+      pollIntervalMs:
+        Number.isFinite(pollIntervalMs) && pollIntervalMs > 0 ? pollIntervalMs : 2000,
+      requireEnter:
+        typeof action.requireEnter === "boolean" ? action.requireEnter : !hasAutoResumeCondition,
+      postWaitMs:
+        Number.isFinite(Number(action.postWaitMs)) && Number(action.postWaitMs) >= 0
+          ? Number(action.postWaitMs)
+          : 1000,
+    };
+  }
+
+  if (["waitfornavigation", "wait for navigation", "navigation"].includes(actionName)) {
+    const timeoutMs = Number(action.timeoutMs ?? action.timeout ?? 15000);
+    return {
+      kind: "waitForNavigation",
+      timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 15000,
+    };
+  }
+
+  if (["click", "tap"].includes(actionName)) {
+    const query = normalizeElementQuery(
+      isPlainObject(action.element)
+        ? action.element
+        : {
+          label: action.target ?? action.label,
+          type: action.elementType ?? action.controlType ?? action.queryType ?? null,
+          possibleNames: action.possibleNames,
+          recommendedAction: "Click",
+        }
+    );
+
+    if (!query) {
+      throw new Error(`flow[${index}] click action requires a target label or element object.`);
+    }
+
+    return {
+      kind: "click",
+      query: {
+        ...query,
+        recommendedAction: "Click",
+      },
+      postWaitMs:
+        Number.isFinite(Number(action.postWaitMs)) && Number(action.postWaitMs) >= 0
+          ? Number(action.postWaitMs)
+          : 1000,
+    };
+  }
+
+  if (["type", "fill", "enter"].includes(actionName)) {
+    const query = normalizeElementQuery(
+      isPlainObject(action.element)
+        ? action.element
+        : {
+          label: action.target ?? action.label,
+          type: action.elementType ?? action.controlType ?? action.queryType ?? "input",
+          possibleNames: action.possibleNames,
+          recommendedAction: "Type Into",
+        }
+    );
+
+    if (!query) {
+      throw new Error(`flow[${index}] type action requires a target label or element object.`);
+    }
+
+    const value =
+      typeof action.value === "string"
+        ? action.value
+        : typeof action.text === "string"
+          ? action.text
+          : null;
+    const credentialField = normalizeOptionalString(action.credentialField);
+
+    if (!value && !credentialField) {
+      throw new Error(`flow[${index}] type action requires either value or credentialField.`);
+    }
+
+    return {
+      kind: "type",
+      query: {
+        ...query,
+        recommendedAction: "Type Into",
+      },
+      value,
+      credentialField,
+      postWaitMs:
+        Number.isFinite(Number(action.postWaitMs)) && Number(action.postWaitMs) >= 0
+          ? Number(action.postWaitMs)
+          : 500,
+    };
+  }
+
+  throw new Error(`flow[${index}] action "${rawAction}" is not supported.`);
+}
+
 function buildSearchTerms(query) {
   const terms = [query.label, ...(query.possibleNames || [])].filter(Boolean);
   const uniqueTerms = [];
@@ -395,6 +579,8 @@ async function loadInput(inputPath) {
       mode: "web",
       target: input.target.trim(),
       elements: normalizedElements,
+      flow: Array.isArray(input.flow) ? input.flow.map(normalizeWebAction) : [],
+      microsoftLogin: normalizeMicrosoftLogin(input.microsoftLogin),
     };
   }
 
@@ -463,6 +649,10 @@ function detectWebControlType(candidate) {
   const tag = String(candidate.tag || "").toUpperCase();
   const type = normalizeSearchText(candidate.type);
   const role = normalizeSearchText(candidate.role);
+
+  if (type === "hidden") {
+    return "hidden";
+  }
 
   if (type === "password") {
     return "password";
@@ -1153,6 +1343,10 @@ function normalizeDesktopCandidate(candidate) {
 }
 
 function rankCandidate(query, candidate) {
+  if (candidate.source === "web" && normalizeSearchText(candidate.type) === "hidden") {
+    return 0;
+  }
+
   let score = 0;
   const searchTerms = buildSearchTerms(query);
 
@@ -1565,6 +1759,315 @@ async function capturePriorityWebCandidates(page, input) {
   return candidates;
 }
 
+async function collectCurrentWebCandidates(page, input) {
+  const priorityCandidates = await capturePriorityWebCandidates(page, input);
+  const normalCandidates = await captureWebCandidates(page);
+  return [...priorityCandidates, ...normalCandidates].map(normalizeWebCandidate);
+}
+
+function getWebScopeForCandidate(page, candidate) {
+  if (Number.isInteger(candidate?.frameIndex)) {
+    return page.frames()[candidate.frameIndex] || page;
+  }
+
+  return page;
+}
+
+function buildLocatorFromWebCandidate(page, candidate, query) {
+  const scope = getWebScopeForCandidate(page, candidate);
+  const exactText = normalizeWhitespace(candidate.visibleInnerText || candidate.text || query.label);
+  const tag = String(candidate.tag || "").toUpperCase();
+  const normalizedRole = normalizeSearchText(candidate.role);
+  const role =
+    normalizedRole ||
+    (tag === "A" ? "link" : tag === "BUTTON" ? "button" : null);
+
+  if (candidate.cssSelector) {
+    return scope.locator(candidate.cssSelector).first();
+  }
+
+  if (candidate.id) {
+    return scope.locator(`[id='${escapeForAttribute(candidate.id)}']`).first();
+  }
+
+  if (candidate.name) {
+    return scope.locator(`[name='${escapeForAttribute(candidate.name)}']`).first();
+  }
+
+  if (candidate.placeholder && ["input", "password", "textarea", "select"].includes(candidate.controlType)) {
+    return scope.getByPlaceholder(candidate.placeholder, { exact: true }).first();
+  }
+
+  if (candidate.ariaLabel && role && ["button", "link"].includes(role)) {
+    return scope.getByRole(role, { name: candidate.ariaLabel, exact: true }).first();
+  }
+
+  if (exactText && role && ["button", "link"].includes(role)) {
+    return scope.getByRole(role, { name: exactText, exact: true }).first();
+  }
+
+  if (exactText) {
+    return scope.getByText(exactText, { exact: true }).first();
+  }
+
+  return null;
+}
+
+async function locateWebActionTarget(page, input, query) {
+  const candidates = await collectCurrentWebCandidates(page, {
+    ...input,
+    elements: [query],
+  });
+  const match = locateBestMatch(query, candidates);
+
+  if (!match?.candidate) {
+    return null;
+  }
+
+  const locator = buildLocatorFromWebCandidate(page, match.candidate, query);
+  if (!locator) {
+    return null;
+  }
+
+  return {
+    ...match,
+    locator,
+  };
+}
+
+function matchesUrlCondition(currentUrl, includesList) {
+  if (!includesList || includesList.length === 0) {
+    return true;
+  }
+
+  return includesList.some((value) => currentUrl.includes(value));
+}
+
+function matchesNotUrlCondition(currentUrl, excludesList) {
+  if (!excludesList || excludesList.length === 0) {
+    return true;
+  }
+
+  return excludesList.every((value) => !currentUrl.includes(value));
+}
+
+async function hasManualResumeCondition(page, input, step) {
+  const currentUrl = page.url();
+  const urlOk = matchesUrlCondition(currentUrl, step.resumeOnUrlIncludes);
+  const notUrlOk = matchesNotUrlCondition(currentUrl, step.resumeOnNotUrlIncludes);
+
+  if (!urlOk || !notUrlOk) {
+    return false;
+  }
+
+  if (!step.resumeOnElement) {
+    return true;
+  }
+
+  const match = await locateWebActionTarget(page, input, step.resumeOnElement);
+  return Boolean(match);
+}
+
+async function waitForManualResume(page, input, step) {
+  const hasAutoResumeCondition =
+    step.resumeOnUrlIncludes.length > 0 ||
+    step.resumeOnNotUrlIncludes.length > 0 ||
+    Boolean(step.resumeOnElement);
+
+  if (!step.requireEnter && !hasAutoResumeCondition) {
+    return;
+  }
+
+  if (step.requireEnter && !hasAutoResumeCondition) {
+    await waitForEnter(step.message);
+    return;
+  }
+
+  const startedAt = Date.now();
+  const enterWaiter = step.requireEnter ? createEnterWaiter(step.message) : null;
+
+  try {
+    while (Date.now() - startedAt < step.timeoutMs) {
+      if (await hasManualResumeCondition(page, input, step)) {
+        logStep("Manual checkpoint satisfied from page state; continuing.");
+        if (enterWaiter) {
+          enterWaiter.cancel();
+          await enterWaiter.promise.catch(() => {});
+        }
+        return;
+      }
+
+      if (enterWaiter) {
+        const winner = await Promise.race([
+          enterWaiter.promise,
+          page.waitForTimeout(step.pollIntervalMs).then(() => "poll"),
+        ]);
+
+        if (winner === "enter") {
+          logStep("Manual checkpoint resumed from terminal input.");
+          return;
+        }
+
+        continue;
+      }
+
+      await page.waitForTimeout(step.pollIntervalMs);
+    }
+  } finally {
+    if (enterWaiter) {
+      enterWaiter.cancel();
+    }
+  }
+
+  throw new Error(
+    `Manual checkpoint timed out after ${Math.round(step.timeoutMs / 1000)} seconds.`
+  );
+}
+
+async function maybeHandleMicrosoftLogin(page, microsoftLogin) {
+  if (!microsoftLogin) {
+    return false;
+  }
+
+  const emailSelectors = ["input[name='loginfmt']", "input[type='email']", "#i0116"];
+  const passwordSelectors = ["input[name='passwd']", "input[type='password']", "#i0118"];
+  const submitSelectors = ["#idSIButton9", "input[type='submit']", "button[type='submit']"];
+  const noStaySignedInSelectors = ["#idBtn_Back", "input#idBtn_Back"];
+
+  const firstVisible = async (selectors) => {
+    for (const selector of selectors) {
+      const locator = page.locator(selector).first();
+      if (await locator.count()) {
+        try {
+          if (await locator.isVisible({ timeout: 500 })) {
+            return locator;
+          }
+        } catch {
+          // Ignore transient visibility errors.
+        }
+      }
+    }
+
+    return null;
+  };
+
+  const emailInput = await firstVisible(emailSelectors);
+  if (emailInput && microsoftLogin.username) {
+    logStep("Microsoft sign-in detected; entering username");
+    await emailInput.fill(microsoftLogin.username);
+    const submit = await firstVisible(submitSelectors);
+    if (submit) {
+      await submit.click();
+      await page.waitForLoadState("domcontentloaded").catch(() => {});
+      await page.waitForTimeout(1000);
+    }
+  }
+
+  const passwordInput = await firstVisible(passwordSelectors);
+  if (passwordInput && microsoftLogin.password) {
+    logStep("Microsoft sign-in detected; entering password");
+    await passwordInput.fill(microsoftLogin.password);
+    const submit = await firstVisible(submitSelectors);
+    if (submit) {
+      await submit.click();
+      await page.waitForLoadState("domcontentloaded").catch(() => {});
+      await page.waitForTimeout(1000);
+    }
+  }
+
+  if (microsoftLogin.staySignedIn === false) {
+    const noButton = await firstVisible(noStaySignedInSelectors);
+    if (noButton) {
+      logStep("Microsoft stay-signed-in prompt detected; choosing No");
+      await noButton.click();
+      await page.waitForLoadState("domcontentloaded").catch(() => {});
+      await page.waitForTimeout(500);
+    }
+  }
+
+  return Boolean(emailInput || passwordInput);
+}
+
+async function executeWebFlow(page, input, result) {
+  for (const [index, step] of input.flow.entries()) {
+    logStep(`Running flow step ${index + 1}: ${step.kind}`);
+
+    if (step.kind === "goto") {
+      await page.goto(step.url, { waitUntil: "domcontentloaded", timeout: 60000 });
+      await page.waitForLoadState("networkidle").catch(() => {});
+      await page.waitForTimeout(1000);
+      await maybeHandleMicrosoftLogin(page, input.microsoftLogin);
+      continue;
+    }
+
+    if (step.kind === "wait") {
+      await page.waitForTimeout(step.ms);
+      await maybeHandleMicrosoftLogin(page, input.microsoftLogin);
+      continue;
+    }
+
+    if (step.kind === "waitForNavigation") {
+      await page.waitForLoadState("domcontentloaded", { timeout: step.timeoutMs }).catch(() => {});
+      await page.waitForLoadState("networkidle").catch(() => {});
+      await maybeHandleMicrosoftLogin(page, input.microsoftLogin);
+      continue;
+    }
+
+    if (step.kind === "manual") {
+      logStep(step.message);
+      await waitForManualResume(page, input, step);
+      await page.waitForLoadState("domcontentloaded").catch(() => {});
+      await page.waitForLoadState("networkidle").catch(() => {});
+      await page.waitForTimeout(step.postWaitMs);
+      continue;
+    }
+
+    if (step.kind === "click") {
+      const match = await locateWebActionTarget(page, input, step.query);
+      if (!match) {
+        result.unmatched.push(`[flow click] ${step.query.label}`);
+        addWarning(result, `Flow click target "${step.query.label}" could not be matched.`);
+        continue;
+      }
+
+      await match.locator.click({ timeout: 5000 });
+      await page.waitForLoadState("domcontentloaded").catch(() => {});
+      await page.waitForTimeout(step.postWaitMs);
+      await maybeHandleMicrosoftLogin(page, input.microsoftLogin);
+      continue;
+    }
+
+    if (step.kind === "type") {
+      const match = await locateWebActionTarget(page, input, step.query);
+      if (!match) {
+        result.unmatched.push(`[flow type] ${step.query.label}`);
+        addWarning(result, `Flow type target "${step.query.label}" could not be matched.`);
+        continue;
+      }
+
+      const value =
+        step.credentialField === "username"
+          ? input.microsoftLogin?.username
+          : step.credentialField === "password"
+            ? input.microsoftLogin?.password
+            : step.value;
+
+      if (!value) {
+        result.unmatched.push(`[flow type] ${step.query.label}`);
+        addWarning(
+          result,
+          `Flow type target "${step.query.label}" needs a value, but none was available.`
+        );
+        continue;
+      }
+
+      await match.locator.fill(value, { timeout: 5000 });
+      await page.waitForTimeout(step.postWaitMs);
+      await maybeHandleMicrosoftLogin(page, input.microsoftLogin);
+    }
+  }
+}
+
 async function processWeb(input, outputPath) {
   const browser = await chromium.launch({ headless: false, channel: "msedge" });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
@@ -1581,6 +2084,9 @@ async function processWeb(input, outputPath) {
 
     await page.waitForLoadState("networkidle").catch(() => {});
     await page.waitForTimeout(2000);
+    await maybeHandleMicrosoftLogin(page, input.microsoftLogin);
+    await executeWebFlow(page, input, result);
+    result.target = page.url();
 
     const priorityCandidates = await capturePriorityWebCandidates(page, input);
     const normalCandidates = await captureWebCandidatesWithPagination(page);
@@ -1694,6 +2200,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(`[selector-tool] ${error.message}`);
+  logError(error.message);
   process.exitCode = 1;
 });

@@ -1,57 +1,49 @@
 {
   "mode": "uipath_web",
-  "target": "https://datatables.net/",
+  "target": "https://portal.azure.com/#home",
   "elements": [
     {
-      "label": "Airi Satou",
-      "intent": "generic",
-      "controlType": "table_cell",
+      "label": "Search",
+      "intent": "search",
+      "controlType": "input",
       "sourceAttributes": {
-        "tag": "TD",
-        "type": null,
+        "tag": "INPUT",
+        "type": "search",
         "name": null,
         "ctrlId": null,
         "id": null,
-        "placeholder": null,
-        "ariaLabel": null,
-        "text": "Airi Satou",
-        "visibleInnerText": "Airi Satou",
+        "placeholder": "Search resources, services, and docs (G+/)",
+        "ariaLabel": "Search resources, services, and docs (G+/)",
+        "labelText": null,
+        "text": "",
+        "visibleInnerText": null,
         "hasIcon": false,
-        "role": null,
+        "role": "combobox",
         "href": null,
         "title": null,
-        "tableContext": {
-          "id": "example",
-          "name": null,
-          "ariaLabel": null,
-          "role": null,
-          "className": "display nowrap dataTable dtr-inline collapsed",
-          "columnIndex": 1,
-          "hasPagination": true,
-          "pagination": {
-            "page": 1,
-            "pagesScanned": 6
-          }
-        },
+        "tableContext": null,
         "parentHints": {
-          "tag": "TR",
+          "tag": "SPAN",
           "id": null,
           "name": null,
           "ariaLabel": null,
-          "role": null
+          "role": null,
+          "text": null
         }
       },
       "selectors": {
-        "css": "#example tbody > tr:nth-child(1) > td:nth-child(1)",
-        "uipath_strict": "<webctrl tag='TABLE' id='example' /><webctrl tag='TD' innertext='Airi Satou' />",
-        "uipath_fallback": "<webctrl tag='TD' innertext='Airi Satou' />"
+        "css": "[data-testid='global-search-input']",
+        "uipath_strict": "<html app='msedge.exe' title='Home - Microsoft Azure' /><webctrl aaname='Search resources, services, and docs (G+/)' tag='INPUT' role='combobox' />",
+        "uipath_fallback": null
       },
-      "recommendedAction": "Read Table Cell",
-      "valueVariable": null,
+      "recommendedAction": "Type Into",
+      "valueVariable": "in_Search",
       "confidence": "high",
       "warnings": []
     }
   ],
   "unmatched": [],
-  "warnings": []
+  "warnings": [
+    "Element \"Search\" does not have a strong fallback selector."
+  ]
 }
