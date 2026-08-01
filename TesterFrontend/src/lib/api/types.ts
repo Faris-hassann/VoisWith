@@ -90,6 +90,7 @@ export interface TestingRunResponse {
   issues: Issue[];
   coverageLimitations: CoverageLimitation[];
   artifacts: EvidenceReference[];
+  diagnostics?: RunDiagnostics;
 }
 
 export interface RunSummary {
@@ -196,4 +197,62 @@ export interface CoverageLimitation {
   area: string;
   reason: string;
   recommendation?: string;
+}
+
+export interface RunDiagnostics {
+  runId: string;
+  targetUrl: string;
+  finalUrl?: string;
+  startedAt: string;
+  completedAt?: string;
+  browser: {
+    launched: boolean;
+    error?: string;
+  };
+  initialNavigation?: DiagnosticEvent;
+  login: {
+    status: "SKIPPED" | "PASSED" | "FAILED" | "HUMAN_REQUIRED";
+    message: string;
+  };
+  crawl: {
+    acceptedUrls: string[];
+    skippedUrls: Array<{ url: string; reason: string }>;
+    failedUrls: Array<{ url: string; reason: string }>;
+    discoveredCandidates: number;
+    noInternalLinksPages: string[];
+    events: DiagnosticEvent[];
+  };
+  pages: PageDiagnostics[];
+  ai: {
+    calls: number;
+    successes: number;
+    failures: Array<{ pageUrl?: string; message: string }>;
+    validationFailures: Array<{ pageUrl?: string; message: string }>;
+  };
+}
+
+export interface PageDiagnostics {
+  url: string;
+  finalUrl?: string;
+  status: TestStatus;
+  navigationMs?: number;
+  links: number;
+  internalLinks: number;
+  forms: number;
+  buttons: number;
+  inputs: number;
+  consoleErrors: number;
+  networkFailures: number;
+  baselineTests: number;
+  aiPlannedTests: number;
+  reportArtifactPath?: string;
+}
+
+export interface DiagnosticEvent {
+  name: string;
+  status: "STARTED" | "PASSED" | "FAILED" | "SKIPPED" | "INFO";
+  timestamp: string;
+  url?: string;
+  message?: string;
+  durationMs?: number;
 }

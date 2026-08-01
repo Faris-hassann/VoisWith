@@ -1,5 +1,5 @@
 import type { TestingRunRequest } from "../types/testing.js";
-import type { PageReport } from "../types/report.js";
+import type { PageReport, RunDiagnostics } from "../types/report.js";
 
 export interface RunContext {
   runId: string;
@@ -19,4 +19,5 @@ export interface RunContext {
   openRouterCalls: number;
   deadlineMs: number;
   artifactRoot: string;
+  diagnostics: RunDiagnostics;
 }

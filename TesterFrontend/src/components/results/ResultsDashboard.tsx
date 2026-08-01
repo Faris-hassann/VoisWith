@@ -9,11 +9,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import type { ConsoleObservation, Issue, NetworkObservation, PageReport, PerformanceObservation, TestCaseResult, TestingRunResponse } from "@/lib/api/types";
 import { RawReportViewer } from "./RawReportViewer";
+import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import { SimpleTable } from "./SimpleTable";
 import { TestStatusChart } from "./TestStatusChart";
 import { TestSummaryCards } from "./TestSummaryCards";
 
-const tabs = ["Overview", "Pages", "Test Cases", "Issues", "Network", "Console", "Performance", "Security", "Artifacts", "Coverage", "Raw Report"];
+const tabs = ["Overview", "Diagnostics", "Pages", "Test Cases", "Issues", "Network", "Console", "Performance", "Security", "Artifacts", "Coverage", "Raw Report"];
 
 export function ResultsDashboard({ report }: { report: TestingRunResponse }) {
   const tests = report.pages.flatMap((page) => page.tests.map((test) => ({ ...test, pageUrl: page.url })));
@@ -56,7 +57,13 @@ export function ResultsDashboard({ report }: { report: TestingRunResponse }) {
         <Tabs.List className="flex gap-2 overflow-x-auto rounded-lg border bg-card p-2">
           {tabs.map((tab) => <Tabs.Trigger key={tab} value={tab} className="rounded-md px-3 py-2 text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">{tab}</Tabs.Trigger>)}
         </Tabs.List>
-        <Tabs.Content value="Overview" className="space-y-4"><TestStatusChart report={report} /></Tabs.Content>
+        <Tabs.Content value="Overview" className="space-y-4">
+          <div className="rounded-lg border bg-card p-4 text-sm text-muted-foreground">
+            HTTP 200 means the backend completed the run request. The run status and test statuses below describe what happened while testing the target website.
+          </div>
+          <TestStatusChart report={report} />
+        </Tabs.Content>
+        <Tabs.Content value="Diagnostics"><DiagnosticsPanel report={report} /></Tabs.Content>
         <Tabs.Content value="Pages"><SimpleTable data={report.pages} columns={pageColumns} searchPlaceholder="Search pages" /></Tabs.Content>
         <Tabs.Content value="Test Cases"><SimpleTable data={tests} columns={testColumns} searchPlaceholder="Filter by status, type, page, or text" /></Tabs.Content>
         <Tabs.Content value="Issues">{report.issues.length ? <SimpleTable data={report.issues} columns={issueColumns} /> : <EmptyState title="No issues" description="The backend did not report discovered issues." />}</Tabs.Content>

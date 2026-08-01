@@ -16,6 +16,7 @@ import { ReportAggregator } from "../reporting/report-aggregator.js";
 import { assertSafeTargetUrl } from "../security/ssrf-protection.js";
 import { redactSecrets } from "../security/secret-redaction.js";
 import type { RunContext } from "../testing/run-context.js";
+import { buildPageBaselineTests } from "../testing/page-baseline-tests.js";
 import type { TestAction, TestCase, TestPlan } from "../types/ai.js";
 import type { PageReport, TestCaseResult, TestStepResult, TestingRunResponse } from "../types/report.js";
 import type { ElementInventoryItem, TestingRunRequest } from "../types/testing.js";
@@ -88,11 +89,36 @@ export class RunOrchestrator {
       openRouterCalls: 0,
       deadlineMs: deadlineFromNow(request.execution.maximumRunDurationSeconds),
       artifactRoot: artifacts.runRoot,
+      diagnostics: {
+        runId,
+        targetUrl: request.targetUrl,
+        startedAt,
+        browser: { launched: false },
+        login: { status: request.credentials ? "FAILED" : "SKIPPED", message: request.credentials ? "Login not attempted yet." : "No credentials supplied." },
+        crawl: {
+          acceptedUrls: [],
+          skippedUrls: [],
+          failedUrls: [],
+          discoveredCandidates: 0,
+          noInternalLinksPages: [],
+          events: [],
+        },
+        pages: [],
+        ai: {
+          calls: 0,
+          successes: 0,
+          failures: [],
+          validationFailures: [],
+        },
+      },
     };
 
     let session: BrowserSession | undefined;
     try {
+      logger.info({ runId, targetUrl: request.targetUrl }, "Test run started");
       session = await this.browserManager.launch(context.request, artifacts.downloadsDir);
+      context.diagnostics.browser.launched = true;
+      logger.info({ runId }, "Browser launched");
       const consoleCollector = new ConsoleCollector();
       const networkCollector = new NetworkCollector(context.targetOrigin);
       const performanceCollector = new PerformanceCollector();
@@ -100,8 +126,36 @@ export class RunOrchestrator {
       consoleCollector.attach(session.page);
       networkCollector.attach(session.page);
 
+      const initialNavigationStarted = Date.now();
+      context.diagnostics.initialNavigation = {
+        name: "Initial navigation",
+        status: "STARTED",
+        timestamp: new Date().toISOString(),
+        url: target.toString(),
+      };
       await session.page.goto(target.toString(), { waitUntil: "domcontentloaded" });
-      await this.authentication.authenticate(session.page, context.request.credentials);
+      context.diagnostics.initialNavigation = {
+        name: "Initial navigation",
+        status: "PASSED",
+        timestamp: new Date().toISOString(),
+        url: target.toString(),
+        durationMs: Date.now() - initialNavigationStarted,
+      };
+      context.diagnostics.finalUrl = session.page.url();
+      logger.info({ runId, url: target.toString(), finalUrl: session.page.url(), durationMs: Date.now() - initialNavigationStarted }, "Initial navigation completed");
+      try {
+        const loginMessage = await this.authentication.authenticate(session.page, context.request.credentials);
+        context.diagnostics.login = {
+          status: context.request.credentials ? "PASSED" : "SKIPPED",
+          message: loginMessage ?? "No credentials supplied.",
+        };
+      } catch (error) {
+        context.diagnostics.login = {
+          status: error instanceof AppError && error.code === ERROR_CODES.HUMAN_AUTHENTICATION_REQUIRED ? "HUMAN_REQUIRED" : "FAILED",
+          message: error instanceof Error ? error.message : String(error),
+        };
+        throw error;
+      }
       if (context.request.credentials) {
         context.request.credentials.password = "";
       }
@@ -118,12 +172,18 @@ export class RunOrchestrator {
             networkCollector,
             performanceCollector,
             evidenceCollector,
+            artifacts,
           }),
       });
 
-      return this.aggregator.aggregate(context, new Date().toISOString());
+      const report = this.aggregator.aggregate(context, new Date().toISOString());
+      logger.info({ runId, status: report.status, summary: report.summary }, "Test run completed");
+      return report;
     } catch (error) {
       logger.error({ err: redactSecrets(error), runId }, "Test run failed");
+      if (!context.diagnostics.browser.launched) {
+        context.diagnostics.browser.error = error instanceof Error ? error.message : String(error);
+      }
       if (error instanceof AppError && error.fatal) throw error;
       context.pageReports.push({
         url: request.targetUrl,
@@ -155,6 +215,7 @@ export class RunOrchestrator {
     networkCollector: NetworkCollector;
     performanceCollector: PerformanceCollector;
     evidenceCollector: EvidenceCollector;
+    artifacts: ArtifactManager;
   }): Promise<PageReport> {
     const { context, session, url } = input;
     if (context.openRouterCalls >= config.limits.maxOpenRouterCallsPerRun) {
@@ -184,7 +245,11 @@ export class RunOrchestrator {
       };
     }
     await assertSafeTargetUrl(url, config.security);
+    logger.info({ runId: context.runId, url }, "Page navigation started");
+    const navigationStarted = Date.now();
     await session.page.goto(url, { waitUntil: "domcontentloaded" });
+    const navigationMs = Date.now() - navigationStarted;
+    logger.info({ runId: context.runId, url, finalUrl: session.page.url(), navigationMs }, "Page navigation completed");
 
     const performance = await input.performanceCollector.collect(session.page);
     const snapshot = await this.inspector.inspect({
@@ -195,21 +260,47 @@ export class RunOrchestrator {
       observedApiCalls: input.networkCollector.apiCalls(),
     });
     snapshot.performance = performance;
+    logger.info(
+      {
+        runId: context.runId,
+        url: snapshot.url,
+        elements: snapshot.elements.length,
+        forms: snapshot.forms.length,
+        links: snapshot.links.length,
+      },
+      "Testing page",
+    );
+
+    const baselineResults = buildPageBaselineTests({
+      snapshot,
+      selectedTypes: context.request.testTypes,
+      credentialsProvided: Boolean(context.request.credentials?.username),
+    });
 
     let plan: TestPlan;
+    let aiPlannedTests = 0;
     try {
       plan = await this.planner.plan(context, snapshot);
+      aiPlannedTests = plan.testCases.length;
+      context.diagnostics.ai.successes += 1;
+      logger.info({ runId: context.runId, url: snapshot.url, aiPlannedTests }, "AI planning completed");
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      context.diagnostics.ai.failures.push({ pageUrl: snapshot.url, message });
+      if (error instanceof AppError && error.code === ERROR_CODES.INVALID_AI_RESPONSE) {
+        context.diagnostics.ai.validationFailures.push({ pageUrl: snapshot.url, message });
+      }
+      logger.warn({ err: redactSecrets(error), runId: context.runId, url: snapshot.url }, "AI planning failed");
       const evidence = await input.evidenceCollector.screenshotOnFailure(
         session.page,
         `${context.runId}-ai-plan-failure`,
         "AI planning failed.",
       );
-      return {
+      const pageReport: PageReport = {
         url: snapshot.url,
         canonicalUrl: snapshot.canonicalUrl,
-        status: "ERROR",
-        tests: [
+        status: summarizePageStatus([
+          ...baselineResults,
           {
             id: "ai-planning",
             name: "AI planning",
@@ -217,7 +308,24 @@ export class RunOrchestrator {
             status: "ERROR",
             steps: [],
             assertions: [],
-            error: error instanceof Error ? error.message : String(error),
+            error: message,
+            actualResult: message,
+            evidence,
+            reproductionSteps: [`Open ${snapshot.url}`, "Request AI test plan"],
+            confidence: 0.9,
+          },
+        ]),
+        tests: [
+          ...baselineResults,
+          {
+            id: "ai-planning",
+            name: "AI planning",
+            type: "SMOKE",
+            status: "ERROR",
+            steps: [],
+            assertions: [],
+            error: message,
+            actualResult: message,
             evidence,
             reproductionSteps: [`Open ${snapshot.url}`, "Request AI test plan"],
             confidence: 0.9,
@@ -228,10 +336,13 @@ export class RunOrchestrator {
         performanceObservations: snapshot.performance,
         evidence,
       };
+      this.recordPageDiagnostics(context, pageReport, snapshot, baselineResults.length, 0, navigationMs);
+      await this.writePageReportArtifact(input.artifacts, context, pageReport);
+      return pageReport;
     }
 
     context.previousPageSummaries.push(plan.pageSummary);
-    const testResults: TestCaseResult[] = [];
+    const testResults: TestCaseResult[] = [...baselineResults];
     const executor = new PlaywrightActionExecutor(context.runId);
     const assertionEngine = new AssertionEngine();
     const elementMap = new Map(snapshot.elements.map((element) => [element.id, element]));
@@ -250,7 +361,7 @@ export class RunOrchestrator {
       testResults.push(result);
     }
 
-    return {
+    const pageReport: PageReport = {
       url: snapshot.url,
       canonicalUrl: snapshot.canonicalUrl,
       status: summarizePageStatus(testResults),
@@ -260,6 +371,80 @@ export class RunOrchestrator {
       performanceObservations: snapshot.performance,
       evidence: [],
     };
+    this.recordPageDiagnostics(context, pageReport, snapshot, baselineResults.length, aiPlannedTests, navigationMs);
+    await this.writePageReportArtifact(input.artifacts, context, pageReport);
+    return pageReport;
+  }
+
+  private recordPageDiagnostics(
+    context: RunContext,
+    pageReport: PageReport,
+    snapshot: Awaited<ReturnType<PageInspector["inspect"]>>,
+    baselineTests: number,
+    aiPlannedTests: number,
+    navigationMs: number,
+  ): void {
+    const buttons = snapshot.elements.filter((element) => element.kind === "button" || element.kind === "submit").length;
+    const inputs = snapshot.elements.filter((element) =>
+      ["input", "textarea", "select", "checkbox", "radio", "file"].includes(element.kind),
+    ).length;
+    const internalLinks = snapshot.links.filter((link) => link.internal).length;
+    if (internalLinks === 0) {
+      context.diagnostics.crawl.noInternalLinksPages.push(snapshot.url);
+    }
+    context.diagnostics.pages.push({
+      url: snapshot.url,
+      finalUrl: snapshot.url,
+      status: pageReport.status,
+      navigationMs,
+      links: snapshot.links.length,
+      internalLinks,
+      forms: snapshot.forms.length,
+      buttons,
+      inputs,
+      consoleErrors: snapshot.consoleErrors.length,
+      networkFailures: snapshot.failedRequests.length,
+      baselineTests,
+      aiPlannedTests,
+    });
+  }
+
+  private async writePageReportArtifact(
+    artifacts: ArtifactManager,
+    context: RunContext,
+    pageReport: PageReport,
+  ): Promise<void> {
+    try {
+      const runId = context.runId;
+      const slug = pageReport.canonicalUrl
+        .replace(/^https?:\/\//, "")
+        .replace(/[^a-zA-Z0-9._-]/g, "_")
+        .slice(0, 100);
+      const evidence = await artifacts.writeJson("reports", `${runId}-${slug || "page"}.json`, pageReport);
+      pageReport.evidence.push({
+        ...evidence,
+        description: "Per-page report generated immediately after page testing.",
+      });
+      const pageDiagnostic = context.diagnostics.pages.find((page) => page.url === pageReport.url);
+      if (pageDiagnostic) {
+        pageDiagnostic.reportArtifactPath = evidence.path;
+      }
+      logger.info(
+        {
+          runId,
+          url: pageReport.url,
+          tests: pageReport.tests.length,
+          status: pageReport.status,
+          artifact: evidence.path,
+        },
+        "Page report generated",
+      );
+    } catch (error) {
+      logger.warn(
+        { err: redactSecrets(error), runId: context.runId, url: pageReport.url },
+        "Failed to write per-page report artifact",
+      );
+    }
   }
 
   private async executeTestCase(input: {
