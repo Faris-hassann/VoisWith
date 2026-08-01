@@ -1,0 +1,35 @@
+import { describe, expect, it } from "vitest";
+import { defaultFormValues, testingFormSchema } from "./testing-run.schema";
+
+describe("testingFormSchema", () => {
+  it("requires authorization", () => {
+    const result = testingFormSchema.safeParse({ ...defaultFormValues, targetUrl: "https://example.com" });
+    expect(result.success).toBe(false);
+  });
+
+  it("validates recommended defaults when authorization is confirmed", () => {
+    const result = testingFormSchema.safeParse({
+      ...defaultFormValues,
+      targetUrl: "https://example.com",
+      authorizationConfirmed: true,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("returns validation errors instead of throwing for invalid URLs", () => {
+    expect(() =>
+      testingFormSchema.safeParse({
+        ...defaultFormValues,
+        targetUrl: "not a url",
+        authorizationConfirmed: true,
+      }),
+    ).not.toThrow();
+
+    const result = testingFormSchema.safeParse({
+      ...defaultFormValues,
+      targetUrl: "javascript:alert(1)",
+      authorizationConfirmed: true,
+    });
+    expect(result.success).toBe(false);
+  });
+});

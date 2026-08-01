@@ -1,0 +1,110 @@
+import type { TestingRunRequest, TestingRunResponse } from "../api/types";
+
+export function mockCompletedReport(request: TestingRunRequest): TestingRunResponse {
+  const now = new Date();
+  const started = new Date(now.getTime() - 18000);
+  return {
+    runId: "mock-run-001",
+    status: "PARTIAL",
+    startedAt: started.toISOString(),
+    completedAt: now.toISOString(),
+    targetOrigin: new URL(request.targetUrl).origin,
+    selectedTestingTypes: request.testTypes,
+    summary: {
+      pagesDiscovered: 3,
+      pagesTested: 2,
+      pagesSkipped: 1,
+      testsExecuted: 5,
+      passedTests: 2,
+      failedTests: 1,
+      skippedTests: 1,
+      blockedByPolicy: 1,
+      inconclusiveTests: 0,
+      consoleErrors: 1,
+      failedNetworkRequests: 1,
+    },
+    pages: [
+      {
+        url: request.targetUrl,
+        canonicalUrl: request.targetUrl,
+        status: "FAILED",
+        consoleErrors: [{ type: "error", text: "Example console error", location: request.targetUrl }],
+        failedNetworkRequests: [
+          {
+            url: `${new URL(request.targetUrl).origin}/api/example`,
+            method: "GET",
+            resourceType: "fetch",
+            status: 500,
+            durationMs: 220,
+            sameOrigin: true,
+            appearsApiRequest: true,
+          },
+        ],
+        performanceObservations: [
+          { name: "navigation-duration", valueMs: 840, description: "Initial navigation duration." },
+        ],
+        evidence: [],
+        tests: [
+          {
+            id: "mock-1",
+            name: "Home page loads",
+            type: "SMOKE",
+            status: "PASSED",
+            priority: "HIGH",
+            steps: [{ action: { action: "NAVIGATE", description: "Open target" }, status: "PASSED" }],
+            assertions: [{ action: { action: "ASSERT_VISIBLE", description: "Page visible" }, status: "PASSED" }],
+            evidence: [],
+            reproductionSteps: ["Open target URL"],
+            confidence: 0.92,
+          },
+          {
+            id: "mock-2",
+            name: "API request succeeds",
+            type: "API_NETWORK",
+            status: "FAILED",
+            priority: "MEDIUM",
+            steps: [{ action: { action: "CLICK", elementId: "element_2" }, status: "PASSED" }],
+            assertions: [{ action: { action: "ASSERT_RESPONSE_STATUS" }, status: "FAILED", actualResult: "500" }],
+            error: "Observed 500 response.",
+            evidence: [],
+            reproductionSteps: ["Open target URL", "Click example action"],
+            severity: "MEDIUM",
+            confidence: 0.8,
+          },
+          {
+            id: "mock-3",
+            name: "Payment-like action blocked",
+            type: "PASSIVE_SECURITY",
+            status: "BLOCKED_BY_POLICY",
+            priority: "HIGH",
+            steps: [{ action: { action: "CLICK", description: "Checkout" }, status: "BLOCKED_BY_POLICY", error: "Payment-like action blocked." }],
+            assertions: [],
+            evidence: [],
+            reproductionSteps: ["Open target URL"],
+            severity: "INFORMATIONAL",
+            confidence: 1,
+          },
+        ],
+      },
+    ],
+    issues: [
+      {
+        id: "issue-1",
+        severity: "MEDIUM",
+        title: "Observed API failure",
+        description: "A same-origin API request returned 500 during the test.",
+        pageUrl: request.targetUrl,
+        testName: "API request succeeds",
+        evidence: [],
+        confidence: 0.8,
+      },
+    ],
+    coverageLimitations: [
+      {
+        area: "Progress",
+        reason: "Backend currently returns a completed report from one long-running request.",
+      },
+    ],
+    artifacts: [],
+  };
+}
