@@ -8,11 +8,7 @@ const httpUrl = z
   .refine(isHttpUrl, "Use an HTTP or HTTPS URL.");
 
 function isHttpUrl(value: string): boolean {
-  try {
-    return ["http:", "https:"].includes(new URL(value).protocol);
-  } catch {
-    return false;
-  }
+  return /^https?:\/\//i.test(value);
 }
 
 export const testingFormSchema = z

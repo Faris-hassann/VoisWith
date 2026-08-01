@@ -11,6 +11,11 @@ import { requestIdMiddleware } from "./middleware/request-id.middleware.js";
 import { testingRouter } from "./routes/testing.routes.js";
 
 const pinoHttp = pinoHttpModule as unknown as typeof import("pino-http").default;
+const defaultFrontendOrigins = new Set([
+  "http://localhost:3000",
+  "http://localhost:3001",
+  "http://localhost:5173",
+]);
 
 export function createApp(): express.Express {
   const app = express();
@@ -32,7 +37,7 @@ export function createApp(): express.Express {
   app.use(
     cors({
       origin(origin, callback) {
-        if (!origin || config.frontendOrigins.includes(origin)) {
+        if (!origin || config.frontendOrigins.includes(origin) || defaultFrontendOrigins.has(origin)) {
           callback(null, true);
           return;
         }

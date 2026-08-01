@@ -14,7 +14,7 @@ const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: numberFromEnv.default("3000"),
   LOG_LEVEL: z.string().default("info"),
-  FRONTEND_ORIGINS: z.string().default("http://localhost:3000,http://localhost:5173"),
+  FRONTEND_ORIGINS: z.string().default("http://localhost:3000,http://localhost:3001,http://localhost:5173"),
   AUTO_OPEN_SWAGGER: booleanFromEnv.default("true"),
   OPENROUTER_API_KEY: z.string().default(""),
   OPENROUTER_MODEL: z.string().default(""),

@@ -15,16 +15,17 @@ export async function apiRequest<T>(
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 330000);
   const signal = mergeSignals(controller.signal, options.signal);
   const url = endpoint.startsWith("http") ? endpoint : `${env.apiBaseUrl}${endpoint}`;
+  const headers = new Headers(init.headers);
+  if (init.body && !headers.has("content-type")) {
+    headers.set("content-type", "application/json");
+  }
 
   try {
     const response = await fetch(url, {
       ...init,
       signal,
       cache: "no-store",
-      headers: {
-        "content-type": "application/json",
-        ...(init.headers ?? {}),
-      },
+      headers,
     });
     if (!response.ok) throw await createApiError(response);
     const contentType = response.headers.get("content-type") ?? "";
