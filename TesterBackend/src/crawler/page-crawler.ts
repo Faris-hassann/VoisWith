@@ -59,7 +59,9 @@ export class PageCrawler {
         break;
       }
       const item = stack.pop();
-      if (!item || context.visitedUrls.has(item.url)) continue;
+      if (!item) continue;
+      context.pendingUrls.delete(item.url);
+      if (context.visitedUrls.has(item.url)) continue;
       context.diagnostics.crawl.events.push({
         name: "Crawler popped URL",
         status: "INFO",
@@ -68,6 +70,9 @@ export class PageCrawler {
         message: `Depth ${item.depth}, source ${item.source}.`,
       });
       const decision = policy.evaluate(item.url, item.parentUrl);
+      if (decision.canonicalUrl) {
+        context.pendingUrls.delete(decision.canonicalUrl);
+      }
       if (!decision.allowed || !decision.canonicalUrl) {
         context.skippedUrls.set(item.url, decision.reason ?? "scope-policy");
         context.diagnostics.crawl.events.push({

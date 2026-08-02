@@ -8,7 +8,11 @@ const loginUrl = process.env.TRUEFORM_LOGIN_URL ?? "https://trueform.cultivburea
 const email = process.env.TRUEFORM_EMAIL ?? "admin@Cultiv.com";
 const password = process.env.TRUEFORM_PASSWORD;
 const environment = process.env.TRUEFORM_ENVIRONMENT ?? "production";
-const matrixEnabled = process.env.TRUEFORM_TEST_MATRIX !== "false";
+const matrixEnabled = process.env.TRUEFORM_TEST_MATRIX === "true";
+const maxDepth = Number(process.env.TRUEFORM_MAX_DEPTH ?? 8);
+const maxPages = Number(process.env.TRUEFORM_MAX_PAGES ?? 50);
+const maxActionsPerPage = Number(process.env.TRUEFORM_MAX_ACTIONS_PER_PAGE ?? 15);
+const maxDurationSeconds = Number(process.env.TRUEFORM_MAX_DURATION_SECONDS ?? 1800);
 
 if (!password) {
   throw new Error("Set TRUEFORM_PASSWORD before running this script. Example: $env:TRUEFORM_PASSWORD='...'; npm run trueform:system-test");
@@ -61,8 +65,8 @@ const payload = {
   ],
   crawl: {
     strategy: "DFS",
-    maxDepth: Number(process.env.TRUEFORM_MAX_DEPTH ?? 4),
-    maxPages: Number(process.env.TRUEFORM_MAX_PAGES ?? 12),
+    maxDepth,
+    maxPages,
     sameOriginOnly: true,
     includePatterns: [],
     excludePatterns: [
@@ -89,8 +93,8 @@ const payload = {
     allowFileUploads: environment === "staging",
     allowDestructiveActions: false,
     allowPayments: false,
-    maximumActionsPerPage: Number(process.env.TRUEFORM_MAX_ACTIONS_PER_PAGE ?? 15),
-    maximumRunDurationSeconds: Number(process.env.TRUEFORM_MAX_DURATION_SECONDS ?? 900),
+    maximumActionsPerPage: maxActionsPerPage,
+    maximumRunDurationSeconds: maxDurationSeconds,
   },
   testMatrix: {
     enabled: matrixEnabled,
@@ -105,6 +109,12 @@ const payload = {
     ],
   },
 };
+
+printRunConfiguration();
+warnIfBackendLimitIsLower("MAX_PAGES_PER_RUN", maxPages);
+warnIfBackendLimitIsLower("MAX_DEPTH_PER_RUN", maxDepth);
+warnIfBackendLimitIsLower("MAX_RUN_DURATION_SECONDS", maxDurationSeconds);
+warnIfBackendLimitIsLower("MAX_AI_CALLS_PER_RUN", maxPages);
 
 const response = await fetch(backendUrl, {
   method: "POST",
@@ -135,3 +145,24 @@ if (!response.ok) {
 console.log(`TrueForm system test completed with status: ${body.status ?? "unknown"}`);
 console.log(`Run ID: ${body.runId ?? "unknown"}`);
 console.log(`Report saved to ${outputPath}`);
+
+function printRunConfiguration() {
+  console.log("TrueForm system test configuration:");
+  console.log(`- targetUrl: ${targetUrl}`);
+  console.log(`- loginUrl: ${loginUrl}`);
+  console.log(`- environment: ${environment}`);
+  console.log(`- crawl.maxPages: ${maxPages}`);
+  console.log(`- crawl.maxDepth: ${maxDepth}`);
+  console.log(`- maximumActionsPerPage: ${maxActionsPerPage}`);
+  console.log(`- maximumRunDurationSeconds: ${maxDurationSeconds}`);
+  console.log(`- testMatrix.enabled: ${matrixEnabled}`);
+}
+
+function warnIfBackendLimitIsLower(name, requestedValue) {
+  const configuredValue = Number(process.env[name]);
+  if (Number.isFinite(configuredValue) && configuredValue < requestedValue) {
+    console.warn(
+      `Warning: backend ${name}=${configuredValue} is lower than requested ${requestedValue}; the backend will clamp this run.`,
+    );
+  }
+}

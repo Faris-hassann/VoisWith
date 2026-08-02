@@ -8,7 +8,7 @@ describe("PageCrawler", () => {
     const crawler = new PageCrawler();
     const context = contextFor({
       maxDepth: 3,
-      maxPages: 2,
+      maxPages: 3,
       sameOriginOnly: true,
     });
     const tested: string[] = [];
@@ -49,9 +49,11 @@ describe("PageCrawler", () => {
       },
     });
 
-    expect(tested).toEqual(["https://example.com/", "https://example.com/about"]);
+    expect(tested).toEqual(["https://example.com/", "https://example.com/about", "https://example.com/contact"]);
     expect(context.visitedUrls.has("https://example.com/about")).toBe(true);
-    expect(context.visitedUrls.has("https://example.com/contact")).toBe(false);
+    expect(context.visitedUrls.has("https://example.com/contact")).toBe(true);
+    expect(context.pendingUrls.has("https://example.com/about")).toBe(false);
+    expect(context.pendingUrls.has("https://example.com/contact")).toBe(false);
     expect(context.skippedUrls.get("https://other.example/")).toBe("outside-origin");
   });
 });

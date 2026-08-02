@@ -342,38 +342,6 @@ export class RunOrchestrator {
     artifacts: ArtifactManager;
   }): Promise<{ report: PageReport; snapshot: Awaited<ReturnType<PageInspector["inspect"]>> }> {
     const { context, session, url } = input;
-    if (context.openRouterCalls >= config.limits.maxOpenRouterCallsPerRun) {
-      const snapshot = emptySnapshot(url);
-      const report: PageReport = {
-        url,
-        canonicalUrl: url,
-        role: context.roleName,
-        viewport: context.viewportName,
-        locale: context.localeName,
-        direction: context.direction,
-        status: "SKIPPED",
-        tests: [
-          {
-            id: "ai-call-budget",
-            name: "AI planning budget",
-            type: "SMOKE",
-            status: "SKIPPED",
-            steps: [],
-            assertions: [],
-            actualResult: `Maximum AI calls per run reached: ${config.limits.maxOpenRouterCallsPerRun}`,
-            evidence: [],
-            reproductionSteps: [`Open ${url}`],
-            confidence: 1,
-          },
-        ],
-        consoleErrors: [],
-        failedNetworkRequests: [],
-        performanceObservations: [],
-        evidence: [],
-        skippedReason: "Maximum AI calls per run reached.",
-      };
-      return { report, snapshot };
-    }
     await assertSafeTargetUrl(url, config.security);
     logger.info({ runId: context.runId, url }, "Page navigation started");
     const navigationStarted = Date.now();
@@ -413,6 +381,41 @@ export class RunOrchestrator {
       context,
       snapshot,
     });
+
+    if (context.openRouterCalls >= config.limits.maxOpenRouterCallsPerRun) {
+      const aiBudgetResult: TestCaseResult = {
+        id: "ai-call-budget",
+        name: "AI planning budget",
+        type: "SMOKE",
+        status: "SKIPPED",
+        steps: [],
+        assertions: [],
+        actualResult: `Maximum AI calls per run reached: ${config.limits.maxOpenRouterCallsPerRun}`,
+        evidence: [],
+        reproductionSteps: [`Open ${snapshot.url}`, "Inspect page snapshot", "Skip AI planning because budget is exhausted"],
+        severity: "INFORMATIONAL",
+        confidence: 1,
+      };
+      const testResults = [...baselineResults, aiBudgetResult];
+      const pageReport: PageReport = {
+        url: snapshot.url,
+        canonicalUrl: snapshot.canonicalUrl,
+        role: context.roleName,
+        viewport: context.viewportName,
+        locale: context.localeName,
+        direction: context.direction,
+        status: summarizePageStatus(testResults),
+        tests: testResults,
+        consoleErrors: snapshot.consoleErrors,
+        failedNetworkRequests: snapshot.failedRequests,
+        performanceObservations: snapshot.performance,
+        evidence: pageEvidence,
+        skippedReason: "Maximum AI calls per run reached after baseline inspection.",
+      };
+      this.recordPageDiagnostics(context, pageReport, snapshot, baselineResults.length, 0, navigationMs);
+      await this.writePageReportArtifact(input.artifacts, context, pageReport);
+      return { report: pageReport, snapshot };
+    }
 
     let plan: TestPlan;
     let aiPlannedTests = 0;
