@@ -3,27 +3,22 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Eye, EyeOff, Play } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useForm, type FieldPath } from "react-hook-form";
 import { toast } from "sonner";
 import { ApiErrorAlert } from "@/components/shared/ApiErrorAlert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { runWebsiteTest } from "@/lib/api/testing.api";
+import { startWebsiteTest } from "@/lib/api/testing.api";
 import { defaultFormValues, testingFormSchema, type TestingFormValues } from "@/lib/schemas/testing-run.schema";
 import { buildTestingPayload } from "@/lib/testing/payload";
-import { useReportStore } from "@/providers/report-store-provider";
-import { RunningTestPanel } from "./RunningTestPanel";
 import { TestingTypesSelector } from "./TestingTypesSelector";
 
 export function TestConfigurationForm() {
   const router = useRouter();
-  const { saveReport } = useReportStore();
   const [showPassword, setShowPassword] = useState(false);
-  const [runningValues, setRunningValues] = useState<TestingFormValues | null>(null);
-  const [elapsed, setElapsed] = useState(0);
+  const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState<unknown>();
-  const abortRef = useRef<AbortController | null>(null);
   const form = useForm<TestingFormValues>({
     resolver: zodResolver(testingFormSchema),
     defaultValues: defaultFormValues,
@@ -32,40 +27,25 @@ export function TestConfigurationForm() {
   const authEnabled = form.watch("authenticationEnabled");
   const values = form.watch();
 
-  useEffect(() => {
-    if (!runningValues) return;
-    const timer = setInterval(() => setElapsed((value) => value + 1), 1000);
-    return () => clearInterval(timer);
-  }, [runningValues]);
-
   const onSubmit = form.handleSubmit(async (formValues) => {
     setError(undefined);
     const confirmed = window.confirm("Run this authorized test now? Safe mode blocks destructive and payment-like actions by default.");
     if (!confirmed) return;
     const payload = buildTestingPayload(formValues);
     form.setValue("credentials.password", "");
-    setRunningValues(formValues);
-    setElapsed(0);
-    const controller = new AbortController();
-    abortRef.current = controller;
+    setIsStarting(true);
     try {
-      const report = await runWebsiteTest(payload, { signal: controller.signal });
-      saveReport(report);
-      toast.success("Test completed");
-      router.push(`/testing/results/${report.runId}`);
+      const run = await startWebsiteTest(payload);
+      toast.success("Test run started");
+      router.push(`/testing/running/${run.runId}`);
     } catch (caught) {
       setError(caught);
-      toast.error("Test request failed");
+      toast.error("Test run could not be started");
     } finally {
-      setRunningValues(null);
-      abortRef.current = null;
+      setIsStarting(false);
       form.setValue("credentials.password", "");
     }
   });
-
-  if (runningValues) {
-    return <RunningTestPanel values={runningValues} elapsedSeconds={elapsed} onCancel={() => abortRef.current?.abort()} />;
-  }
 
   return (
     <form onSubmit={onSubmit} className="space-y-5">
@@ -179,9 +159,9 @@ export function TestConfigurationForm() {
             <Review label="Browser" value={`Chrome ${values.browser.headless ? "headless" : "visible"}`} />
             <Review label="Safety" value={values.execution.safeMode ? "Safe mode enabled" : "Safe mode disabled"} />
           </div>
-          <Button type="submit" disabled={!values.authorizationConfirmed || form.formState.isSubmitting}>
+          <Button type="submit" disabled={!values.authorizationConfirmed || form.formState.isSubmitting || isStarting}>
             <Play className="h-4 w-4" />
-            {form.formState.isSubmitting ? "Running" : "Run Test"}
+            {isStarting || form.formState.isSubmitting ? "Starting" : "Run Test"}
           </Button>
         </CardContent>
       </Card>

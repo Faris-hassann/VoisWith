@@ -2,7 +2,7 @@ import { env } from "../environment/env";
 import { mockCompletedReport } from "../testing/mock-reports";
 import { endpoints } from "./endpoints";
 import { apiRequest } from "./client";
-import type { TestingRunRequest, TestingRunResponse } from "./types";
+import type { AsyncRunSnapshot, AsyncRunStartResponse, TestingRunRequest, TestingRunResponse } from "./types";
 
 export async function runWebsiteTest(
   payload: TestingRunRequest,
@@ -23,6 +23,41 @@ export async function runWebsiteTest(
     },
     { signal: options.signal, timeoutMs },
   );
+}
+
+export async function startWebsiteTest(payload: TestingRunRequest): Promise<AsyncRunStartResponse> {
+  if (env.mockMode) {
+    return {
+      runId: crypto.randomUUID(),
+      status: "running",
+      startedAt: new Date().toISOString(),
+      streamUrl: "/mock-stream",
+    };
+  }
+
+  const endpoint = env.apiMode === "proxy" ? endpoints.proxyTestingRuns : endpoints.testingRuns;
+  return apiRequest<AsyncRunStartResponse>(
+    endpoint,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    { timeoutMs: 15000 },
+  );
+}
+
+export async function getTestingRunStatus(runId: string): Promise<AsyncRunSnapshot> {
+  const endpointBase = env.apiMode === "proxy" ? endpoints.proxyTestingRuns : endpoints.testingRuns;
+  return apiRequest<AsyncRunSnapshot>(`${endpointBase}/${encodeURIComponent(runId)}`, { method: "GET" }, { timeoutMs: 10000 });
+}
+
+export function buildTestingRunWebSocketUrl(runId: string): string {
+  const base = new URL(env.apiBaseUrl);
+  base.protocol = base.protocol === "https:" ? "wss:" : "ws:";
+  base.pathname = `${env.testRunsEndpoint}/${encodeURIComponent(runId)}/stream`;
+  base.search = "";
+  base.hash = "";
+  return base.toString();
 }
 
 export async function checkBackendHealth(): Promise<boolean> {

@@ -28,8 +28,14 @@ import { ActionPolicyEngine } from "../actions/action-policy-engine.js";
 import { PlaywrightActionExecutor } from "../actions/playwright-action-executor.js";
 import { AssertionEngine } from "../assertions/assertion-engine.js";
 import { buildMatrixTargets, type MatrixExecutionTarget } from "../testing/run-matrix.js";
+import type { RunEventSink, RunProgressEventInput } from "../runs/run-events.js";
 
 let activeRuns = 0;
+
+export interface RunOrchestratorOptions {
+  runId?: string;
+  onEvent?: RunEventSink;
+}
 
 export class RunOrchestrator {
   private readonly browserManager = new BrowserManager();
@@ -40,7 +46,7 @@ export class RunOrchestrator {
   private readonly policy = new ActionPolicyEngine();
   private readonly aggregator = new ReportAggregator();
 
-  async run(request: TestingRunRequest): Promise<TestingRunResponse> {
+  async run(request: TestingRunRequest, options: RunOrchestratorOptions = {}): Promise<TestingRunResponse> {
     if (activeRuns >= config.limits.maxConcurrentRuns) {
       throw new AppError({
         code: ERROR_CODES.RUN_TIMEOUT,
@@ -51,7 +57,7 @@ export class RunOrchestrator {
 
     activeRuns += 1;
     const startedAt = new Date().toISOString();
-    const runId = crypto.randomUUID();
+    const runId = options.runId ?? crypto.randomUUID();
     const target = await assertSafeTargetUrl(request.targetUrl, config.security);
     const artifacts = new ArtifactManager(config.artifacts.root, runId);
     await artifacts.initialize();
@@ -127,6 +133,12 @@ export class RunOrchestrator {
     let session: BrowserSession | undefined;
     try {
       logger.info({ runId, targetUrl: request.targetUrl }, "Test run started");
+      emit(options, {
+        runId,
+        type: "run.orchestrator_started",
+        status: "started",
+        message: "Backend orchestrator initialized the test run.",
+      });
       const targets = buildMatrixTargets(context.request);
       context.diagnostics.matrix = {
         roles: unique(targets.map((item) => item.role.name)),
@@ -140,6 +152,7 @@ export class RunOrchestrator {
           target,
           targetItem,
           artifacts,
+          events: options.onEvent,
         });
         await this.browserManager.close(session);
         session = undefined;
@@ -149,10 +162,28 @@ export class RunOrchestrator {
 
       const report = this.aggregator.aggregate(context, new Date().toISOString());
       logger.info({ runId, status: report.status, summary: report.summary }, "Test run completed");
+      emit(options, {
+        runId,
+        type: "run.report_ready",
+        status: report.status === "ERROR" ? "failed" : "passed",
+        message: `Final report is ready with status ${report.status}.`,
+        counts: {
+          pagesTested: report.summary.pagesTested,
+          testsExecuted: report.summary.testsExecuted,
+          issues: report.issues.length,
+        },
+      });
       return report;
     } catch (error) {
       const serialized = serializeError(error);
       logger.error({ err: serialized, runId }, "Test run failed");
+      emit(options, {
+        runId,
+        type: "run.error",
+        status: "failed",
+        message: serialized.message,
+        diagnostics: serialized,
+      });
       if (!context.diagnostics.browser.launched) {
         context.diagnostics.browser.error = serialized.message;
       }
@@ -192,6 +223,7 @@ export class RunOrchestrator {
     target: URL;
     targetItem: MatrixExecutionTarget;
     artifacts: ArtifactManager;
+    events?: RunEventSink;
   }): Promise<BrowserSession> {
     const { context, target, targetItem, artifacts } = input;
     const localRequest: TestingRunRequest = {
@@ -227,6 +259,15 @@ export class RunOrchestrator {
       },
       "Matrix target started",
     );
+    emit(input, {
+      runId: context.runId,
+      type: "matrix.started",
+      status: "started",
+      message: `Started ${targetItem.role.name} / ${targetItem.viewport.name} / ${targetItem.locale.name}.`,
+      role: targetItem.role.name,
+      viewport: targetItem.viewport.name,
+      locale: targetItem.locale.name,
+    });
 
     const session = await this.browserManager.launch(localRequest, artifacts.downloadsDir, {
       viewport: localRequest.browser.viewport,
@@ -235,6 +276,15 @@ export class RunOrchestrator {
     });
     context.diagnostics.browser.launched = true;
     logger.info({ runId: context.runId, role: targetItem.role.name }, "Browser launched");
+    emit(input, {
+      runId: context.runId,
+      type: "browser.launched",
+      status: "passed",
+      message: "Visible Chrome launched for the matrix target.",
+      role: targetItem.role.name,
+      viewport: targetItem.viewport.name,
+      locale: targetItem.locale.name,
+    });
 
     const consoleCollector = new ConsoleCollector();
     const networkCollector = new NetworkCollector(context.targetOrigin);
@@ -250,6 +300,16 @@ export class RunOrchestrator {
       timestamp: new Date().toISOString(),
       url: target.toString(),
     };
+    emit(input, {
+      runId: context.runId,
+      type: "navigation.initial_started",
+      status: "started",
+      message: `Opening ${target.toString()}.`,
+      pageUrl: target.toString(),
+      role: targetItem.role.name,
+      viewport: targetItem.viewport.name,
+      locale: targetItem.locale.name,
+    });
     await session.page.goto(target.toString(), { waitUntil: "domcontentloaded" });
     if (targetItem.locale.direction === "rtl") {
       await session.page.evaluate(() => {
@@ -265,8 +325,29 @@ export class RunOrchestrator {
       message: "At least one matrix target completed initial navigation.",
     };
     context.diagnostics.finalUrl = session.page.url();
+    emit(input, {
+      runId: context.runId,
+      type: "navigation.initial_passed",
+      status: "passed",
+      message: "Initial page navigation completed.",
+      pageUrl: session.page.url(),
+      role: targetItem.role.name,
+      viewport: targetItem.viewport.name,
+      locale: targetItem.locale.name,
+      counts: { durationMs: Date.now() - initialNavigationStarted },
+    });
 
     try {
+      emit(input, {
+        runId: context.runId,
+        type: "login.started",
+        status: "started",
+        message: localRequest.credentials ? "Login flow started." : "No credentials supplied; login skipped.",
+        pageUrl: session.page.url(),
+        role: targetItem.role.name,
+        viewport: targetItem.viewport.name,
+        locale: targetItem.locale.name,
+      });
       const loginResult = await this.authentication.authenticate(session.page, localRequest.credentials);
       context.diagnostics.login = {
         status: localRequest.credentials ? "PASSED" : "SKIPPED",
@@ -280,6 +361,17 @@ export class RunOrchestrator {
         };
         context.diagnostics.finalUrl = session.page.url();
       }
+      emit(input, {
+        runId: context.runId,
+        type: localRequest.credentials ? "login.passed" : "login.skipped",
+        status: localRequest.credentials ? "passed" : "skipped",
+        message: loginResult?.message ?? "No credentials supplied.",
+        pageUrl: session.page.url(),
+        role: targetItem.role.name,
+        viewport: targetItem.viewport.name,
+        locale: targetItem.locale.name,
+        diagnostics: loginResult?.diagnostics,
+      });
     } catch (error) {
       const serialized = serializeError(error);
       const evidence = await evidenceCollector.screenshotOnFailure(
@@ -293,6 +385,17 @@ export class RunOrchestrator {
         details: serialized.details,
         evidence,
       };
+      emit(input, {
+        runId: context.runId,
+        type: "login.failed",
+        status: "failed",
+        message: serialized.message,
+        pageUrl: session.page.url(),
+        role: targetItem.role.name,
+        viewport: targetItem.viewport.name,
+        locale: targetItem.locale.name,
+        diagnostics: context.diagnostics.login,
+      });
       throw error;
     }
 
@@ -308,6 +411,7 @@ export class RunOrchestrator {
           performanceCollector,
           evidenceCollector,
           artifacts,
+          events: input.events,
         });
         return { report: result.report, links: result.snapshot.links };
       },
@@ -328,6 +432,16 @@ export class RunOrchestrator {
       },
       "Matrix target completed",
     );
+    emit(input, {
+      runId: context.runId,
+      type: "matrix.completed",
+      status: "passed",
+      message: `Completed ${targetItem.role.name} / ${targetItem.viewport.name} / ${targetItem.locale.name}.`,
+      role: targetItem.role.name,
+      viewport: targetItem.viewport.name,
+      locale: targetItem.locale.name,
+      counts: { pages: localContext.visitedUrls.size },
+    });
     return session;
   }
 
@@ -340,14 +454,36 @@ export class RunOrchestrator {
     performanceCollector: PerformanceCollector;
     evidenceCollector: EvidenceCollector;
     artifacts: ArtifactManager;
+    events?: RunEventSink;
   }): Promise<{ report: PageReport; snapshot: Awaited<ReturnType<PageInspector["inspect"]>> }> {
     const { context, session, url } = input;
     await assertSafeTargetUrl(url, config.security);
     logger.info({ runId: context.runId, url }, "Page navigation started");
+    emit(input, {
+      runId: context.runId,
+      type: "page.navigation_started",
+      status: "started",
+      message: `Navigating to ${url}.`,
+      pageUrl: url,
+      role: context.roleName,
+      viewport: context.viewportName,
+      locale: context.localeName,
+    });
     const navigationStarted = Date.now();
     await session.page.goto(url, { waitUntil: "domcontentloaded" });
     const navigationMs = Date.now() - navigationStarted;
     logger.info({ runId: context.runId, url, finalUrl: session.page.url(), navigationMs }, "Page navigation completed");
+    emit(input, {
+      runId: context.runId,
+      type: "page.navigation_passed",
+      status: "passed",
+      message: "Page navigation completed.",
+      pageUrl: session.page.url(),
+      role: context.roleName,
+      viewport: context.viewportName,
+      locale: context.localeName,
+      counts: { durationMs: navigationMs },
+    });
 
     const performance = await input.performanceCollector.collect(session.page);
     const snapshot = await this.inspector.inspect({
@@ -368,6 +504,26 @@ export class RunOrchestrator {
       },
       "Testing page",
     );
+    emit(input, {
+      runId: context.runId,
+      type: "page.snapshot_collected",
+      status: "passed",
+      message: "Collected page snapshot for crawl and AI planning.",
+      pageUrl: snapshot.url,
+      role: context.roleName,
+      viewport: context.viewportName,
+      locale: context.localeName,
+      counts: {
+        links: snapshot.links.length,
+        forms: snapshot.forms.length,
+        elements: snapshot.elements.length,
+        images: snapshot.images.length,
+        scripts: snapshot.scripts.length,
+        consoleErrors: snapshot.consoleErrors.length,
+        failedRequests: snapshot.failedRequests.length,
+        apiCalls: snapshot.observedApiCalls.length,
+      },
+    });
 
     const baselineResults = buildPageBaselineTests({
       snapshot,
@@ -383,6 +539,16 @@ export class RunOrchestrator {
     });
 
     if (context.openRouterCalls >= config.limits.maxOpenRouterCallsPerRun) {
+      emit(input, {
+        runId: context.runId,
+        type: "ai.skipped_budget",
+        status: "skipped",
+        message: `Maximum AI calls per run reached: ${config.limits.maxOpenRouterCallsPerRun}.`,
+        pageUrl: snapshot.url,
+        role: context.roleName,
+        viewport: context.viewportName,
+        locale: context.localeName,
+      });
       const aiBudgetResult: TestCaseResult = {
         id: "ai-call-budget",
         name: "AI planning budget",
@@ -413,17 +579,38 @@ export class RunOrchestrator {
         skippedReason: "Maximum AI calls per run reached after baseline inspection.",
       };
       this.recordPageDiagnostics(context, pageReport, snapshot, baselineResults.length, 0, navigationMs);
-      await this.writePageReportArtifact(input.artifacts, context, pageReport);
+      await this.writePageReportArtifact(input.artifacts, context, pageReport, input.events);
       return { report: pageReport, snapshot };
     }
 
     let plan: TestPlan;
     let aiPlannedTests = 0;
     try {
+      emit(input, {
+        runId: context.runId,
+        type: "ai.planning_started",
+        status: "started",
+        message: "Sending page snapshot to AI planner.",
+        pageUrl: snapshot.url,
+        role: context.roleName,
+        viewport: context.viewportName,
+        locale: context.localeName,
+      });
       plan = await this.planner.plan(context, snapshot);
       aiPlannedTests = plan.testCases.length;
       context.diagnostics.ai.successes += 1;
       logger.info({ runId: context.runId, url: snapshot.url, aiPlannedTests }, "AI planning completed");
+      emit(input, {
+        runId: context.runId,
+        type: "ai.planning_passed",
+        status: "passed",
+        message: `AI generated ${aiPlannedTests} test case(s).`,
+        pageUrl: snapshot.url,
+        role: context.roleName,
+        viewport: context.viewportName,
+        locale: context.localeName,
+        counts: { aiPlannedTests },
+      });
     } catch (error) {
       const message = errorMessage(error);
       context.diagnostics.ai.failures.push({ pageUrl: snapshot.url, message });
@@ -431,6 +618,17 @@ export class RunOrchestrator {
         context.diagnostics.ai.validationFailures.push({ pageUrl: snapshot.url, message });
       }
       logger.warn({ err: redactSecrets(error), runId: context.runId, url: snapshot.url }, "AI planning failed");
+      emit(input, {
+        runId: context.runId,
+        type: "ai.planning_failed",
+        status: "failed",
+        message,
+        pageUrl: snapshot.url,
+        role: context.roleName,
+        viewport: context.viewportName,
+        locale: context.localeName,
+        diagnostics: serializeError(error),
+      });
       const evidence = await input.evidenceCollector.screenshotOnFailure(
         session.page,
         `${context.runId}-ai-plan-failure`,
@@ -481,7 +679,7 @@ export class RunOrchestrator {
         evidence: [...pageEvidence, ...evidence],
       };
       this.recordPageDiagnostics(context, pageReport, snapshot, baselineResults.length, 0, navigationMs);
-      await this.writePageReportArtifact(input.artifacts, context, pageReport);
+      await this.writePageReportArtifact(input.artifacts, context, pageReport, input.events);
       return { report: pageReport, snapshot };
     }
 
@@ -500,6 +698,7 @@ export class RunOrchestrator {
         executor,
         assertionEngine,
         evidenceCollector: input.evidenceCollector,
+        events: input.events,
       });
       context.previousTestResults.push(`${result.name}: ${result.status}`);
       testResults.push(result);
@@ -520,7 +719,7 @@ export class RunOrchestrator {
       evidence: pageEvidence,
     };
     this.recordPageDiagnostics(context, pageReport, snapshot, baselineResults.length, aiPlannedTests, navigationMs);
-    await this.writePageReportArtifact(input.artifacts, context, pageReport);
+    await this.writePageReportArtifact(input.artifacts, context, pageReport, input.events);
     return { report: pageReport, snapshot };
   }
 
@@ -608,6 +807,7 @@ export class RunOrchestrator {
     artifacts: ArtifactManager,
     context: RunContext,
     pageReport: PageReport,
+    events?: RunEventSink,
   ): Promise<void> {
     try {
       const runId = context.runId;
@@ -634,6 +834,20 @@ export class RunOrchestrator {
         },
         "Page report generated",
       );
+      emit({ events }, {
+        runId,
+        type: "page.report_written",
+        status: "passed",
+        message: "Per-page report artifact generated.",
+        pageUrl: pageReport.url,
+        role: pageReport.role,
+        viewport: pageReport.viewport,
+        locale: pageReport.locale,
+        counts: {
+          tests: pageReport.tests.length,
+          issues: pageReport.tests.filter((test) => test.status === "FAILED" || test.status === "ERROR").length,
+        },
+      });
     } catch (error) {
       logger.warn(
         { err: redactSecrets(error), runId: context.runId, url: pageReport.url },
@@ -650,10 +864,21 @@ export class RunOrchestrator {
     executor: PlaywrightActionExecutor;
     assertionEngine: AssertionEngine;
     evidenceCollector: EvidenceCollector;
+    events?: RunEventSink;
   }): Promise<TestCaseResult> {
     const steps: TestStepResult[] = [];
     const assertions: TestStepResult[] = [];
     const reproductionSteps: string[] = [];
+    emit(input, {
+      runId: input.context.runId,
+      type: "test_case.started",
+      status: "started",
+      message: `Executing test case: ${input.testCase.name}.`,
+      pageUrl: safePageUrl(input.session.page),
+      role: input.context.roleName,
+      viewport: input.context.viewportName,
+      locale: input.context.localeName,
+    });
 
     for (const action of input.testCase.steps) {
       const step = await this.executeAction(input, action);
@@ -665,6 +890,17 @@ export class RunOrchestrator {
           `${input.context.runId}-${input.testCase.id}-step-failure`,
           "Step failed.",
         );
+        emit(input, {
+          runId: input.context.runId,
+          type: "test_case.failed",
+          status: step.status === "BLOCKED_BY_POLICY" ? "blocked" : "failed",
+          message: step.error ?? `${input.testCase.name} did not pass.`,
+          pageUrl: safePageUrl(input.session.page),
+          role: input.context.roleName,
+          viewport: input.context.viewportName,
+          locale: input.context.localeName,
+          diagnostics: step,
+        });
         return {
           id: input.testCase.id,
           name: input.testCase.name,
@@ -696,6 +932,17 @@ export class RunOrchestrator {
           "Assertion failed.",
         )
       : [];
+    emit(input, {
+      runId: input.context.runId,
+      type: failedAssertion ? "test_case.failed" : "test_case.passed",
+      status: failedAssertion ? "failed" : "passed",
+      message: failedAssertion?.error ?? `Test case passed: ${input.testCase.name}.`,
+      pageUrl: safePageUrl(input.session.page),
+      role: input.context.roleName,
+      viewport: input.context.viewportName,
+      locale: input.context.localeName,
+      diagnostics: failedAssertion,
+    });
 
     return {
       id: input.testCase.id,
@@ -751,6 +998,19 @@ function summarizePageStatus(results: TestCaseResult[]): PageReport["status"] {
   if (results.length === 0) return "INCONCLUSIVE";
   if (results.some((result) => result.status === "INCONCLUSIVE")) return "INCONCLUSIVE";
   return "PASSED";
+}
+
+function emit(input: { onEvent?: RunEventSink; events?: RunEventSink }, event: RunProgressEventInput): void {
+  const sink = input.onEvent ?? input.events;
+  if (sink) sink(event);
+}
+
+function safePageUrl(page: Page): string | undefined {
+  try {
+    return typeof page.url === "function" ? page.url() : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function emptySnapshot(url: string): PageSnapshot {

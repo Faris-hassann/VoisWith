@@ -14,6 +14,7 @@ export default function SettingsPage() {
           <Row label="API base URL" value={env.apiBaseUrl} />
           <Row label="Docs URL" value={env.apiDocsUrl} />
           <Row label="Test endpoint" value={env.testRunEndpoint} />
+          <Row label="Async runs endpoint" value={env.testRunsEndpoint} />
           <Row label="API mode" value={env.apiMode} />
           <Row label="Mock mode" value={env.mockMode ? "Enabled" : "Disabled"} />
         </CardContent>

@@ -3,9 +3,12 @@ import { spawn } from "node:child_process";
 import { config } from "./config/env.js";
 import { logger } from "./config/logger.js";
 import { createApp } from "./app.js";
+import { runRegistry } from "./controllers/testing.controller.js";
+import { attachTestingRunWebSocketServer } from "./websocket/testing-run-stream.js";
 
 const app = createApp();
 const server = createServer(app);
+attachTestingRunWebSocketServer(server, runRegistry);
 
 server.requestTimeout = 30_000;
 server.headersTimeout = 35_000;

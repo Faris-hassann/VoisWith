@@ -93,6 +93,44 @@ export interface TestingRunResponse {
   diagnostics?: RunDiagnostics;
 }
 
+export type AsyncRunStatus = "queued" | "running" | "completed" | "failed";
+export type RunProgressStatus = "started" | "passed" | "failed" | "skipped" | "info" | "blocked";
+
+export interface AsyncRunStartResponse {
+  runId: string;
+  status: AsyncRunStatus;
+  startedAt: string;
+  streamUrl: string;
+}
+
+export interface RunProgressEvent {
+  runId: string;
+  sequence: number;
+  type: string;
+  status: RunProgressStatus;
+  timestamp: string;
+  message: string;
+  pageUrl?: string;
+  role?: string;
+  viewport?: string;
+  locale?: string;
+  counts?: Record<string, number>;
+  diagnostics?: unknown;
+  issue?: unknown;
+  report?: TestingRunResponse;
+}
+
+export interface AsyncRunSnapshot {
+  runId: string;
+  status: AsyncRunStatus;
+  startedAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  events: RunProgressEvent[];
+  report?: TestingRunResponse;
+  error?: unknown;
+}
+
 export interface RunSummary {
   pagesDiscovered: number;
   pagesTested: number;
@@ -110,6 +148,10 @@ export interface RunSummary {
 export interface PageReport {
   url: string;
   canonicalUrl: string;
+  role?: string;
+  viewport?: string;
+  locale?: string;
+  direction?: "ltr" | "rtl";
   status: TestStatus;
   tests: TestCaseResult[];
   consoleErrors: ConsoleObservation[];
@@ -158,6 +200,9 @@ export interface Issue {
   title: string;
   description: string;
   pageUrl?: string;
+  role?: string;
+  viewport?: string;
+  locale?: string;
   testName?: string;
   evidence: EvidenceReference[];
   confidence: number;
@@ -172,6 +217,7 @@ export interface NetworkObservation {
   failureReason?: string;
   sameOrigin: boolean;
   appearsApiRequest: boolean;
+  duplicateKey?: string;
 }
 
 export interface ConsoleObservation {
@@ -213,6 +259,8 @@ export interface RunDiagnostics {
   login: {
     status: "SKIPPED" | "PASSED" | "FAILED" | "HUMAN_REQUIRED";
     message: string;
+    details?: unknown;
+    evidence?: EvidenceReference[];
   };
   crawl: {
     acceptedUrls: string[];
@@ -234,6 +282,10 @@ export interface RunDiagnostics {
 export interface PageDiagnostics {
   url: string;
   finalUrl?: string;
+  role?: string;
+  viewport?: string;
+  locale?: string;
+  direction?: "ltr" | "rtl";
   status: TestStatus;
   navigationMs?: number;
   links: number;
@@ -243,6 +295,9 @@ export interface PageDiagnostics {
   inputs: number;
   consoleErrors: number;
   networkFailures: number;
+  apiCalls?: number;
+  images?: number;
+  scripts?: number;
   baselineTests: number;
   aiPlannedTests: number;
   reportArtifactPath?: string;

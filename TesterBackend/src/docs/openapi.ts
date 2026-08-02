@@ -113,6 +113,63 @@ export const openApiDocument = {
         },
       },
     },
+    "/api/v1/testing/runs": {
+      post: {
+        tags: ["Testing"],
+        summary: "Start async website testing run",
+        description:
+          "Starts a backend test run and returns immediately. Subscribe to /api/v1/testing/runs/{runId}/stream by WebSocket for live progress.",
+        operationId: "startAsyncWebsiteTesting",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/TestingRunRequest" },
+            },
+          },
+        },
+        responses: {
+          "202": {
+            description: "Run accepted",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/AsyncRunStartResponse" },
+              },
+            },
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "429": { $ref: "#/components/responses/RateLimited" },
+          "500": { $ref: "#/components/responses/ServerError" },
+        },
+      },
+    },
+    "/api/v1/testing/runs/{runId}": {
+      get: {
+        tags: ["Testing"],
+        summary: "Get async testing run status",
+        operationId: "getAsyncWebsiteTestingRun",
+        parameters: [
+          {
+            name: "runId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          "200": {
+            description: "Current run state",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/AsyncRunSnapshot" },
+              },
+            },
+          },
+          "404": { $ref: "#/components/responses/BadRequest" },
+          "500": { $ref: "#/components/responses/ServerError" },
+        },
+      },
+    },
   },
   components: {
     responses: {
@@ -142,6 +199,50 @@ export const openApiDocument = {
       },
     },
     schemas: {
+      AsyncRunStartResponse: {
+        type: "object",
+        required: ["runId", "status", "startedAt", "streamUrl"],
+        properties: {
+          runId: { type: "string" },
+          status: { type: "string", enum: ["queued", "running", "completed", "failed"] },
+          startedAt: { type: "string", format: "date-time" },
+          streamUrl: { type: "string", example: "/api/v1/testing/runs/{runId}/stream" },
+        },
+      },
+      AsyncRunSnapshot: {
+        type: "object",
+        required: ["runId", "status", "startedAt", "updatedAt", "events"],
+        properties: {
+          runId: { type: "string" },
+          status: { type: "string", enum: ["queued", "running", "completed", "failed"] },
+          startedAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" },
+          completedAt: { type: "string", format: "date-time" },
+          events: { type: "array", items: { $ref: "#/components/schemas/RunProgressEvent" } },
+          report: { $ref: "#/components/schemas/TestingRunResponse" },
+          error: {},
+        },
+      },
+      RunProgressEvent: {
+        type: "object",
+        required: ["runId", "sequence", "type", "status", "timestamp", "message"],
+        properties: {
+          runId: { type: "string" },
+          sequence: { type: "integer" },
+          type: { type: "string", example: "page.snapshot_collected" },
+          status: { type: "string", enum: ["started", "passed", "failed", "skipped", "info", "blocked"] },
+          timestamp: { type: "string", format: "date-time" },
+          message: { type: "string" },
+          pageUrl: { type: "string" },
+          role: { type: "string" },
+          viewport: { type: "string" },
+          locale: { type: "string" },
+          counts: { type: "object", additionalProperties: { type: "number" } },
+          diagnostics: {},
+          issue: {},
+          report: { $ref: "#/components/schemas/TestingRunResponse" },
+        },
+      },
       TestingRunRequest: {
         type: "object",
         additionalProperties: false,
