@@ -1,8 +1,9 @@
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { config } from "../config/env.js";
-import type { TestingRunRequest } from "../types/testing.js";
+import type { LocaleDirection, TestingRunRequest } from "../types/testing.js";
 import { AppError } from "../errors/app-error.js";
 import { ERROR_CODES } from "../errors/error-codes.js";
+import { serializeError } from "../errors/serialize-error.js";
 
 export interface BrowserSession {
   browser: Browser;
@@ -11,7 +12,15 @@ export interface BrowserSession {
 }
 
 export class BrowserManager {
-  async launch(request: TestingRunRequest, downloadsPath: string): Promise<BrowserSession> {
+  async launch(
+    request: TestingRunRequest,
+    downloadsPath: string,
+    options?: {
+      viewport?: TestingRunRequest["browser"]["viewport"];
+      locale?: string;
+      direction?: LocaleDirection;
+    },
+  ): Promise<BrowserSession> {
     try {
       const browser = await chromium.launch({
         channel: request.browser.channel,
@@ -20,18 +29,25 @@ export class BrowserManager {
         downloadsPath,
       });
       const context = await browser.newContext({
-        viewport: request.browser.viewport,
+        viewport: options?.viewport ?? request.browser.viewport,
+        locale: options?.locale,
         acceptDownloads: true,
       });
       context.setDefaultNavigationTimeout(config.browser.pageNavigationTimeoutMs);
       context.setDefaultTimeout(config.browser.actionTimeoutMs);
       const page = await context.newPage();
+      if (options?.direction === "rtl") {
+        await page.addInitScript(() => {
+          document.documentElement.setAttribute("dir", "rtl");
+        });
+      }
       return { browser, context, page };
     } catch (error) {
+      const serialized = serializeError(error);
       throw new AppError({
         code: ERROR_CODES.BROWSER_LAUNCH_FAILURE,
-        message: "Failed to launch isolated Chrome browser.",
-        details: error instanceof Error ? error.message : String(error),
+        message: `Failed to launch visible Chrome browser: ${serialized.message}`,
+        details: serialized,
         fatal: true,
       });
     }

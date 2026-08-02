@@ -12,6 +12,7 @@
     "test:watch": "vitest",
     "lint": "eslint .",
     "format": "prettier --write .",
+    "trueform:system-test": "node scripts/run-trueform-system-test.mjs",
     "playwright:install:chrome": "playwright install chrome"
   },
   "dependencies": {

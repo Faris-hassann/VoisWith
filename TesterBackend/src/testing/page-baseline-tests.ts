@@ -6,6 +6,7 @@ interface BaselineInput {
   snapshot: PageSnapshot;
   selectedTypes: TestingType[];
   credentialsProvided: boolean;
+  roleCount?: number;
 }
 
 export function buildPageBaselineTests(input: BaselineInput): TestCaseResult[] {
@@ -143,9 +144,12 @@ export function buildPageBaselineTests(input: BaselineInput): TestCaseResult[] {
         id: "baseline-authorization",
         name: "Authorization testing prerequisite",
         type: "AUTHORIZATION",
-        status: "SKIPPED",
+        status: (input.roleCount ?? 0) >= 2 ? "PASSED" : "SKIPPED",
         expected: "Multiple role credentials are available.",
-        actual: "Backend v1 does not accept multiple role credentials.",
+        actual:
+          (input.roleCount ?? 0) >= 2
+            ? `${input.roleCount} role credential sets are available for role-isolation comparisons.`
+            : "Multiple role credentials were not supplied.",
       }),
     );
   }
@@ -157,8 +161,8 @@ export function buildPageBaselineTests(input: BaselineInput): TestCaseResult[] {
         name: "Observed API and network behavior",
         type: "API_NETWORK",
         status: input.snapshot.failedRequests.length === 0 ? "PASSED" : "FAILED",
-        expected: "Observed API/network requests complete without failures during page load.",
-        actual: `${input.snapshot.observedApiCalls.length} API-like calls, ${input.snapshot.failedRequests.length} failed requests.`,
+        expected: "Observed API/network requests complete without failures during page load and safe UI workflows.",
+        actual: `${input.snapshot.observedApiCalls.length} API-like calls, ${input.snapshot.failedRequests.length} failed requests, ${duplicateApiCalls(input.snapshot).length} duplicate API observations.`,
       }),
     );
   }
@@ -217,6 +221,7 @@ export function buildPageBaselineTests(input: BaselineInput): TestCaseResult[] {
   }
 
   if (has("ACCESSIBILITY_TECHNICAL")) {
+    const failedUiObservations = input.snapshot.uiObservations.filter((observation) => observation.status === "FAILED");
     const namedInteractive = input.snapshot.elements.filter((element) =>
       ["button", "link", "input", "select", "textarea"].includes(element.kind),
     ).filter((element) => element.accessibleName || element.label || element.placeholder || element.text);
@@ -225,9 +230,9 @@ export function buildPageBaselineTests(input: BaselineInput): TestCaseResult[] {
         id: "baseline-accessibility-technical",
         name: "Technical accessible-name inventory",
         type: "ACCESSIBILITY_TECHNICAL",
-        status: namedInteractive.length > 0 ? "PASSED" : "INCONCLUSIVE",
-        expected: "Interactive elements expose names, labels, placeholders, or visible text.",
-        actual: `${namedInteractive.length} named interactive elements out of ${input.snapshot.elements.length} inventoried elements.`,
+        status: failedUiObservations.length > 0 ? "FAILED" : namedInteractive.length > 0 ? "PASSED" : "INCONCLUSIVE",
+        expected: "Interactive elements expose names and no obvious technical layout/accessibility failures are observed.",
+        actual: `${namedInteractive.length} named interactive elements out of ${input.snapshot.elements.length} inventoried elements. UI observations: ${input.snapshot.uiObservations.map((item) => `${item.name}=${item.status}`).join(", ") || "none"}.`,
       }),
     );
   }
@@ -251,6 +256,15 @@ export function buildPageBaselineTests(input: BaselineInput): TestCaseResult[] {
   }
 
   return tests;
+}
+
+function duplicateApiCalls(snapshot: PageSnapshot): string[] {
+  const counts = new Map<string, number>();
+  for (const call of snapshot.observedApiCalls) {
+    if (!call.duplicateKey || !["POST", "PUT", "PATCH"].includes(call.method)) continue;
+    counts.set(call.duplicateKey, (counts.get(call.duplicateKey) ?? 0) + 1);
+  }
+  return [...counts.entries()].filter(([, count]) => count > 1).map(([key]) => key);
 }
 
 function baselineResult(input: {

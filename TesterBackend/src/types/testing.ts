@@ -17,10 +17,41 @@ export interface Credentials {
   };
 }
 
+export type TestEnvironment = "production" | "staging";
+export type RoleName = "Admin" | "Agent" | "Client" | "Default";
+export type LocaleDirection = "ltr" | "rtl";
+
+export interface RoleCredentials {
+  name: RoleName;
+  credentials: Credentials;
+  loginUrl?: string;
+  fieldHints?: Credentials["fieldHints"];
+}
+
+export interface ViewportMatrixEntry {
+  name: string;
+  width: number;
+  height: number;
+}
+
+export interface LocaleMatrixEntry {
+  name: string;
+  locale: string;
+  direction: LocaleDirection;
+}
+
+export interface TestMatrixSettings {
+  enabled: boolean;
+  viewports: ViewportMatrixEntry[];
+  locales: LocaleMatrixEntry[];
+}
+
 export interface TestingRunRequest {
   targetUrl: string;
   authorizationConfirmed: boolean;
+  environment?: TestEnvironment;
   credentials?: Credentials;
+  roles?: RoleCredentials[];
   testTypes: TestingType[];
   crawl: {
     strategy: "DFS";
@@ -47,6 +78,7 @@ export interface TestingRunRequest {
     maximumActionsPerPage: number;
     maximumRunDurationSeconds: number;
   };
+  testMatrix?: TestMatrixSettings;
 }
 
 export interface PageSnapshot {
@@ -56,6 +88,8 @@ export interface PageSnapshot {
   headings: string[];
   visibleText: string;
   links: LinkSnapshot[];
+  images: AssetSnapshot[];
+  scripts: AssetSnapshot[];
   elements: ElementInventoryItem[];
   forms: FormSnapshot[];
   tables: string[];
@@ -66,6 +100,22 @@ export interface PageSnapshot {
   observedApiCalls: NetworkObservation[];
   performance: PerformanceObservation[];
   visibleValidationErrors: string[];
+  uiObservations: UiObservation[];
+}
+
+export interface UiObservation {
+  name: string;
+  status: "PASSED" | "FAILED" | "INCONCLUSIVE";
+  description: string;
+  count?: number;
+}
+
+export interface AssetSnapshot {
+  src: string;
+  canonicalSrc?: string;
+  alt?: string;
+  type?: string;
+  internal: boolean;
 }
 
 export interface LinkSnapshot {
@@ -78,6 +128,7 @@ export interface LinkSnapshot {
 
 export interface FormSnapshot {
   elementId: string;
+  implicit?: boolean;
   method?: string;
   action?: string;
   fields: ElementInventoryItem[];
@@ -119,6 +170,7 @@ export interface ElementInventoryItem {
   validation?: Record<string, string | number | boolean>;
   formAction?: string;
   formMethod?: string;
+  formOwnerElementId?: string;
   locator: LocatorDescriptor;
 }
 

@@ -1,8 +1,9 @@
-import type { Page } from "playwright";
 import { ScopePolicy } from "./scope-policy.js";
 import type { RunContext } from "../testing/run-context.js";
 import type { PageReport } from "../types/report.js";
+import type { LinkSnapshot } from "../types/testing.js";
 import { isDeadlineExceeded } from "../utilities/timeout.js";
+import { errorMessage } from "../errors/serialize-error.js";
 
 interface CrawlItem {
   url: string;
@@ -11,13 +12,17 @@ interface CrawlItem {
   source: string;
 }
 
+export interface CrawledPageResult {
+  report: PageReport;
+  links: LinkSnapshot[];
+}
+
 export class PageCrawler {
   async crawl(input: {
     context: RunContext;
-    page: Page;
-    testPage: (url: string) => Promise<PageReport>;
+    testPage: (url: string) => Promise<CrawledPageResult>;
   }): Promise<void> {
-    const { context, page, testPage } = input;
+    const { context, testPage } = input;
     const policy = new ScopePolicy({
       targetOrigin: context.targetOrigin,
       sameOriginOnly: context.request.crawl.sameOriginOnly,
@@ -87,17 +92,17 @@ export class PageCrawler {
       }
 
       try {
-        const report = await testPage(decision.canonicalUrl);
+        const result = await testPage(decision.canonicalUrl);
+        const report = result.report;
         context.pageReports.push(report);
         context.visitedUrls.add(decision.canonicalUrl);
-        const links = await page.locator("a[href]").evaluateAll((anchors) =>
-          anchors.map((anchor) => (anchor as HTMLAnchorElement).href),
-        );
+        const links = result.links;
         context.diagnostics.crawl.discoveredCandidates += links.length;
         let acceptedLinks = 0;
         let skippedLinks = 0;
         for (const link of links.reverse()) {
-          const next = policy.evaluate(link, decision.canonicalUrl);
+          const candidateUrl = link.canonicalHref ?? link.href;
+          const next = policy.evaluate(candidateUrl, decision.canonicalUrl);
           if (
             next.allowed &&
             next.canonicalUrl &&
@@ -110,11 +115,11 @@ export class PageCrawler {
               url: next.canonicalUrl,
               depth: item.depth + 1,
               parentUrl: decision.canonicalUrl,
-              source: "link",
+              source: link.sourceElementId ?? (link.text || "link"),
             });
           } else {
             skippedLinks += 1;
-            context.skippedUrls.set(link, next.reason ?? "duplicate-or-visited");
+            context.skippedUrls.set(candidateUrl, next.reason ?? "duplicate-or-visited");
           }
         }
         context.diagnostics.crawl.events.push({
@@ -125,11 +130,15 @@ export class PageCrawler {
           message: `${links.length} candidates, ${acceptedLinks} accepted, ${skippedLinks} skipped.`,
         });
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = errorMessage(error);
         context.failedUrls.set(item.url, message);
         context.pageReports.push({
           url: item.url,
           canonicalUrl: decision.canonicalUrl,
+          role: context.roleName,
+          viewport: context.viewportName,
+          locale: context.localeName,
+          direction: context.direction,
           status: "ERROR",
           tests: [
             {

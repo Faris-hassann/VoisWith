@@ -13,6 +13,38 @@ const elements = [
 ] as const;
 
 describe("AiResponseValidator", () => {
+  it("normalizes common model output into a valid executable plan", () => {
+    const validator = new AiResponseValidator();
+    const plan = validator.validate(
+      {
+        plan: {
+          summary: "Dashboard",
+          purpose: "Admin dashboard",
+          risks: ["Broken nav"],
+          tests: [
+            {
+              name: "click visible nav",
+              type: "links",
+              priority: "high",
+              steps: [
+                { action: "click", element_id: "element_1", extra: "ignored" },
+                { action: "click" },
+              ],
+              assertions: [],
+            },
+          ],
+          additionalLinks: ["/relative", "https://example.com/next"],
+        },
+      },
+      [...elements],
+    );
+
+    expect(plan.pageSummary).toBe("Dashboard");
+    expect(plan.testCases[0]?.type).toBe("LINKS");
+    expect(plan.testCases[0]?.steps).toEqual([{ action: "CLICK", elementId: "element_1" }]);
+    expect(plan.additionalLinksToPrioritize).toEqual(["https://example.com/next"]);
+  });
+
   it("rejects unknown element ids", () => {
     const validator = new AiResponseValidator();
     expect(() =>

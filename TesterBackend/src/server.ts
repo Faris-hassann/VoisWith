@@ -10,6 +10,18 @@ const server = createServer(app);
 server.requestTimeout = 30_000;
 server.headersTimeout = 35_000;
 
+server.on("error", (error: NodeJS.ErrnoException) => {
+  if (error.code === "EADDRINUSE") {
+    logger.error(
+      { port: config.port, code: error.code },
+      `port ${config.port} is already in use; stop the other backend or set PORT=${config.port + 2}`,
+    );
+    process.exit(1);
+  }
+  logger.error({ err: error }, "Server failed");
+  process.exit(1);
+});
+
 server.listen(config.port, () => {
   const swaggerUrl = `http://localhost:${config.port}/docs`;
   logger.info({ port: config.port, swaggerUrl }, "TesterBackend listening");

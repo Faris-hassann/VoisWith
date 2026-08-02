@@ -47,6 +47,14 @@ export class PlaywrightActionExecutor {
         await page.waitForTimeout(action.timeoutMs ?? 1000);
         return success(action, "Wait completed.");
       }
+      if (action.action === "ASSERT_URL") {
+        const currentUrl = page.url();
+        const expected = action.expectedUrl ?? action.value;
+        if (!expected || currentUrl.includes(expected)) {
+          return success(action, `Current URL is ${currentUrl}`);
+        }
+        return failure(action, `Expected URL to include ${expected}, current URL is ${currentUrl}`);
+      }
       if (!element) return failure(action, "Element no longer available.");
 
       const locator = locatorFromDescriptor(page, element.locator);
@@ -78,7 +86,6 @@ export class PlaywrightActionExecutor {
         case "ASSERT_VISIBLE":
         case "ASSERT_HIDDEN":
         case "ASSERT_TEXT":
-        case "ASSERT_URL":
         case "ASSERT_ENABLED":
         case "ASSERT_DISABLED":
         case "ASSERT_VALUE":

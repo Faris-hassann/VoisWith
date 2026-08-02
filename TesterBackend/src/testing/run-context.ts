@@ -5,6 +5,10 @@ export interface RunContext {
   runId: string;
   startedAt: string;
   targetOrigin: string;
+  roleName?: string;
+  viewportName?: string;
+  localeName?: string;
+  direction?: "ltr" | "rtl";
   request: TestingRunRequest;
   visitedUrls: Set<string>;
   pendingUrls: Set<string>;

@@ -26,7 +26,7 @@ export function createApp(): express.Express {
     pinoHttp({
       logger,
       customProps: (req) => ({ requestId: req.requestId }),
-      redact: ["req.headers.authorization", "req.headers.cookie", "req.body.credentials"],
+      redact: ["req.headers.authorization", "req.headers.cookie", "req.body.credentials", "req.body.roles"],
     }),
   );
   app.use(

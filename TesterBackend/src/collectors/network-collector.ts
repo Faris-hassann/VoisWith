@@ -16,8 +16,10 @@ export class NetworkCollector {
       this.observations.push(this.toObservation(request, undefined, request.failure()?.errorText));
     });
     page.on("response", (response) => {
-      if (response.status() >= 400) {
-        this.observations.push(this.toObservation(response.request(), response.status()));
+      const request = response.request();
+      const observation = this.toObservation(request, response.status());
+      if (response.status() >= 400 || observation.appearsApiRequest) {
+        this.observations.push(observation);
       }
     });
   }
@@ -46,6 +48,7 @@ export class NetworkCollector {
       failureReason: failureReason ? redactString(failureReason) : undefined,
       sameOrigin: safeOrigin(url) === this.targetOrigin,
       appearsApiRequest: /\/api\/|\/graphql|\/rest\/|application\/json/i.test(url),
+      duplicateKey: networkDuplicateKey(request.method(), url),
     };
   }
 }
@@ -55,5 +58,23 @@ function safeOrigin(url: string): string | undefined {
     return new URL(url).origin;
   } catch {
     return undefined;
+  }
+}
+
+export function networkDuplicateKey(method: string, rawUrl: string): string {
+  return `${method} ${stripVolatileQuery(rawUrl)}`;
+}
+
+function stripVolatileQuery(rawUrl: string): string {
+  try {
+    const url = new URL(rawUrl);
+    for (const key of [...url.searchParams.keys()]) {
+      if (/token|signature|nonce|timestamp|cache|_$/i.test(key)) {
+        url.searchParams.delete(key);
+      }
+    }
+    return url.toString();
+  } catch {
+    return rawUrl;
   }
 }

@@ -2,29 +2,76 @@ import { z } from "zod";
 import { TEST_TYPES } from "../testing/test-types.js";
 
 const patternArraySchema = z.array(z.string().min(1).max(300)).max(100).default([]);
+const fieldHintsSchema = z
+  .object({
+    usernameSelector: z.string().min(1).max(500).optional(),
+    passwordSelector: z.string().min(1).max(500).optional(),
+    submitSelector: z.string().min(1).max(500).optional(),
+  })
+  .strict()
+  .optional();
+
+const credentialsSchema = z
+  .object({
+    loginUrl: z.string().url().optional(),
+    username: z.string().min(1).max(500),
+    password: z.string().min(1).max(2000),
+    fieldHints: fieldHintsSchema,
+  })
+  .strict();
 
 export const testingRunRequestSchema = z
   .object({
     targetUrl: z.string().url(),
+    environment: z.enum(["production", "staging"]).default("production"),
     authorizationConfirmed: z.literal(true, {
       errorMap: () => ({ message: "authorizationConfirmed must be true" }),
     }),
-    credentials: z
-      .object({
-        loginUrl: z.string().url().optional(),
-        username: z.string().min(1).max(500),
-        password: z.string().min(1).max(2000),
-        fieldHints: z
+    credentials: credentialsSchema.optional(),
+    roles: z
+      .array(
+        z
           .object({
-            usernameSelector: z.string().min(1).max(500).optional(),
-            passwordSelector: z.string().min(1).max(500).optional(),
-            submitSelector: z.string().min(1).max(500).optional(),
+            name: z.enum(["Admin", "Agent", "Client"]),
+            credentials: credentialsSchema,
+            loginUrl: z.string().url().optional(),
+            fieldHints: fieldHintsSchema,
           })
-          .strict()
-          .optional(),
+          .strict(),
+      )
+      .min(1)
+      .max(3)
+      .optional(),
+    testMatrix: z
+      .object({
+        enabled: z.boolean().default(false),
+        viewports: z
+          .array(
+            z
+              .object({
+                name: z.string().min(1).max(50),
+                width: z.number().int().min(320).max(3840),
+                height: z.number().int().min(240).max(2160),
+              })
+              .strict(),
+          )
+          .max(10)
+          .default([]),
+        locales: z
+          .array(
+            z
+              .object({
+                name: z.string().min(1).max(50),
+                locale: z.string().min(2).max(20),
+                direction: z.enum(["ltr", "rtl"]),
+              })
+              .strict(),
+          )
+          .max(5)
+          .default([]),
       })
       .strict()
-      .optional(),
+      .default({}),
     testTypes: z.array(z.enum(TEST_TYPES)).min(1).max(TEST_TYPES.length),
     crawl: z
       .object({

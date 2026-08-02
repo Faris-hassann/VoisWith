@@ -13,6 +13,8 @@ describe("buildPageBaselineTests", () => {
       links: [
         { text: "About", href: "https://example.com/about", canonicalHref: "https://example.com/about", internal: true },
       ],
+      images: [],
+      scripts: [],
       elements: [
         {
           id: "element_1",
@@ -68,6 +70,7 @@ describe("buildPageBaselineTests", () => {
       observedApiCalls: [],
       performance: [{ name: "navigation-duration", valueMs: 100, description: "Navigation" }],
       visibleValidationErrors: [],
+      uiObservations: [],
     };
 
     const tests = buildPageBaselineTests({

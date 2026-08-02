@@ -18,47 +18,48 @@ interface RawElement {
   validation?: Record<string, string | number | boolean>;
   formAction?: string;
   formMethod?: string;
+  formOwnerElementId?: string;
   testId?: string;
   css: string;
 }
 
 export class ElementInventoryBuilder {
   async build(page: Page): Promise<ElementInventoryItem[]> {
-    const raw = await page.evaluate(() => {
-      const selectorFor = (element: Element): string => {
-        if (element.id) return `#${CSS.escape(element.id)}`;
+    const raw = await page.evaluate<RawElement[]>(`(() => {
+      const selectorFor = (element) => {
+        if (element.id) return "#" + CSS.escape(element.id);
         const testId = element.getAttribute("data-testid") ?? element.getAttribute("data-test");
-        if (testId) return `[data-testid="${CSS.escape(testId)}"],[data-test="${CSS.escape(testId)}"]`;
+        if (testId) return "[data-testid=\\"" + CSS.escape(testId) + "\\"],[data-test=\\"" + CSS.escape(testId) + "\\"]";
         const name = element.getAttribute("name");
-        if (name) return `${element.tagName.toLowerCase()}[name="${CSS.escape(name)}"]`;
-        const parts: string[] = [];
-        let current: Element | null = element;
+        if (name) return element.tagName.toLowerCase() + "[name=\\"" + CSS.escape(name) + "\\"]";
+        const parts = [];
+        let current = element;
         while (current && current.nodeType === Node.ELEMENT_NODE && parts.length < 4) {
           const tag = current.tagName.toLowerCase();
-          const parent: Element | null = current.parentElement;
+          const parent = current.parentElement;
           if (!parent) {
             parts.unshift(tag);
             break;
           }
-          const siblings = [...parent.children].filter((child) => child.tagName === current?.tagName);
+          const siblings = [...parent.children].filter((child) => child.tagName === current.tagName);
           const index = siblings.indexOf(current) + 1;
-          parts.unshift(`${tag}:nth-of-type(${index})`);
+          parts.unshift(tag + ":nth-of-type(" + index + ")");
           current = parent;
         }
         return parts.join(" > ");
       };
 
-      const labelFor = (element: Element): string | undefined => {
+      const labelFor = (element) => {
         const id = element.getAttribute("id");
         if (id) {
-          const explicit = document.querySelector(`label[for="${CSS.escape(id)}"]`);
+          const explicit = document.querySelector("label[for='" + CSS.escape(id) + "']");
           if (explicit?.textContent?.trim()) return explicit.textContent.trim();
         }
         const implicit = element.closest("label");
         return implicit?.textContent?.trim() || undefined;
       };
 
-      const kindFor = (element: Element): RawElement["kind"] => {
+      const kindFor = (element) => {
         const tag = element.tagName.toLowerCase();
         const type = element.getAttribute("type")?.toLowerCase();
         const role = element.getAttribute("role")?.toLowerCase();
@@ -81,15 +82,21 @@ export class ElementInventoryBuilder {
         return "other";
       };
 
-      return [
+      const candidates = [
         ...document.querySelectorAll(
           "a,button,input,textarea,select,form,[role='button'],[role='dialog'],[role='tab'],[role='menu'],[role='menuitem']",
         ),
-      ].slice(0, 500).map((element): RawElement => {
-        const htmlElement = element as HTMLElement;
-        const input = element as HTMLInputElement;
+      ].slice(0, 500);
+      const keyFor = (element) => {
+        if (!element) return undefined;
+        const index = candidates.indexOf(element);
+        return index >= 0 ? "element_" + (index + 1) : undefined;
+      };
+
+      return candidates.map((element) => {
+        const input = element;
         const tagName = element.tagName.toLowerCase();
-        const validation: Record<string, string | number | boolean> = {};
+        const validation = {};
         if (input.minLength > -1) validation.minLength = input.minLength;
         if (input.maxLength > -1) validation.maxLength = input.maxLength;
         if (input.min) validation.min = input.min;
@@ -104,28 +111,32 @@ export class ElementInventoryBuilder {
             element.getAttribute("aria-label") ??
             element.getAttribute("title") ??
             labelFor(element) ??
-            htmlElement.innerText?.trim().slice(0, 200) ??
+            element.innerText?.trim().slice(0, 200) ??
             undefined,
-          text: htmlElement.innerText?.trim().slice(0, 300) || undefined,
+          text: element.innerText?.trim().slice(0, 300) || undefined,
           label: labelFor(element),
           placeholder: element.getAttribute("placeholder") ?? undefined,
           name: element.getAttribute("name") ?? undefined,
           type: element.getAttribute("type") ?? undefined,
           value: ["password", "hidden"].includes(input.type) ? undefined : input.value?.slice(0, 200),
-          disabled: Boolean((element as HTMLInputElement).disabled || element.getAttribute("aria-disabled") === "true"),
+          disabled: Boolean(input.disabled || element.getAttribute("aria-disabled") === "true"),
           hidden:
-            htmlElement.offsetParent === null ||
-            htmlElement.hidden ||
-            getComputedStyle(htmlElement).visibility === "hidden",
-          required: Boolean((element as HTMLInputElement).required),
+            element.offsetParent === null ||
+            element.hidden ||
+            getComputedStyle(element).visibility === "hidden",
+          required: Boolean(input.required),
           validation,
-          formAction: (element as HTMLButtonElement).formAction || element.getAttribute("action") || undefined,
-          formMethod: (element as HTMLButtonElement).formMethod || element.getAttribute("method") || undefined,
+          formAction: element.formAction || element.getAttribute("action") || undefined,
+          formMethod: element.formMethod || element.getAttribute("method") || undefined,
+          formOwnerElementId:
+            tagName === "form"
+              ? undefined
+              : keyFor(element.form),
           testId: element.getAttribute("data-testid") ?? element.getAttribute("data-test") ?? undefined,
           css: selectorFor(element),
         };
       });
-    });
+    })()`);
 
     return raw.map((item, index) => ({
       id: `element_${index + 1}`,

@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import type { Page } from "playwright";
 import { ArtifactManager } from "../artifacts/artifact-manager.js";
 import { AuthenticationHandler } from "../authentication/authentication-handler.js";
 import { BrowserManager, type BrowserSession } from "../browser/browser-manager.js";
@@ -11,6 +12,7 @@ import { logger } from "../config/logger.js";
 import { PageCrawler } from "../crawler/page-crawler.js";
 import { AppError } from "../errors/app-error.js";
 import { ERROR_CODES } from "../errors/error-codes.js";
+import { errorMessage, serializeError } from "../errors/serialize-error.js";
 import { PageInspector } from "../inspection/page-inspector.js";
 import { ReportAggregator } from "../reporting/report-aggregator.js";
 import { assertSafeTargetUrl } from "../security/ssrf-protection.js";
@@ -19,12 +21,13 @@ import type { RunContext } from "../testing/run-context.js";
 import { buildPageBaselineTests } from "../testing/page-baseline-tests.js";
 import type { TestAction, TestCase, TestPlan } from "../types/ai.js";
 import type { PageReport, TestCaseResult, TestStepResult, TestingRunResponse } from "../types/report.js";
-import type { ElementInventoryItem, TestingRunRequest } from "../types/testing.js";
+import type { ElementInventoryItem, PageSnapshot, TestingRunRequest } from "../types/testing.js";
 import { deadlineFromNow } from "../utilities/timeout.js";
 import { AiTestPlanner } from "../ai/ai-test-planner.js";
 import { ActionPolicyEngine } from "../actions/action-policy-engine.js";
 import { PlaywrightActionExecutor } from "../actions/playwright-action-executor.js";
 import { AssertionEngine } from "../assertions/assertion-engine.js";
+import { buildMatrixTargets, type MatrixExecutionTarget } from "../testing/run-matrix.js";
 
 let activeRuns = 0;
 
@@ -94,6 +97,14 @@ export class RunOrchestrator {
         targetUrl: request.targetUrl,
         startedAt,
         browser: { launched: false },
+        matrix: {
+          roles: [],
+          viewports: [],
+          locales: [],
+        },
+        authorization: {
+          comparisons: [],
+        },
         login: { status: request.credentials ? "FAILED" : "SKIPPED", message: request.credentials ? "Login not attempted yet." : "No credentials supplied." },
         crawl: {
           acceptedUrls: [],
@@ -116,85 +127,50 @@ export class RunOrchestrator {
     let session: BrowserSession | undefined;
     try {
       logger.info({ runId, targetUrl: request.targetUrl }, "Test run started");
-      session = await this.browserManager.launch(context.request, artifacts.downloadsDir);
-      context.diagnostics.browser.launched = true;
-      logger.info({ runId }, "Browser launched");
-      const consoleCollector = new ConsoleCollector();
-      const networkCollector = new NetworkCollector(context.targetOrigin);
-      const performanceCollector = new PerformanceCollector();
-      const evidenceCollector = new EvidenceCollector(artifacts);
-      consoleCollector.attach(session.page);
-      networkCollector.attach(session.page);
+      const targets = buildMatrixTargets(context.request);
+      context.diagnostics.matrix = {
+        roles: unique(targets.map((item) => item.role.name)),
+        viewports: unique(targets.map((item) => item.viewport.name)),
+        locales: unique(targets.map((item) => item.locale.name)),
+      };
 
-      const initialNavigationStarted = Date.now();
-      context.diagnostics.initialNavigation = {
-        name: "Initial navigation",
-        status: "STARTED",
-        timestamp: new Date().toISOString(),
-        url: target.toString(),
-      };
-      await session.page.goto(target.toString(), { waitUntil: "domcontentloaded" });
-      context.diagnostics.initialNavigation = {
-        name: "Initial navigation",
-        status: "PASSED",
-        timestamp: new Date().toISOString(),
-        url: target.toString(),
-        durationMs: Date.now() - initialNavigationStarted,
-      };
-      context.diagnostics.finalUrl = session.page.url();
-      logger.info({ runId, url: target.toString(), finalUrl: session.page.url(), durationMs: Date.now() - initialNavigationStarted }, "Initial navigation completed");
-      try {
-        const loginMessage = await this.authentication.authenticate(session.page, context.request.credentials);
-        context.diagnostics.login = {
-          status: context.request.credentials ? "PASSED" : "SKIPPED",
-          message: loginMessage ?? "No credentials supplied.",
-        };
-      } catch (error) {
-        context.diagnostics.login = {
-          status: error instanceof AppError && error.code === ERROR_CODES.HUMAN_AUTHENTICATION_REQUIRED ? "HUMAN_REQUIRED" : "FAILED",
-          message: error instanceof Error ? error.message : String(error),
-        };
-        throw error;
-      }
-      if (context.request.credentials) {
-        context.request.credentials.password = "";
+      for (const targetItem of targets) {
+        session = await this.runMatrixTarget({
+          context,
+          target,
+          targetItem,
+          artifacts,
+        });
+        await this.browserManager.close(session);
+        session = undefined;
       }
 
-      await this.crawler.crawl({
-        context,
-        page: session.page,
-        testPage: async (url) =>
-          this.testPage({
-            context,
-            session: session as BrowserSession,
-            url,
-            consoleCollector,
-            networkCollector,
-            performanceCollector,
-            evidenceCollector,
-            artifacts,
-          }),
-      });
+      this.recordAuthorizationDiagnostics(context);
 
       const report = this.aggregator.aggregate(context, new Date().toISOString());
       logger.info({ runId, status: report.status, summary: report.summary }, "Test run completed");
       return report;
     } catch (error) {
-      logger.error({ err: redactSecrets(error), runId }, "Test run failed");
+      const serialized = serializeError(error);
+      logger.error({ err: serialized, runId }, "Test run failed");
       if (!context.diagnostics.browser.launched) {
-        context.diagnostics.browser.error = error instanceof Error ? error.message : String(error);
+        context.diagnostics.browser.error = serialized.message;
       }
       if (error instanceof AppError && error.fatal) throw error;
       context.pageReports.push({
         url: request.targetUrl,
         canonicalUrl: target.toString(),
+        role: context.roleName,
+        viewport: context.viewportName,
+        locale: context.localeName,
+        direction: context.direction,
         status: "ERROR",
         tests: [],
         consoleErrors: [],
         failedNetworkRequests: [],
         performanceObservations: [],
         evidence: [],
-        skippedReason: error instanceof Error ? error.message : String(error),
+        skippedReason: serialized.message,
       });
       return { ...this.aggregator.aggregate(context, new Date().toISOString()), status: "ERROR" };
     } finally {
@@ -202,9 +178,157 @@ export class RunOrchestrator {
         context.request.credentials.username = "";
         context.request.credentials.password = "";
       }
+      for (const role of context.request.roles ?? []) {
+        role.credentials.username = "";
+        role.credentials.password = "";
+      }
       await this.browserManager.close(session);
       activeRuns -= 1;
     }
+  }
+
+  private async runMatrixTarget(input: {
+    context: RunContext;
+    target: URL;
+    targetItem: MatrixExecutionTarget;
+    artifacts: ArtifactManager;
+  }): Promise<BrowserSession> {
+    const { context, target, targetItem, artifacts } = input;
+    const localRequest: TestingRunRequest = {
+      ...context.request,
+      credentials: cloneCredentials(targetItem.role.credentials),
+      browser: {
+        ...context.request.browser,
+        viewport: {
+          width: targetItem.viewport.width,
+          height: targetItem.viewport.height,
+        },
+      },
+    };
+    const localContext: RunContext = {
+      ...context,
+      roleName: targetItem.role.name,
+      viewportName: targetItem.viewport.name,
+      localeName: targetItem.locale.name,
+      direction: targetItem.locale.direction,
+      request: localRequest,
+      visitedUrls: new Set(),
+      pendingUrls: new Set(),
+      skippedUrls: new Map(),
+      failedUrls: new Map(),
+    };
+
+    logger.info(
+      {
+        runId: context.runId,
+        role: targetItem.role.name,
+        viewport: targetItem.viewport.name,
+        locale: targetItem.locale.name,
+      },
+      "Matrix target started",
+    );
+
+    const session = await this.browserManager.launch(localRequest, artifacts.downloadsDir, {
+      viewport: localRequest.browser.viewport,
+      locale: targetItem.locale.locale,
+      direction: targetItem.locale.direction,
+    });
+    context.diagnostics.browser.launched = true;
+    logger.info({ runId: context.runId, role: targetItem.role.name }, "Browser launched");
+
+    const consoleCollector = new ConsoleCollector();
+    const networkCollector = new NetworkCollector(context.targetOrigin);
+    const performanceCollector = new PerformanceCollector();
+    const evidenceCollector = new EvidenceCollector(artifacts);
+    consoleCollector.attach(session.page);
+    networkCollector.attach(session.page);
+
+    const initialNavigationStarted = Date.now();
+    context.diagnostics.initialNavigation ??= {
+      name: "Initial navigation",
+      status: "STARTED",
+      timestamp: new Date().toISOString(),
+      url: target.toString(),
+    };
+    await session.page.goto(target.toString(), { waitUntil: "domcontentloaded" });
+    if (targetItem.locale.direction === "rtl") {
+      await session.page.evaluate(() => {
+        document.documentElement.setAttribute("dir", "rtl");
+      });
+    }
+    context.diagnostics.initialNavigation = {
+      name: "Initial navigation",
+      status: "PASSED",
+      timestamp: new Date().toISOString(),
+      url: target.toString(),
+      durationMs: Date.now() - initialNavigationStarted,
+      message: "At least one matrix target completed initial navigation.",
+    };
+    context.diagnostics.finalUrl = session.page.url();
+
+    try {
+      const loginResult = await this.authentication.authenticate(session.page, localRequest.credentials);
+      context.diagnostics.login = {
+        status: localRequest.credentials ? "PASSED" : "SKIPPED",
+        message: loginResult?.message ?? "No credentials supplied.",
+        details: loginResult?.diagnostics,
+      };
+      if (localRequest.credentials) {
+        localContext.request = {
+          ...localContext.request,
+          targetUrl: session.page.url(),
+        };
+        context.diagnostics.finalUrl = session.page.url();
+      }
+    } catch (error) {
+      const serialized = serializeError(error);
+      const evidence = await evidenceCollector.screenshotOnFailure(
+        session.page,
+        `${context.runId}-${targetItem.role.name}-${targetItem.viewport.name}-${targetItem.locale.name}-login-failure`,
+        "Login failed.",
+      );
+      context.diagnostics.login = {
+        status: error instanceof AppError && error.code === ERROR_CODES.HUMAN_AUTHENTICATION_REQUIRED ? "HUMAN_REQUIRED" : "FAILED",
+        message: serialized.message,
+        details: serialized.details,
+        evidence,
+      };
+      throw error;
+    }
+
+    await this.crawler.crawl({
+      context: localContext,
+      testPage: async (url) => {
+        const result = await this.testPage({
+          context: localContext,
+          session,
+          url,
+          consoleCollector,
+          networkCollector,
+          performanceCollector,
+          evidenceCollector,
+          artifacts,
+        });
+        return { report: result.report, links: result.snapshot.links };
+      },
+    });
+
+    for (const url of localContext.visitedUrls) context.visitedUrls.add(url);
+    for (const [url, reason] of localContext.skippedUrls) context.skippedUrls.set(`${targetItem.role.name}:${targetItem.viewport.name}:${targetItem.locale.name}:${url}`, reason);
+    for (const [url, reason] of localContext.failedUrls) context.failedUrls.set(`${targetItem.role.name}:${targetItem.viewport.name}:${targetItem.locale.name}:${url}`, reason);
+    context.openRouterCalls = localContext.openRouterCalls;
+
+    logger.info(
+      {
+        runId: context.runId,
+        role: targetItem.role.name,
+        viewport: targetItem.viewport.name,
+        locale: targetItem.locale.name,
+        pages: localContext.visitedUrls.size,
+      },
+      "Matrix target completed",
+    );
+    return session;
   }
 
   private async testPage(input: {
@@ -216,12 +340,17 @@ export class RunOrchestrator {
     performanceCollector: PerformanceCollector;
     evidenceCollector: EvidenceCollector;
     artifacts: ArtifactManager;
-  }): Promise<PageReport> {
+  }): Promise<{ report: PageReport; snapshot: Awaited<ReturnType<PageInspector["inspect"]>> }> {
     const { context, session, url } = input;
     if (context.openRouterCalls >= config.limits.maxOpenRouterCallsPerRun) {
-      return {
+      const snapshot = emptySnapshot(url);
+      const report: PageReport = {
         url,
         canonicalUrl: url,
+        role: context.roleName,
+        viewport: context.viewportName,
+        locale: context.localeName,
+        direction: context.direction,
         status: "SKIPPED",
         tests: [
           {
@@ -243,6 +372,7 @@ export class RunOrchestrator {
         evidence: [],
         skippedReason: "Maximum AI calls per run reached.",
       };
+      return { report, snapshot };
     }
     await assertSafeTargetUrl(url, config.security);
     logger.info({ runId: context.runId, url }, "Page navigation started");
@@ -275,6 +405,13 @@ export class RunOrchestrator {
       snapshot,
       selectedTypes: context.request.testTypes,
       credentialsProvided: Boolean(context.request.credentials?.username),
+      roleCount: context.request.roles?.length ?? (context.request.credentials ? 1 : 0),
+    });
+    const pageEvidence = await capturePageEvidence({
+      artifacts: input.artifacts,
+      page: session.page,
+      context,
+      snapshot,
     });
 
     let plan: TestPlan;
@@ -285,7 +422,7 @@ export class RunOrchestrator {
       context.diagnostics.ai.successes += 1;
       logger.info({ runId: context.runId, url: snapshot.url, aiPlannedTests }, "AI planning completed");
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       context.diagnostics.ai.failures.push({ pageUrl: snapshot.url, message });
       if (error instanceof AppError && error.code === ERROR_CODES.INVALID_AI_RESPONSE) {
         context.diagnostics.ai.validationFailures.push({ pageUrl: snapshot.url, message });
@@ -299,6 +436,10 @@ export class RunOrchestrator {
       const pageReport: PageReport = {
         url: snapshot.url,
         canonicalUrl: snapshot.canonicalUrl,
+        role: context.roleName,
+        viewport: context.viewportName,
+        locale: context.localeName,
+        direction: context.direction,
         status: summarizePageStatus([
           ...baselineResults,
           {
@@ -334,11 +475,11 @@ export class RunOrchestrator {
         consoleErrors: snapshot.consoleErrors,
         failedNetworkRequests: snapshot.failedRequests,
         performanceObservations: snapshot.performance,
-        evidence,
+        evidence: [...pageEvidence, ...evidence],
       };
       this.recordPageDiagnostics(context, pageReport, snapshot, baselineResults.length, 0, navigationMs);
       await this.writePageReportArtifact(input.artifacts, context, pageReport);
-      return pageReport;
+      return { report: pageReport, snapshot };
     }
 
     context.previousPageSummaries.push(plan.pageSummary);
@@ -364,16 +505,20 @@ export class RunOrchestrator {
     const pageReport: PageReport = {
       url: snapshot.url,
       canonicalUrl: snapshot.canonicalUrl,
+      role: context.roleName,
+      viewport: context.viewportName,
+      locale: context.localeName,
+      direction: context.direction,
       status: summarizePageStatus(testResults),
       tests: testResults,
       consoleErrors: snapshot.consoleErrors,
       failedNetworkRequests: snapshot.failedRequests,
       performanceObservations: snapshot.performance,
-      evidence: [],
+      evidence: pageEvidence,
     };
     this.recordPageDiagnostics(context, pageReport, snapshot, baselineResults.length, aiPlannedTests, navigationMs);
     await this.writePageReportArtifact(input.artifacts, context, pageReport);
-    return pageReport;
+    return { report: pageReport, snapshot };
   }
 
   private recordPageDiagnostics(
@@ -395,6 +540,10 @@ export class RunOrchestrator {
     context.diagnostics.pages.push({
       url: snapshot.url,
       finalUrl: snapshot.url,
+      role: context.roleName,
+      viewport: context.viewportName,
+      locale: context.localeName,
+      direction: context.direction,
       status: pageReport.status,
       navigationMs,
       links: snapshot.links.length,
@@ -404,9 +553,52 @@ export class RunOrchestrator {
       inputs,
       consoleErrors: snapshot.consoleErrors.length,
       networkFailures: snapshot.failedRequests.length,
+      apiCalls: snapshot.observedApiCalls.length,
+      images: snapshot.images.length,
+      scripts: snapshot.scripts.length,
       baselineTests,
       aiPlannedTests,
     });
+  }
+
+  private recordAuthorizationDiagnostics(context: RunContext): void {
+    const roles = unique(context.pageReports.map((page) => page.role).filter(Boolean) as string[]);
+    if (roles.length < 2) return;
+
+    const reportsByRole = new Map<string, PageReport[]>();
+    for (const role of roles) {
+      reportsByRole.set(role, context.pageReports.filter((page) => page.role === role));
+    }
+
+    const baselineRole = roles[0];
+    if (!baselineRole) return;
+    const baselineReports = reportsByRole.get(baselineRole) ?? [];
+    const baselineUrls = new Set(baselineReports.map((page) => page.canonicalUrl));
+    const baselineElements = new Set(
+      baselineReports.flatMap((page) =>
+        page.tests.flatMap((test) => test.reproductionSteps).filter((step) => step.includes("Inspect page snapshot")),
+      ),
+    );
+
+    for (const role of roles.slice(1)) {
+      const reports = reportsByRole.get(role) ?? [];
+      const urls = new Set(reports.map((page) => page.canonicalUrl));
+      const uniqueUrls = [...urls].filter((url) => !baselineUrls.has(url)).slice(0, 20);
+      const sharedUrls = [...urls].filter((url) => baselineUrls.has(url)).length;
+      const status = uniqueUrls.length > 0 ? "INCONCLUSIVE" : "PASSED";
+      context.diagnostics.authorization?.comparisons.push({
+        role,
+        comparedTo: baselineRole,
+        sharedUrls,
+        uniqueUrls,
+        uniqueElements: baselineElements.size,
+        status,
+        message:
+          uniqueUrls.length > 0
+            ? `${role} reached ${uniqueUrls.length} URL(s) not reached by ${baselineRole}; review expected RBAC differences.`
+            : `${role} did not expose extra crawled URLs compared with ${baselineRole}.`,
+      });
+    }
   }
 
   private async writePageReportArtifact(
@@ -556,4 +748,67 @@ function summarizePageStatus(results: TestCaseResult[]): PageReport["status"] {
   if (results.length === 0) return "INCONCLUSIVE";
   if (results.some((result) => result.status === "INCONCLUSIVE")) return "INCONCLUSIVE";
   return "PASSED";
+}
+
+function emptySnapshot(url: string): PageSnapshot {
+  return {
+    url,
+    canonicalUrl: url,
+    title: "",
+    headings: [],
+    visibleText: "",
+    links: [],
+    images: [],
+    scripts: [],
+    elements: [],
+    forms: [],
+    tables: [],
+    dialogs: [],
+    currentQueryParameters: {},
+    consoleErrors: [],
+    failedRequests: [],
+    observedApiCalls: [],
+    performance: [],
+    visibleValidationErrors: [],
+    uiObservations: [],
+  };
+}
+
+async function capturePageEvidence(input: {
+  artifacts: ArtifactManager;
+  page: Page;
+  context: RunContext;
+  snapshot: PageSnapshot;
+}) {
+  try {
+    const slug = [
+      input.context.runId,
+      input.context.roleName ?? "default",
+      input.context.viewportName ?? "viewport",
+      input.context.localeName ?? "locale",
+      input.snapshot.canonicalUrl.replace(/^https?:\/\//, "").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80),
+    ].join("-");
+    return [
+      await input.artifacts.screenshot(
+        input.page,
+        slug,
+        `Page screenshot for ${input.context.roleName ?? "default"} ${input.context.viewportName ?? "default"} ${input.context.localeName ?? "default"}.`,
+      ),
+    ];
+  } catch {
+    return [];
+  }
+}
+
+function cloneCredentials(credentials?: TestingRunRequest["credentials"]): TestingRunRequest["credentials"] {
+  return credentials
+    ? {
+        ...credentials,
+        fieldHints: credentials.fieldHints ? { ...credentials.fieldHints } : undefined,
+      }
+    : undefined;
+}
+
+function unique(values: string[]): string[] {
+  return [...new Set(values)];
 }

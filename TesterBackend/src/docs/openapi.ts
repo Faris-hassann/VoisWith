@@ -54,6 +54,7 @@ export const openApiDocument = {
                   value: {
                     targetUrl: "https://example.com",
                     authorizationConfirmed: true,
+                    environment: "staging",
                     testTypes: ["SMOKE", "PAGE_DISCOVERY", "LINKS", "CONSOLE_ERRORS"],
                     crawl: {
                       strategy: "DFS",
@@ -79,6 +80,17 @@ export const openApiDocument = {
                       allowPayments: false,
                       maximumActionsPerPage: 15,
                       maximumRunDurationSeconds: 300,
+                    },
+                    testMatrix: {
+                      enabled: true,
+                      viewports: [
+                        { name: "desktop", width: 1440, height: 900 },
+                        { name: "mobile", width: 390, height: 844 },
+                      ],
+                      locales: [
+                        { name: "english-ltr", locale: "en-US", direction: "ltr" },
+                        { name: "arabic-rtl", locale: "ar", direction: "rtl" },
+                      ],
                     },
                   },
                 },
@@ -141,7 +153,14 @@ export const openApiDocument = {
             const: true,
             description: "Must be true. Caller confirms authorization to test the target.",
           },
+          environment: { type: "string", enum: ["production", "staging"], default: "production" },
           credentials: { $ref: "#/components/schemas/Credentials" },
+          roles: {
+            type: "array",
+            minItems: 1,
+            maxItems: 3,
+            items: { $ref: "#/components/schemas/RoleCredentials" },
+          },
           testTypes: {
             type: "array",
             minItems: 1,
@@ -150,6 +169,26 @@ export const openApiDocument = {
           crawl: { $ref: "#/components/schemas/CrawlSettings" },
           browser: { $ref: "#/components/schemas/BrowserSettings" },
           execution: { $ref: "#/components/schemas/ExecutionSettings" },
+          testMatrix: { $ref: "#/components/schemas/TestMatrixSettings" },
+        },
+      },
+      RoleCredentials: {
+        type: "object",
+        additionalProperties: false,
+        required: ["name", "credentials"],
+        properties: {
+          name: { type: "string", enum: ["Admin", "Agent", "Client"] },
+          credentials: { $ref: "#/components/schemas/Credentials" },
+          loginUrl: { type: "string", format: "uri" },
+          fieldHints: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              usernameSelector: { type: "string" },
+              passwordSelector: { type: "string" },
+              submitSelector: { type: "string" },
+            },
+          },
         },
       },
       Credentials: {
@@ -222,6 +261,39 @@ export const openApiDocument = {
             minimum: 10,
             maximum: 7200,
             default: 300,
+          },
+        },
+      },
+      TestMatrixSettings: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          enabled: { type: "boolean", default: false },
+          viewports: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["name", "width", "height"],
+              properties: {
+                name: { type: "string" },
+                width: { type: "integer", minimum: 320, maximum: 3840 },
+                height: { type: "integer", minimum: 240, maximum: 2160 },
+              },
+            },
+          },
+          locales: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["name", "locale", "direction"],
+              properties: {
+                name: { type: "string" },
+                locale: { type: "string" },
+                direction: { type: "string", enum: ["ltr", "rtl"] },
+              },
+            },
           },
         },
       },

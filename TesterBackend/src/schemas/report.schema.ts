@@ -40,5 +40,6 @@ export const testingRunResponseSchema = z
     issues: z.array(z.unknown()),
     coverageLimitations: z.array(z.unknown()),
     artifacts: z.array(z.unknown()),
+    diagnostics: z.unknown().optional(),
   })
   .strict();

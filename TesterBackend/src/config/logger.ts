@@ -1,6 +1,7 @@
 import pino from "pino";
 import { config } from "./env.js";
 import { redactSecrets } from "../security/secret-redaction.js";
+import { serializeError } from "../errors/serialize-error.js";
 
 export const logger = pino({
   level: config.logLevel,
@@ -18,7 +19,8 @@ export const logger = pino({
   },
   serializers: {
     err(error) {
-      return redactSecrets(pino.stdSerializers.err(error));
+      const serialized = pino.stdSerializers.err(error);
+      return redactSecrets(serialized.message ? serialized : serializeError(error));
     },
   },
 });

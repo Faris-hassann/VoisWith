@@ -27,6 +27,23 @@ const BLOCKED_TERMS = [
   "close account",
 ];
 
+const STAGING_ONLY_TERMS = [
+  "booking",
+  "book",
+  "appointment",
+  "ticket",
+  "e-signature",
+  "esignature",
+  "signature",
+  "otp",
+  "upload",
+  "file",
+  "payment",
+  "checkout",
+  "card",
+  "billing",
+];
+
 export class ActionPolicyEngine {
   decide(input: {
     action: TestAction;
@@ -57,6 +74,17 @@ export class ActionPolicyEngine {
     }
     if (!input.request.execution.allowFileUploads && input.action.action === "UPLOAD_SAFE_FIXTURE") {
       return { allowed: false, status: "BLOCKED_BY_POLICY", reason: "File uploads disabled." };
+    }
+    if (
+      (input.request.environment ?? "production") !== "staging" &&
+      (["SUBMIT", "UPLOAD_SAFE_FIXTURE"].includes(input.action.action) ||
+        (input.action.action === "CLICK" && STAGING_ONLY_TERMS.some((term) => text.includes(term))))
+    ) {
+      return {
+        allowed: false,
+        status: "BLOCKED_BY_POLICY",
+        reason: "Sensitive workflow action requires environment=staging.",
+      };
     }
     if (input.request.execution.safeMode && BLOCKED_TERMS.some((term) => text.includes(term))) {
       return {

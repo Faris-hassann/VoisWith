@@ -4,6 +4,7 @@ import { AppError } from "../errors/app-error.js";
 import { ERROR_CODES } from "../errors/error-codes.js";
 import { logger } from "../config/logger.js";
 import { redactSecrets } from "../security/secret-redaction.js";
+import { serializeError } from "../errors/serialize-error.js";
 
 export function errorMiddleware(
   error: unknown,
@@ -11,7 +12,7 @@ export function errorMiddleware(
   res: Response,
   _next: NextFunction,
 ): void {
-  const redacted = redactSecrets(error);
+  const redacted = serializeError(error);
 
   if (error instanceof ZodError) {
     res.status(400).json({

@@ -39,4 +39,43 @@ describe("ActionPolicyEngine", () => {
     expect(decision.allowed).toBe(false);
     expect(decision.status).toBe("BLOCKED_BY_POLICY");
   });
+
+  it("requires staging for sensitive submissions", () => {
+    const engine = new ActionPolicyEngine();
+    const decision = engine.decide({
+      action: { action: "SUBMIT", elementId: "element_1", description: "Submit ticket" },
+      testCase: {
+        id: "t2",
+        name: "Create ticket",
+        type: "FORMS",
+        priority: "HIGH",
+        preconditions: [],
+        steps: [],
+        assertions: [],
+        cleanupActions: [],
+        destructive: false,
+        reasoningSummary: "ticket submission",
+      },
+      request: {
+        targetUrl: "https://example.com",
+        authorizationConfirmed: true,
+        environment: "production",
+        testTypes: ["FORMS"],
+        crawl: { strategy: "DFS", maxDepth: 1, maxPages: 1, sameOriginOnly: true, includePatterns: [], excludePatterns: [] },
+        browser: { channel: "chrome", headless: false, viewport: { width: 1440, height: 900 } },
+        execution: {
+          safeMode: true,
+          allowFormSubmission: true,
+          allowFileUploads: true,
+          allowDestructiveActions: false,
+          allowPayments: false,
+          maximumActionsPerPage: 40,
+          maximumRunDurationSeconds: 900,
+        },
+      },
+    });
+
+    expect(decision.allowed).toBe(false);
+    expect(decision.reason).toContain("environment=staging");
+  });
 });
