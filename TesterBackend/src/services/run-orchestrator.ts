@@ -3,6 +3,7 @@ import type { Page } from "playwright";
 import { ArtifactManager } from "../artifacts/artifact-manager.js";
 import { AuthenticationHandler } from "../authentication/authentication-handler.js";
 import { BrowserManager, type BrowserSession } from "../browser/browser-manager.js";
+import { scrollPageForDiscovery } from "../browser/browser-visual-agent.js";
 import { ConsoleCollector } from "../collectors/console-collector.js";
 import { EvidenceCollector } from "../collectors/evidence-collector.js";
 import { NetworkCollector } from "../collectors/network-collector.js";
@@ -19,6 +20,7 @@ import { assertSafeTargetUrl } from "../security/ssrf-protection.js";
 import { redactSecrets } from "../security/secret-redaction.js";
 import type { RunContext } from "../testing/run-context.js";
 import { buildPageBaselineTests } from "../testing/page-baseline-tests.js";
+import { buildLinkHealthTests } from "../testing/link-health-checker.js";
 import type { TestAction, TestCase, TestPlan } from "../types/ai.js";
 import type { PageReport, TestCaseResult, TestStepResult, TestingRunResponse } from "../types/report.js";
 import type { ElementInventoryItem, PageSnapshot, TestingRunRequest } from "../types/testing.js";
@@ -471,6 +473,7 @@ export class RunOrchestrator {
     });
     const navigationStarted = Date.now();
     await session.page.goto(url, { waitUntil: "domcontentloaded" });
+    await scrollPageForDiscovery(session.page);
     const navigationMs = Date.now() - navigationStarted;
     logger.info({ runId: context.runId, url, finalUrl: session.page.url(), navigationMs }, "Page navigation completed");
     emit(input, {
@@ -508,7 +511,7 @@ export class RunOrchestrator {
       runId: context.runId,
       type: "page.snapshot_collected",
       status: "passed",
-      message: "Collected page snapshot for crawl and AI planning.",
+      message: "Collected page snapshot and JS-scraped links for crawl.",
       pageUrl: snapshot.url,
       role: context.roleName,
       viewport: context.viewportName,
@@ -530,6 +533,12 @@ export class RunOrchestrator {
       selectedTypes: context.request.testTypes,
       credentialsProvided: Boolean(context.request.credentials?.username),
       roleCount: context.request.roles?.length ?? (context.request.credentials ? 1 : 0),
+    });
+    const linkHealthResults = await buildLinkHealthTests({
+      page: session.page,
+      links: snapshot.links,
+      targetOrigin: context.targetOrigin,
+      request: context.request,
     });
     const pageEvidence = await capturePageEvidence({
       artifacts: input.artifacts,
@@ -562,7 +571,7 @@ export class RunOrchestrator {
         severity: "INFORMATIONAL",
         confidence: 1,
       };
-      const testResults = [...baselineResults, aiBudgetResult];
+      const testResults = [...baselineResults, ...linkHealthResults, aiBudgetResult];
       const pageReport: PageReport = {
         url: snapshot.url,
         canonicalUrl: snapshot.canonicalUrl,
@@ -583,6 +592,53 @@ export class RunOrchestrator {
       return { report: pageReport, snapshot };
     }
 
+    const aiEligibility = getAiFormSubmissionEligibility(snapshot);
+    if (!aiEligibility.eligible) {
+      emit(input, {
+        runId: context.runId,
+        type: "ai.skipped_not_applicable",
+        status: "skipped",
+        message: "AI skipped because no form, login, or submission workflow was detected.",
+        pageUrl: snapshot.url,
+        role: context.roleName,
+        viewport: context.viewportName,
+        locale: context.localeName,
+        diagnostics: { reasons: aiEligibility.reasons },
+      });
+      const aiSkippedResult: TestCaseResult = {
+        id: "ai-form-submission-scope",
+        name: "AI form/login/submission scope",
+        type: "FORMS",
+        status: "SKIPPED",
+        steps: [],
+        assertions: [],
+        actualResult: "No form, login, or submission workflow was detected on this page.",
+        evidence: [],
+        reproductionSteps: [`Open ${snapshot.url}`, "Inspect JS-scraped page snapshot", "Skip AI planning for non-form content"],
+        severity: "INFORMATIONAL",
+        confidence: 1,
+      };
+      const testResults = [...baselineResults, ...linkHealthResults, aiSkippedResult];
+      const pageReport: PageReport = {
+        url: snapshot.url,
+        canonicalUrl: snapshot.canonicalUrl,
+        role: context.roleName,
+        viewport: context.viewportName,
+        locale: context.localeName,
+        direction: context.direction,
+        status: summarizePageStatus(testResults),
+        tests: testResults,
+        consoleErrors: snapshot.consoleErrors,
+        failedNetworkRequests: snapshot.failedRequests,
+        performanceObservations: snapshot.performance,
+        evidence: pageEvidence,
+        skippedReason: "AI planning is limited to form, login, and submission workflows.",
+      };
+      this.recordPageDiagnostics(context, pageReport, snapshot, baselineResults.length, 0, navigationMs);
+      await this.writePageReportArtifact(input.artifacts, context, pageReport, input.events);
+      return { report: pageReport, snapshot };
+    }
+
     let plan: TestPlan;
     let aiPlannedTests = 0;
     try {
@@ -590,7 +646,7 @@ export class RunOrchestrator {
         runId: context.runId,
         type: "ai.planning_started",
         status: "started",
-        message: "Sending page snapshot to AI planner.",
+        message: `Sending ${aiEligibility.reasons.join(", ")} context to AI form/login/submission planner.`,
         pageUrl: snapshot.url,
         role: context.roleName,
         viewport: context.viewportName,
@@ -604,7 +660,7 @@ export class RunOrchestrator {
         runId: context.runId,
         type: "ai.planning_passed",
         status: "passed",
-        message: `AI generated ${aiPlannedTests} test case(s).`,
+        message: `AI generated ${aiPlannedTests} form/login/submission test case(s).`,
         pageUrl: snapshot.url,
         role: context.roleName,
         viewport: context.viewportName,
@@ -643,6 +699,7 @@ export class RunOrchestrator {
         direction: context.direction,
         status: summarizePageStatus([
           ...baselineResults,
+          ...linkHealthResults,
           {
             id: "ai-planning",
             name: "AI planning",
@@ -659,6 +716,7 @@ export class RunOrchestrator {
         ]),
         tests: [
           ...baselineResults,
+          ...linkHealthResults,
           {
             id: "ai-planning",
             name: "AI planning",
@@ -684,7 +742,7 @@ export class RunOrchestrator {
     }
 
     context.previousPageSummaries.push(plan.pageSummary);
-    const testResults: TestCaseResult[] = [...baselineResults];
+    const testResults: TestCaseResult[] = [...baselineResults, ...linkHealthResults];
     const executor = new PlaywrightActionExecutor(context.runId);
     const assertionEngine = new AssertionEngine();
     const elementMap = new Map(snapshot.elements.map((element) => [element.id, element]));
@@ -1013,28 +1071,36 @@ function safePageUrl(page: Page): string | undefined {
   }
 }
 
-function emptySnapshot(url: string): PageSnapshot {
-  return {
-    url,
-    canonicalUrl: url,
-    title: "",
-    headings: [],
-    visibleText: "",
-    links: [],
-    images: [],
-    scripts: [],
-    elements: [],
-    forms: [],
-    tables: [],
-    dialogs: [],
-    currentQueryParameters: {},
-    consoleErrors: [],
-    failedRequests: [],
-    observedApiCalls: [],
-    performance: [],
-    visibleValidationErrors: [],
-    uiObservations: [],
-  };
+function getAiFormSubmissionEligibility(snapshot: PageSnapshot): { eligible: boolean; reasons: string[] } {
+  const reasons: string[] = [];
+  if (snapshot.forms.length > 0) reasons.push("forms");
+
+  const formFieldKinds = new Set<ElementInventoryItem["kind"]>([
+    "input",
+    "textarea",
+    "select",
+    "checkbox",
+    "radio",
+    "file",
+    "search",
+    "submit",
+  ]);
+  const fieldTypePattern = /password|email|user(name)?|login|search|file|checkbox|radio/i;
+  const submissionTextPattern = /log\s*in|sign\s*in|sign\s*up|register|submit|continue|save|send|checkout|upload|validate|verify/i;
+
+  const hasRelevantField = snapshot.elements.some((element) => {
+    if (formFieldKinds.has(element.kind)) return true;
+    return fieldTypePattern.test([element.type, element.name, element.label, element.placeholder, element.accessibleName].filter(Boolean).join(" "));
+  });
+  if (hasRelevantField) reasons.push("form-like fields");
+
+  const hasSubmissionControl = snapshot.elements.some((element) => {
+    if (!["button", "link", "submit"].includes(element.kind)) return false;
+    return submissionTextPattern.test([element.text, element.accessibleName, element.label, element.placeholder, element.name].filter(Boolean).join(" "));
+  });
+  if (hasSubmissionControl) reasons.push("submission controls");
+
+  return { eligible: reasons.length > 0, reasons };
 }
 
 async function capturePageEvidence(input: {

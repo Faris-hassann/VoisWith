@@ -67,6 +67,8 @@ function stringifyRecord(value: Record<string, unknown>): string | undefined {
 }
 
 function safeDetails(value: Record<string, unknown>): unknown {
-  const { name: _name, message: _message, stack: _stack, code: _code, ...details } = value;
+  const details = Object.fromEntries(
+    Object.entries(value).filter(([key]) => !["name", "message", "stack", "code"].includes(key)),
+  );
   return Object.keys(details).length > 0 ? details : undefined;
 }

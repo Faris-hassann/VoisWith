@@ -4,6 +4,7 @@ import type { LocaleDirection, TestingRunRequest } from "../types/testing.js";
 import { AppError } from "../errors/app-error.js";
 import { ERROR_CODES } from "../errors/error-codes.js";
 import { serializeError } from "../errors/serialize-error.js";
+import { installVisibleCursor } from "./browser-visual-agent.js";
 
 export interface BrowserSession {
   browser: Browser;
@@ -36,6 +37,7 @@ export class BrowserManager {
       context.setDefaultNavigationTimeout(config.browser.pageNavigationTimeoutMs);
       context.setDefaultTimeout(config.browser.actionTimeoutMs);
       const page = await context.newPage();
+      await installVisibleCursor(page);
       if (options?.direction === "rtl") {
         await page.addInitScript(() => {
           document.documentElement.setAttribute("dir", "rtl");

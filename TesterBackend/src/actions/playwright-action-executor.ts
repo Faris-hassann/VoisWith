@@ -3,6 +3,7 @@ import type { TestAction } from "../types/ai.js";
 import type { ElementInventoryItem, LocatorDescriptor } from "../types/testing.js";
 import type { TestStepResult } from "../types/report.js";
 import { FormDataGenerator } from "../testing/form-data-generator.js";
+import { moveCursorToLocator } from "../browser/browser-visual-agent.js";
 
 export function locatorFromDescriptor(page: Page, descriptor: LocatorDescriptor) {
   switch (descriptor.strategy) {
@@ -58,6 +59,8 @@ export class PlaywrightActionExecutor {
       if (!element) return failure(action, "Element no longer available.");
 
       const locator = locatorFromDescriptor(page, element.locator);
+      await locator.scrollIntoViewIfNeeded().catch(() => undefined);
+      await moveCursorToLocator(page, locator);
       switch (action.action) {
         case "CLICK":
         case "SUBMIT":

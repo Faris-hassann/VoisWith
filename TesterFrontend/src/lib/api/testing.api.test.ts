@@ -33,7 +33,8 @@ describe("testing async API helpers", () => {
     const response = await startWebsiteTest(requestFor());
 
     expect(response.runId).toBe("run_123");
-    expect(fetchMock.mock.calls[0]?.[0]?.toString()).toContain(env.testRunsEndpoint);
+    const fetchCalls = fetchMock.mock.calls as unknown as Array<[RequestInfo | URL, RequestInit?]>;
+    expect(fetchCalls[0]?.[0].toString()).toContain(env.testRunsEndpoint);
   });
 });
 

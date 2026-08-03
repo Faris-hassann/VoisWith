@@ -74,6 +74,24 @@ describe("buildLinkSnapshots", () => {
       sourceElementId: "element_2",
     });
   });
+
+  it("deduplicates JS-scraped anchors and safe route attributes", () => {
+    const links = buildLinkSnapshots(
+      [
+        { text: "Docs", href: "https://example.com/docs", sourceCss: "#docs", sourceKind: "anchor" },
+        { text: "Docs duplicate", href: "https://example.com/docs", sourceCss: "#docs-copy", sourceKind: "route-attribute" },
+        { text: "Settings", href: "/settings", sourceCss: "#settings", sourceKind: "route-attribute" },
+      ],
+      [],
+      "https://example.com",
+      "https://example.com/start",
+    );
+
+    expect(links.map((link) => link.canonicalHref)).toEqual([
+      "https://example.com/docs",
+      "https://example.com/settings",
+    ]);
+  });
 });
 
 function element(

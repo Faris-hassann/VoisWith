@@ -10,6 +10,7 @@ interface RawLinkSnapshot {
   text: string;
   href: string;
   sourceCss: string;
+  sourceKind?: string;
 }
 
 interface PageDomData {
@@ -67,11 +68,44 @@ export class PageInspector {
         .map((heading) => heading.textContent?.trim())
         .filter(Boolean)
         .slice(0, 30);
-      const links = [...document.querySelectorAll("a[href]")].slice(0, 300).map((link) => ({
-        text: (link.textContent ?? "").trim().slice(0, 200),
-        href: link.href,
-        sourceCss: selectorFor(link),
-      }));
+      const linkCandidates = [];
+      const addLink = (element, rawHref, sourceKind) => {
+        const href = String(rawHref || "").trim();
+        if (!href || href.startsWith("#") || /^(javascript|mailto|tel):/i.test(href)) return;
+        let resolvedHref = href;
+        try {
+          resolvedHref = new URL(href, document.baseURI).href;
+        } catch {
+          return;
+        }
+        if (!/^https?:\\/\\//i.test(resolvedHref)) return;
+        linkCandidates.push({
+          text: (element.textContent ?? element.getAttribute("aria-label") ?? element.getAttribute("title") ?? "").trim().slice(0, 200),
+          href: resolvedHref,
+          sourceCss: selectorFor(element),
+          sourceKind,
+        });
+      };
+      for (const link of [...document.querySelectorAll("a[href]")]) {
+        addLink(link, link.getAttribute("href"), "anchor");
+      }
+      for (const element of [...document.querySelectorAll("[data-href],[data-url],[data-route],[to],[routerlink],[ng-reflect-router-link]")]) {
+        const value =
+          element.getAttribute("data-href") ||
+          element.getAttribute("data-url") ||
+          element.getAttribute("data-route") ||
+          element.getAttribute("to") ||
+          element.getAttribute("routerlink") ||
+          element.getAttribute("ng-reflect-router-link");
+        addLink(element, value, "route-attribute");
+      }
+      const seenLinks = new Set();
+      const links = linkCandidates.filter((link) => {
+        const key = link.href;
+        if (seenLinks.has(key)) return false;
+        seenLinks.add(key);
+        return true;
+      }).slice(0, 300);
       const tables = [...document.querySelectorAll("table")]
         .slice(0, 20)
         .map((table) => table.textContent?.replace(/\\s+/g, " ").trim().slice(0, 1000) ?? "");
@@ -194,16 +228,20 @@ export function buildLinkSnapshots(
       .map((element) => [element.locator.value, element.id]),
   );
 
-  return links.map((link) => {
+  const seen = new Set<string>();
+  return links.flatMap((link) => {
     const canonical = canonicalizeUrl(link.href, baseUrl);
     const canonicalHref = canonical.url;
-    return {
+    const key = canonicalHref ?? link.href;
+    if (!key || seen.has(key)) return [];
+    seen.add(key);
+    return [{
       text: link.text,
       href: link.href,
       canonicalHref,
       internal: canonicalHref ? safeOrigin(canonicalHref) === targetOrigin : false,
       sourceElementId: linkIdByCss.get(link.sourceCss),
-    };
+    }];
   });
 }
 
