@@ -1,9 +1,21 @@
 import type { RunContext } from "../testing/run-context.js";
-import type { PageSnapshot } from "../types/testing.js";
+import type { ElementInventoryItem, PageSnapshot } from "../types/testing.js";
 import { redactSecrets } from "../security/secret-redaction.js";
+
+const FIELD_KINDS = new Set<ElementInventoryItem["kind"]>(["input", "textarea", "select", "checkbox", "radio", "file", "search"]);
 
 export class AiContextBuilder {
   build(context: RunContext, snapshot: PageSnapshot): unknown {
+    const forms = snapshot.forms.map((form) => ({
+      formId: form.elementId,
+      implicit: form.implicit,
+      method: form.method,
+      action: form.action,
+      apparentPurpose: form.apparentPurpose,
+      fields: form.fields.map(fieldForAi),
+      submitControls: form.submitControls.map(controlForAi),
+    }));
+
     return redactSecrets({
       runId: context.runId,
       targetOrigin: context.targetOrigin,
@@ -29,80 +41,55 @@ export class AiContextBuilder {
       safeTestDataAvailable: Object.keys(context.request.testData ?? {}).length > 0,
       page: {
         url: snapshot.url,
-        canonicalUrl: snapshot.canonicalUrl,
         title: snapshot.title,
         stateFingerprint: snapshot.stateFingerprint ?? snapshot.canonicalUrl,
-        headings: snapshot.headings,
-        landmarks: snapshot.landmarks ?? [],
-        buttons: snapshot.elements.filter((element) => element.kind === "button" || element.kind === "submit"),
-        inputs: snapshot.elements.filter((element) => ["input", "textarea", "select", "checkbox", "radio", "file", "search"].includes(element.kind)),
-        interactiveElements: snapshot.elements.slice(0, 200),
-        visibleTextSummary: snapshot.visibleText.slice(0, 6000),
-        visibleText: snapshot.visibleText.slice(0, 6000),
-        queryParameters: snapshot.currentQueryParameters,
-        links: snapshot.links.slice(0, 120).map((link) => ({
-          text: link.text,
-          href: link.href,
-          canonicalHref: link.canonicalHref,
-          internal: link.internal,
-          sourceElementId: link.sourceElementId,
-        })),
-        images: snapshot.images.slice(0, 80),
-        scripts: snapshot.scripts.slice(0, 80),
-        forms: snapshot.forms.map((form) => ({
-          elementId: form.elementId,
-          implicit: form.implicit,
-          method: form.method,
-          action: form.action,
-          apparentPurpose: form.apparentPurpose,
-          fields: form.fields.map((field) => ({
-            id: field.id,
-            kind: field.kind,
-            label: field.label,
-            placeholder: field.placeholder,
-            name: field.name,
-            type: field.type,
-            required: field.required,
-            disabled: field.disabled,
-            hidden: field.hidden,
-            validation: field.validation,
-            locator: field.locator,
-          })),
-          submitControls: form.submitControls.map((control) => ({
-            id: control.id,
-            kind: control.kind,
-            text: control.text,
-            accessibleName: control.accessibleName,
-            disabled: control.disabled,
-            hidden: control.hidden,
-            locator: control.locator,
-          })),
-        })),
-        elements: snapshot.elements.slice(0, 200).map((element) => ({
-          id: element.id,
-          kind: element.kind,
-          tagName: element.tagName,
-          role: element.role,
-          accessibleName: element.accessibleName,
-          text: element.text,
-          label: element.label,
-          placeholder: element.placeholder,
-          name: element.name,
-          type: element.type,
-          disabled: element.disabled,
-          hidden: element.hidden,
-          required: element.required,
-          formOwnerElementId: element.formOwnerElementId,
-          locator: element.locator,
-        })),
-        tables: snapshot.tables.slice(0, 10),
-        dialogs: snapshot.dialogs,
+        formCount: forms.length,
+        inputCount: forms.reduce((sum, form) => sum + form.fields.length, 0),
+        submitControlCount: forms.reduce((sum, form) => sum + form.submitControls.length, 0),
+        forms,
         consoleErrors: snapshot.consoleErrors,
         failedRequests: snapshot.failedRequests,
-        observedApiCalls: snapshot.observedApiCalls,
         visibleValidationErrors: snapshot.visibleValidationErrors,
-        uiObservations: snapshot.uiObservations,
       },
     });
   }
+}
+
+function fieldForAi(field: ElementInventoryItem) {
+  return {
+    elementId: field.id,
+    kind: FIELD_KINDS.has(field.kind) ? field.kind : "input",
+    label: field.label,
+    placeholder: field.placeholder,
+    name: field.name,
+    type: field.type,
+    required: field.required,
+    disabled: field.disabled,
+    hidden: field.hidden,
+    validation: field.validation,
+    valuePlaceholder: placeholderForField(field),
+  };
+}
+
+function controlForAi(control: ElementInventoryItem) {
+  return {
+    elementId: control.id,
+    kind: control.kind,
+    text: control.text,
+    accessibleName: control.accessibleName,
+    disabled: control.disabled,
+    hidden: control.hidden,
+  };
+}
+
+function placeholderForField(field: ElementInventoryItem): string {
+  const type = field.type?.toLowerCase();
+  if (type === "password") return "TEST_PASSWORD";
+  if (type === "email") return "VALID_EMAIL";
+  if (type === "url") return "VALID_URL";
+  if (type === "number") return "VALID_NUMBER";
+  if (type === "date") return "VALID_DATE";
+  if (field.kind === "file") return "TEST_FILE";
+  if (field.kind === "checkbox" || field.kind === "radio") return "BOOLEAN_CHOICE";
+  return "VALID_TEXT";
 }

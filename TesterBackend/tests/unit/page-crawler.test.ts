@@ -118,7 +118,7 @@ function contextFor(input: { maxDepth: number; maxPages: number; sameOriginOnly:
         events: [],
       },
       pages: [],
-      ai: { calls: 0, successes: 0, failures: [], validationFailures: [] },
+      ai: { calls: 0, maxCalls: 50, disabled: false, openRouterConfigured: true, modelConfigured: true, successes: 0, failures: [], validationFailures: [] },
     },
   };
 }

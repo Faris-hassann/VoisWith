@@ -1,0 +1,32 @@
+
+> testerfrontend@1.0.0 dev:fresh
+> node scripts/start-dev-fresh.mjs
+
+   next-swc build: wasm build @next/swc-wasm-nodejs
+   next-swc build: wasm build @next/swc-wasm-nodejs
+   ▲ Next.js 15.5.22
+   - Local:        http://localhost:3001
+   - Network:      http://10.94.197.220:3001
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 3s
+ ○ Compiling /testing/new ...
+ ✓ Compiled /testing/new in 7.1s (856 modules)
+ GET /testing/new 200 in 7966ms
+ ○ Compiling /testing/running/[runId] ...
+ ✓ Compiled /testing/running/[runId] in 889ms (883 modules)
+ GET /testing/running/a69ee282-a1f2-4c92-bf4d-3f48398d4b5f 200 in 2062ms
+ GET /testing/running/a69ee282-a1f2-4c92-bf4d-3f48398d4b5f 200 in 201ms
+ ○ Compiling /testing/results/[runId] ...
+ ✓ Compiled /testing/results/[runId] in 1437ms (961 modules)
+ GET /testing/results/a69ee282-a1f2-4c92-bf4d-3f48398d4b5f 200 in 2437ms
+ ✓ Compiled /api/testing/runs/[runId]/report.json in 342ms (982 modules)
+ GET /api/testing/runs/a69ee282-a1f2-4c92-bf4d-3f48398d4b5f/report.json 200 in 1163ms
+ GET /testing/running/da9b14b5-a798-499e-a37f-66818bbc6e61 200 in 380ms
+ GET /testing/running/da9b14b5-a798-499e-a37f-66818bbc6e61 200 in 534ms
+ ✓ Compiled /icon.svg in 331ms (528 modules)
+ GET /icon.svg?881e597fdf9a97b9 200 in 471ms
+ ✓ Compiled /testing/new in 459ms (530 modules)
+ GET /testing/new 200 in 1215ms
+[?25h

@@ -44,6 +44,8 @@ const STAGING_ONLY_TERMS = [
   "billing",
 ];
 
+const COMMITTING_ACTIONS = new Set<TestAction["action"]>(["CLICK", "SUBMIT", "NAVIGATE", "UPLOAD_SAFE_FIXTURE"]);
+
 export class ActionPolicyEngine {
   decide(input: {
     action: TestAction;
@@ -86,7 +88,11 @@ export class ActionPolicyEngine {
         reason: "Sensitive workflow action requires environment=staging.",
       };
     }
-    if (input.request.execution.safeMode && BLOCKED_TERMS.some((term) => text.includes(term))) {
+    if (
+      input.request.execution.safeMode &&
+      COMMITTING_ACTIONS.has(input.action.action) &&
+      BLOCKED_TERMS.some((term) => text.includes(term))
+    ) {
       return {
         allowed: false,
         status: "BLOCKED_BY_POLICY",

@@ -192,6 +192,11 @@ export interface RunDiagnostics {
   pages: PageDiagnostics[];
   ai: {
     calls: number;
+    maxCalls: number;
+    disabled: boolean;
+    openRouterConfigured: boolean;
+    modelConfigured: boolean;
+    model?: string;
     successes: number;
     failures: Array<{ pageUrl?: string; message: string }>;
     validationFailures: Array<{ pageUrl?: string; message: string }>;

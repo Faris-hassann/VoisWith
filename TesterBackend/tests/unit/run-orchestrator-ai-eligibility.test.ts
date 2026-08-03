@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { buildFormSnapshots } from "../../src/inspection/page-inspector.js";
 import { RunOrchestrator } from "../../src/services/run-orchestrator.js";
 import type { RunContext } from "../../src/testing/run-context.js";
 import type { ElementInventoryItem, PageSnapshot, TestingRunRequest } from "../../src/types/testing.js";
 
 describe("RunOrchestrator AI eligibility", () => {
-  it("calls the AI planner for static pages so page-level tests can be generated", async () => {
+  it("skips the AI planner for pages with no visible form inputs", async () => {
     const orchestrator = new RunOrchestrator();
     let plannerCalled = false;
     (orchestrator as never as { inspector: unknown }).inspector = {
@@ -19,8 +20,9 @@ describe("RunOrchestrator AI eligibility", () => {
 
     const result = await testPage(orchestrator, contextFor());
 
-    expect(plannerCalled).toBe(true);
-    expect(result.report.tests.some((test) => test.id === "ai-form-submission-scope")).toBe(false);
+    expect(plannerCalled).toBe(false);
+    expect(result.report.tests.some((test) => test.id === "ai-form-submission-scope")).toBe(true);
+    expect(result.report.skippedReason).toBe("AI planning requires at least one visible form input.");
   });
 
   it("calls the AI planner for form and login-like pages", async () => {
@@ -29,9 +31,10 @@ describe("RunOrchestrator AI eligibility", () => {
     (orchestrator as never as { inspector: unknown }).inspector = {
       inspect: async () =>
         snapshotFor("https://example.com/login", [
-          element("email", "input", { type: "email", placeholder: "Email" }),
-          element("password", "input", { type: "password", placeholder: "Password" }),
-          element("submit", "submit", { text: "Sign in" }),
+          element("element_1", "form", { tagName: "form" }),
+          element("element_2", "input", { type: "email", placeholder: "Email", formOwnerElementId: "element_1" }),
+          element("element_3", "input", { type: "password", placeholder: "Password", formOwnerElementId: "element_1" }),
+          element("element_4", "submit", { text: "Sign in", formOwnerElementId: "element_1" }),
         ]),
     };
     (orchestrator as never as { planner: unknown }).planner = {
@@ -54,6 +57,8 @@ async function testPage(orchestrator: RunOrchestrator, context: RunContext) {
       page: {
         goto: async () => undefined,
         url: () => context.request.targetUrl,
+        locator: () => ({ first: () => ({ scrollIntoViewIfNeeded: async () => undefined }) }),
+        waitForTimeout: async () => undefined,
         screenshot: async () => undefined,
       },
     },
@@ -112,7 +117,7 @@ function contextFor(): RunContext {
       login: { status: "SKIPPED", message: "No credentials supplied." },
       crawl: { acceptedUrls: [], skippedUrls: [], failedUrls: [], discoveredCandidates: 0, noInternalLinksPages: [], events: [] },
       pages: [],
-      ai: { calls: 0, successes: 0, failures: [], validationFailures: [] },
+      ai: { calls: 0, maxCalls: 50, disabled: false, openRouterConfigured: true, modelConfigured: true, successes: 0, failures: [], validationFailures: [] },
     },
   };
 }
@@ -128,7 +133,7 @@ function snapshotFor(url: string, elements: ElementInventoryItem[] = []): PageSn
     images: [],
     scripts: [],
     elements,
-    forms: [],
+    forms: buildFormSnapshots(elements),
     tables: [],
     dialogs: [],
     currentQueryParameters: {},

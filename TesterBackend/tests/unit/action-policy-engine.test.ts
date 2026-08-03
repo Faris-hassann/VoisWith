@@ -78,4 +78,53 @@ describe("ActionPolicyEngine", () => {
     expect(decision.allowed).toBe(false);
     expect(decision.reason).toContain("environment=staging");
   });
+
+  it("allows safe field entry even when the field is an email input", () => {
+    const engine = new ActionPolicyEngine();
+    const decision = engine.decide({
+      action: { action: "FILL", elementId: "element_1", valueStrategy: "VALID_EMAIL", description: "Enter valid email" },
+      element: {
+        id: "element_1",
+        kind: "input",
+        tagName: "input",
+        label: "Email",
+        name: "email",
+        type: "email",
+        disabled: false,
+        hidden: false,
+        locator: { strategy: "label", value: "Email" },
+      },
+      testCase: {
+        id: "t3",
+        name: "Validation: Invalid Email Format",
+        type: "FORM_VALIDATION",
+        priority: "HIGH",
+        preconditions: [],
+        steps: [],
+        assertions: [],
+        cleanupActions: [],
+        destructive: false,
+        reasoningSummary: "Safe email field validation.",
+      },
+      request: {
+        targetUrl: "https://example.com",
+        authorizationConfirmed: true,
+        testTypes: ["FORMS", "FORM_VALIDATION"],
+        crawl: { strategy: "DFS", maxDepth: 1, maxPages: 1, sameOriginOnly: true, includePatterns: [], excludePatterns: [] },
+        browser: { channel: "chrome", headless: false, viewport: { width: 1440, height: 900 } },
+        execution: {
+          safeMode: true,
+          allowFormSubmission: false,
+          allowFileUploads: false,
+          allowDestructiveActions: false,
+          allowPayments: false,
+          maximumActionsPerPage: 40,
+          maximumRunDurationSeconds: 900,
+        },
+      },
+    });
+
+    expect(decision.allowed).toBe(true);
+    expect(decision.status).toBe("APPROVED");
+  });
 });

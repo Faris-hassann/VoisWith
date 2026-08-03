@@ -88,7 +88,7 @@ function contextFor(): RunContext {
       login: { status: "SKIPPED", message: "No credentials supplied." },
       crawl: { acceptedUrls: [], skippedUrls: [], failedUrls: [], discoveredCandidates: 0, noInternalLinksPages: [], events: [] },
       pages: [],
-      ai: { calls: 999, successes: 0, failures: [], validationFailures: [] },
+      ai: { calls: 999, maxCalls: 999, disabled: false, openRouterConfigured: true, modelConfigured: true, successes: 0, failures: [], validationFailures: [] },
     },
   };
 }

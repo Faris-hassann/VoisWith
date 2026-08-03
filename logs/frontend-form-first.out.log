@@ -1,0 +1,29 @@
+
+> testerfrontend@1.0.0 dev:fresh
+> node scripts/start-dev-fresh.mjs
+
+   next-swc build: wasm build @next/swc-wasm-nodejs
+   next-swc build: wasm build @next/swc-wasm-nodejs
+   ▲ Next.js 15.5.22
+   - Local:        http://localhost:3001
+   - Network:      http://10.94.197.220:3001
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 3.7s
+ ○ Compiling /testing/new ...
+ ✓ Compiled /testing/new in 6.9s (856 modules)
+ GET /testing/new 200 in 7723ms
+ ○ Compiling /testing/running/[runId] ...
+ ✓ Compiled /testing/running/[runId] in 1127ms (883 modules)
+ GET /testing/running/71dd0d05-70df-496f-bab8-ea1029a7b80b 200 in 2259ms
+ GET /testing/running/4dba8da6-a0fa-4bbb-aaf8-c8706a42ee3c 200 in 765ms
+ GET /testing/running/04275b6a-f1ce-4475-b74b-2b238c827ca2 200 in 297ms
+ GET /testing/running/04275b6a-f1ce-4475-b74b-2b238c827ca2 200 in 191ms
+ ○ Compiling /testing/results/[runId] ...
+ ✓ Compiled /testing/results/[runId] in 1487ms (975 modules)
+ GET /testing/results/04275b6a-f1ce-4475-b74b-2b238c827ca2 200 in 2575ms
+ ○ Compiling /api/testing/runs/[runId]/report.json ...
+ ✓ Compiled /api/testing/runs/[runId]/report.json in 557ms (996 modules)
+ GET /api/testing/runs/04275b6a-f1ce-4475-b74b-2b238c827ca2/report.json 200 in 1524ms
+[?25h

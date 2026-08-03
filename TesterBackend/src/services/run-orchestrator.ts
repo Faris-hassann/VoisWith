@@ -24,6 +24,7 @@ import { buildLinkHealthTests } from "../testing/link-health-checker.js";
 import type { TestAction, TestCase, TestPlan } from "../types/ai.js";
 import type { PageReport, TestCaseResult, TestStepResult, TestingRunResponse } from "../types/report.js";
 import type { ElementInventoryItem, PageSnapshot, TestingRunRequest } from "../types/testing.js";
+import { locatorFromDescriptor } from "../actions/playwright-action-executor.js";
 import { deadlineFromNow } from "../utilities/timeout.js";
 import { AiTestPlanner } from "../ai/ai-test-planner.js";
 import { ActionPolicyEngine } from "../actions/action-policy-engine.js";
@@ -135,6 +136,11 @@ export class RunOrchestrator {
         pages: [],
         ai: {
           calls: 0,
+          maxCalls: config.limits.maxOpenRouterCallsPerRun,
+          disabled: config.limits.maxOpenRouterCallsPerRun <= 0,
+          openRouterConfigured: Boolean(config.openRouter.apiKey),
+          modelConfigured: Boolean(config.openRouter.model),
+          model: config.openRouter.model || undefined,
           successes: 0,
           failures: [],
           validationFailures: [],
@@ -151,6 +157,7 @@ export class RunOrchestrator {
         status: "started",
         message: "Backend orchestrator initialized the test run.",
       });
+      emitAiDiagnostics(options, context);
       const targets = buildMatrixTargets(context.request);
       context.diagnostics.matrix = {
         roles: unique(targets.map((item) => item.role.name)),
@@ -563,6 +570,7 @@ export class RunOrchestrator {
       context,
       snapshot,
     });
+    await prepareFormsForAiPlanning(input, session.page, snapshot);
 
     if (context.openRouterCalls >= config.limits.maxOpenRouterCallsPerRun) {
       emit(input, {
@@ -584,7 +592,7 @@ export class RunOrchestrator {
         assertions: [],
         actualResult: `Maximum AI calls per run reached: ${config.limits.maxOpenRouterCallsPerRun}`,
         evidence: [],
-        reproductionSteps: [`Open ${snapshot.url}`, "Inspect page snapshot", "Skip AI planning because budget is exhausted"],
+        reproductionSteps: [`Open ${snapshot.url}`, "Inspect discovered form inputs", "Skip AI planning because budget is exhausted"],
         severity: "INFORMATIONAL",
         confidence: 1,
       };
@@ -610,13 +618,20 @@ export class RunOrchestrator {
       return { report: pageReport, snapshot };
     }
 
-    const aiEligibility = { eligible: true, reasons: ["page snapshot"] };
+    const visibleForms = snapshot.forms.filter((form) =>
+      [...form.fields, ...form.submitControls].some((element) => !element.hidden),
+    );
+    const totalFormFields = visibleForms.reduce((sum, form) => sum + form.fields.filter((field) => !field.hidden).length, 0);
+    const aiEligibility = {
+      eligible: visibleForms.length > 0 && totalFormFields > 0,
+      reasons: [`${visibleForms.length} visible form(s)`, `${totalFormFields} visible field(s)`],
+    };
     if (!aiEligibility.eligible) {
       emit(input, {
         runId: context.runId,
-        type: "ai.skipped_not_applicable",
+        type: "ai:skipped-no-forms",
         status: "skipped",
-        message: "AI skipped because no form, login, or submission workflow was detected.",
+        message: "AI skipped because no visible form inputs were discovered on this page.",
         pageUrl: snapshot.url,
         role: context.roleName,
         viewport: context.viewportName,
@@ -625,14 +640,14 @@ export class RunOrchestrator {
       });
       const aiSkippedResult: TestCaseResult = {
         id: "ai-form-submission-scope",
-        name: "AI form/login/submission scope",
+        name: "AI form input scope",
         type: "FORMS",
         status: "SKIPPED",
         steps: [],
         assertions: [],
-        actualResult: "No form, login, or submission workflow was detected on this page.",
+        actualResult: "No visible form inputs were detected on this page.",
         evidence: [],
-        reproductionSteps: [`Open ${snapshot.url}`, "Inspect JS-scraped page snapshot", "Skip AI planning for non-form content"],
+        reproductionSteps: [`Open ${snapshot.url}`, "Inspect discovered form inputs", "Skip AI planning because no forms were found"],
         severity: "INFORMATIONAL",
         confidence: 1,
       };
@@ -651,7 +666,7 @@ export class RunOrchestrator {
         failedNetworkRequests: snapshot.failedRequests,
         performanceObservations: snapshot.performance,
         evidence: pageEvidence,
-        skippedReason: "AI planning is limited to form, login, and submission workflows.",
+        skippedReason: "AI planning requires at least one visible form input.",
       };
       this.recordPageDiagnostics(context, pageReport, snapshot, baselineResults.length, 0, navigationMs);
       await this.writePageReportArtifact(input.artifacts, context, pageReport, input.events);
@@ -665,7 +680,7 @@ export class RunOrchestrator {
         runId: context.runId,
         type: "ai.planning_started",
         status: "started",
-        message: `Sending ${aiEligibility.reasons.join(", ")} context to AI test-case planner.`,
+        message: `Sending discovered form inputs to AI test-case planner (${aiEligibility.reasons.join(", ")}).`,
         pageUrl: snapshot.url,
         role: context.roleName,
         viewport: context.viewportName,
@@ -1083,6 +1098,108 @@ function summarizePageStatus(results: TestCaseResult[]): PageReport["status"] {
 function emit(input: { onEvent?: RunEventSink; events?: RunEventSink }, event: RunProgressEventInput): void {
   const sink = input.onEvent ?? input.events;
   if (sink) sink(event);
+}
+
+function emitAiDiagnostics(input: { onEvent?: RunEventSink; events?: RunEventSink }, context: RunContext): void {
+  const diagnostics = {
+    maxCalls: context.diagnostics.ai.maxCalls,
+    disabled: context.diagnostics.ai.disabled,
+    openRouterConfigured: context.diagnostics.ai.openRouterConfigured,
+    modelConfigured: context.diagnostics.ai.modelConfigured,
+    model: context.diagnostics.ai.model,
+  };
+
+  if (context.diagnostics.ai.disabled) {
+    emit(input, {
+      runId: context.runId,
+      type: "ai:disabled",
+      status: "skipped",
+      message: "AI planning is disabled because the AI call budget for this run is 0.",
+      diagnostics,
+    });
+    return;
+  }
+
+  if (!context.diagnostics.ai.openRouterConfigured || !context.diagnostics.ai.modelConfigured) {
+    emit(input, {
+      runId: context.runId,
+      type: "ai:configuration-missing",
+      status: "skipped",
+      message: "OpenRouter is not fully configured, so AI planning may be skipped or fail while deterministic tests continue.",
+      diagnostics,
+    });
+    return;
+  }
+
+  emit(input, {
+    runId: context.runId,
+    type: "ai:enabled",
+    status: "info",
+    message: `AI planning is enabled with a per-run budget of ${context.diagnostics.ai.maxCalls} call(s).`,
+    diagnostics,
+  });
+}
+
+async function prepareFormsForAiPlanning(input: {
+  context: RunContext;
+  session: BrowserSession;
+  events?: RunEventSink;
+}, page: Page, snapshot: PageSnapshot): Promise<void> {
+  const forms = snapshot.forms.filter((form) =>
+    [...form.fields, ...form.submitControls].some((element) => !element.hidden),
+  );
+  const fieldCount = forms.reduce((sum, form) => sum + form.fields.filter((field) => !field.hidden).length, 0);
+  emit(input, {
+    runId: input.context.runId,
+    type: "form:discovered",
+    status: forms.length > 0 ? "passed" : "skipped",
+    message: forms.length > 0
+      ? `Discovered ${forms.length} visible form(s) with ${fieldCount} visible input field(s).`
+      : "No visible forms were discovered for AI form planning.",
+    pageUrl: snapshot.url,
+    role: input.context.roleName,
+    viewport: input.context.viewportName,
+    locale: input.context.localeName,
+    counts: { forms: forms.length, fields: fieldCount },
+  });
+
+  for (const form of forms) {
+    const anchor = snapshot.elements.find((element) => element.id === form.elementId && !element.hidden)
+      ?? form.fields.find((field) => !field.hidden)
+      ?? form.submitControls.find((control) => !control.hidden);
+    if (!anchor) continue;
+    emit(input, {
+      runId: input.context.runId,
+      type: "form:scanning",
+      status: "started",
+      message: `Scrolling form ${form.elementId} into view before AI planning.`,
+      pageUrl: snapshot.url,
+      role: input.context.roleName,
+      viewport: input.context.viewportName,
+      locale: input.context.localeName,
+      counts: {
+        fields: form.fields.filter((field) => !field.hidden).length,
+        submitControls: form.submitControls.filter((control) => !control.hidden).length,
+      },
+    });
+    await locatorFromDescriptor(page, anchor.locator).scrollIntoViewIfNeeded().catch(() => undefined);
+    await page.waitForTimeout(250).catch(() => undefined);
+    await emitLiveFrame(input, page, `Form ${form.elementId} frame.`);
+    emit(input, {
+      runId: input.context.runId,
+      type: "form:ready-for-ai",
+      status: "passed",
+      message: `Form ${form.elementId} is visible and ready for AI input-list planning.`,
+      pageUrl: snapshot.url,
+      role: input.context.roleName,
+      viewport: input.context.viewportName,
+      locale: input.context.localeName,
+      counts: {
+        fields: form.fields.filter((field) => !field.hidden).length,
+        submitControls: form.submitControls.filter((control) => !control.hidden).length,
+      },
+    });
+  }
 }
 
 async function emitLiveFrame(input: {

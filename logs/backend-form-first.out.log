@@ -1,0 +1,7 @@
+
+> testerbackend@1.0.0 dev
+> tsx watch src/server.ts
+
+{"level":50,"time":1785760706355,"pid":2128,"hostname":"FarisHassan","port":3000,"code":"EADDRINUSE","msg":"port 3000 is already in use; stop the other backend or set PORT=3002"}
+3:47:50 PM [tsx] change in ./src\actions\action-policy-engine.ts Rerunning...
+{"level":50,"time":1785761273428,"pid":7924,"hostname":"FarisHassan","port":3000,"code":"EADDRINUSE","msg":"port 3000 is already in use; stop the other backend or set PORT=3002"}

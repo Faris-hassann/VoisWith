@@ -1,0 +1,8 @@
+false : The term 'false' is not recognized as the name of a cmdlet, function, script file, or operable program. Check 
+the spelling of the name, or if a path was included, verify that the path is correct and try again.
+At line:1 char:106
++ ... d; $env:MAX_AI_CALLS_PER_RUN=50; $env:AUTO_OPEN_SWAGGER=false; npm.cm ...
++                                                             ~~~~~
+    + CategoryInfo          : ObjectNotFound: (false:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException
+ 

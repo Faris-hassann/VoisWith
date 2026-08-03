@@ -39,7 +39,12 @@ export default function RunningPage({ params }: { params: Promise<{ runId: strin
     const applySnapshot = (snapshot: AsyncRunSnapshot) => {
       setStartedAt(snapshot.startedAt);
       setStatus(snapshot.status);
-      setEvents(snapshot.events);
+      const sanitizedEvents = snapshot.events.map(stripLiveFrameData);
+      const latestFrameEvent = [...snapshot.events].reverse().find((event) => event.liveFrame);
+      if (latestFrameEvent?.liveFrame) {
+        setLiveFrame(`data:${latestFrameEvent.liveFrame.mimeType};base64,${latestFrameEvent.liveFrame.data}`);
+      }
+      setEvents(sanitizedEvents);
       setError(snapshot.error);
       if (snapshot.report) completeWithReport(snapshot.report, snapshot.status);
       if (snapshot.status === "failed") terminalRef.current = true;
@@ -89,6 +94,7 @@ export default function RunningPage({ params }: { params: Promise<{ runId: strin
     };
 
     try {
+      void poll();
       ws = new WebSocket(buildTestingRunWebSocketUrl(runId));
       ws.addEventListener("open", () => {
         if (!cancelled) setConnection("connected");
@@ -101,7 +107,7 @@ export default function RunningPage({ params }: { params: Promise<{ runId: strin
           return;
         }
         if (isEventMessage(payload)) {
-          setEvents((current) => dedupeEvents([...current, payload.event]));
+          setEvents((current) => dedupeEvents([...current, stripLiveFrameData(payload.event)]));
           if (payload.event.liveFrame) {
             setLiveFrame(`data:${payload.event.liveFrame.mimeType};base64,${payload.event.liveFrame.data}`);
           }
@@ -136,13 +142,14 @@ export default function RunningPage({ params }: { params: Promise<{ runId: strin
   const counts = useMemo(() => summarizeEvents(events, report), [events, report]);
   const discoveredPages = useMemo(() => summarizePages(events, report), [events, report]);
   const generatedTests = useMemo(() => events.filter((event) => event.type === "test_case.started" || event.type === "ai.planning_passed").slice(-30), [events]);
+  const aiWarning = useMemo(() => summarizeAiWarning(events, report), [events, report]);
 
   const controlRun = async (action: "pause" | "resume" | "stop") => {
     setIsControlling(true);
     try {
       const snapshot = await controlTestingRun(runId, action);
       setStatus(snapshot.status);
-      setEvents(snapshot.events);
+      setEvents(snapshot.events.map(stripLiveFrameData));
       setError(snapshot.error);
     } catch (caught) {
       setError(caught);
@@ -207,6 +214,11 @@ export default function RunningPage({ params }: { params: Promise<{ runId: strin
           <pre className="mt-4 max-h-40 overflow-auto rounded-md border bg-background p-3 text-xs text-red-600">
             {stringify(error)}
           </pre>
+        ) : null}
+        {aiWarning ? (
+          <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+            {aiWarning}
+          </div>
         ) : null}
         <div className="mt-4 flex flex-wrap gap-2">
           <Button type="button" variant="outline" disabled={isControlling || status !== "running"} onClick={() => controlRun("pause")}>
@@ -317,9 +329,39 @@ function Info({ label, value }: { label: string; value: string }) {
   );
 }
 
+function stripLiveFrameData(event: RunProgressEvent): RunProgressEvent {
+  if (!event.liveFrame) return event;
+  const sanitized = { ...event };
+  delete sanitized.liveFrame;
+  return sanitized;
+}
+
 function dedupeEvents(events: RunProgressEvent[]): RunProgressEvent[] {
   const bySequence = new Map(events.map((event) => [event.sequence, event]));
   return [...bySequence.values()].sort((a, b) => a.sequence - b.sequence);
+}
+
+function summarizeAiWarning(events: RunProgressEvent[], report?: TestingRunResponse): string | undefined {
+  const ai = report?.diagnostics?.ai;
+  if (ai?.disabled || events.some((event) => event.type === "ai:disabled")) {
+    return "AI planning is disabled because the backend AI call budget is 0. Deterministic baseline, link, form, and safety tests still run.";
+  }
+  if (
+    ai &&
+    (ai.openRouterConfigured === false || ai.modelConfigured === false)
+  ) {
+    return "OpenRouter is not fully configured, so AI planning cannot generate test cases yet. Add OPENROUTER_API_KEY and OPENROUTER_MODEL, then restart the backend.";
+  }
+  if (events.some((event) => event.type === "ai:configuration-missing")) {
+    return "OpenRouter is not fully configured, so AI planning may be skipped while deterministic tests continue.";
+  }
+  if (events.some((event) => event.type === "ai.skipped_budget" || event.type === "ai:skipped-budget")) {
+    return "AI planning was skipped because the per-run AI call budget was exhausted.";
+  }
+  if (events.some((event) => event.type === "ai.planning_failed")) {
+    return "AI planning failed for at least one page. Deterministic tests continued and the report includes the failure details.";
+  }
+  return undefined;
 }
 
 function summarizeEvents(events: RunProgressEvent[], report?: TestingRunResponse) {
