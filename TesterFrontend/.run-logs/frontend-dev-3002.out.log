@@ -1,0 +1,18 @@
+   next-swc build: wasm build @next/swc-wasm-nodejs
+   next-swc build: wasm build @next/swc-wasm-nodejs
+   ▲ Next.js 15.5.22
+   - Local:        http://localhost:3002
+   - Network:      http://10.94.197.220:3002
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 2.6s
+ ○ Compiling /testing/new ...
+ ✓ Compiled /testing/new in 6.1s (856 modules)
+ GET /testing/new 200 in 785ms
+ ○ Compiling /testing/running/[runId] ...
+ ✓ Compiled /testing/running/[runId] in 708ms (883 modules)
+ GET /testing/running/1e0e4ca3-8904-40f3-99fb-158cdc1f8f58 200 in 1625ms
+ ✓ Compiled in 522ms (353 modules)
+ ✓ Compiled in 161ms (353 modules)
+ ✓ Compiled in 132ms (353 modules)

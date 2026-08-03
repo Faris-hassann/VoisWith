@@ -1,0 +1,41 @@
+ ⚠ Attempted to load @next/swc-win32-x64-msvc, but an error occurred: \\?\D:\Freelancing\VoisWith\TesterFrontend\node_modules\@next\swc-win32-x64-msvc\next-swc.win32-x64-msvc.node is not a valid Win32 application.
+\\?\D:\Freelancing\VoisWith\TesterFrontend\node_modules\@next\swc-win32-x64-msvc\next-swc.win32-x64-msvc.node
+ ⚠ Attempted to load @next/swc-win32-x64-msvc, but an error occurred: \\?\D:\Freelancing\VoisWith\TesterFrontend\node_modules\@next\swc-win32-x64-msvc\next-swc.win32-x64-msvc.node is not a valid Win32 application.
+\\?\D:\Freelancing\VoisWith\TesterFrontend\node_modules\@next\swc-win32-x64-msvc\next-swc.win32-x64-msvc.node
+[Error: ENOENT: no such file or directory, stat 'D:\Freelancing\VoisWith\TesterFrontend\.next\cache\webpack\client-development\1.pack.gz'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: 'D:\\Freelancing\\VoisWith\\TesterFrontend\\.next\\cache\\webpack\\client-development\\1.pack.gz'
+}
+ ⨯ unhandledRejection: [Error: ENOENT: no such file or directory, stat 'D:\Freelancing\VoisWith\TesterFrontend\.next\cache\webpack\client-development\1.pack.gz'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: 'D:\\Freelancing\\VoisWith\\TesterFrontend\\.next\\cache\\webpack\\client-development\\1.pack.gz'
+}
+ ⨯ unhandledRejection:  [Error: ENOENT: no such file or directory, stat 'D:\Freelancing\VoisWith\TesterFrontend\.next\cache\webpack\client-development\1.pack.gz'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: 'D:\\Freelancing\\VoisWith\\TesterFrontend\\.next\\cache\\webpack\\client-development\\1.pack.gz'
+}
+[Error: ENOENT: no such file or directory, stat 'D:\Freelancing\VoisWith\TesterFrontend\.next\cache\webpack\client-development\2.pack.gz'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: 'D:\\Freelancing\\VoisWith\\TesterFrontend\\.next\\cache\\webpack\\client-development\\2.pack.gz'
+}
+ ⨯ unhandledRejection: [Error: ENOENT: no such file or directory, stat 'D:\Freelancing\VoisWith\TesterFrontend\.next\cache\webpack\client-development\2.pack.gz'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: 'D:\\Freelancing\\VoisWith\\TesterFrontend\\.next\\cache\\webpack\\client-development\\2.pack.gz'
+}
+ ⨯ unhandledRejection:  [Error: ENOENT: no such file or directory, stat 'D:\Freelancing\VoisWith\TesterFrontend\.next\cache\webpack\client-development\2.pack.gz'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: 'D:\\Freelancing\\VoisWith\\TesterFrontend\\.next\\cache\\webpack\\client-development\\2.pack.gz'
+}
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, stat 'D:\Freelancing\VoisWith\TesterFrontend\.next\cache\webpack\client-development\1.pack.gz'

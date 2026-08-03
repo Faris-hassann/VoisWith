@@ -1,16 +1,19 @@
 import "dotenv/config";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
+import { URL } from "node:url";
 
-const backendUrl = process.env.TESTER_BACKEND_URL ?? "http://localhost:3000/api/v1/testing/run";
+const backendUrl = process.env.TESTER_BACKEND_URL ?? "http://localhost:3000/api/v1/testing/runs";
+const healthUrl = process.env.TESTER_BACKEND_HEALTH_URL ?? new URL("/health", backendUrl).toString();
 const targetUrl = process.env.TRUEFORM_TARGET_URL ?? "https://trueform.cultivbureau.com";
 const loginUrl = process.env.TRUEFORM_LOGIN_URL ?? "https://trueform.cultivbureau.com/login";
 const email = process.env.TRUEFORM_EMAIL ?? "admin@Cultiv.com";
 const password = process.env.TRUEFORM_PASSWORD;
 const environment = process.env.TRUEFORM_ENVIRONMENT ?? "production";
 const matrixEnabled = process.env.TRUEFORM_TEST_MATRIX === "true";
-const maxDepth = Number(process.env.TRUEFORM_MAX_DEPTH ?? 8);
-const maxPages = Number(process.env.TRUEFORM_MAX_PAGES ?? 50);
+const maxDepth = optionalNumber(process.env.TRUEFORM_MAX_DEPTH);
+const maxPages = optionalNumber(process.env.TRUEFORM_MAX_PAGES);
 const maxActionsPerPage = Number(process.env.TRUEFORM_MAX_ACTIONS_PER_PAGE ?? 15);
 const maxDurationSeconds = Number(process.env.TRUEFORM_MAX_DURATION_SECONDS ?? 1800);
 
@@ -65,8 +68,8 @@ const payload = {
   ],
   crawl: {
     strategy: "DFS",
-    maxDepth,
-    maxPages,
+    ...(maxDepth !== undefined ? { maxDepth } : {}),
+    ...(maxPages !== undefined ? { maxPages } : {}),
     sameOriginOnly: true,
     includePatterns: [],
     excludePatterns: [
@@ -111,10 +114,12 @@ const payload = {
 };
 
 printRunConfiguration();
-warnIfBackendLimitIsLower("MAX_PAGES_PER_RUN", maxPages);
-warnIfBackendLimitIsLower("MAX_DEPTH_PER_RUN", maxDepth);
+if (maxPages !== undefined) warnIfBackendLimitIsLower("MAX_PAGES_PER_RUN", maxPages);
+if (maxDepth !== undefined) warnIfBackendLimitIsLower("MAX_DEPTH_PER_RUN", maxDepth);
 warnIfBackendLimitIsLower("MAX_RUN_DURATION_SECONDS", maxDurationSeconds);
-warnIfBackendLimitIsLower("MAX_AI_CALLS_PER_RUN", maxPages);
+if (maxPages !== undefined) warnIfBackendLimitIsLower("MAX_AI_CALLS_PER_RUN", maxPages);
+
+await assertBackendReady();
 
 const response = await fetch(backendUrl, {
   method: "POST",
@@ -130,32 +135,68 @@ try {
   body = { raw: text };
 }
 
-const outputDir = path.resolve("artifacts", "manual-runs");
-await fs.mkdir(outputDir, { recursive: true });
-const outputPath = path.join(outputDir, `trueform-system-test-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
-await fs.writeFile(outputPath, `${JSON.stringify(body, null, 2)}\n`, "utf8");
-
 if (!response.ok) {
   console.error(`TrueForm system test request failed: HTTP ${response.status}`);
-  console.error(`Report saved to ${outputPath}`);
   console.error(JSON.stringify(body, null, 2));
   process.exit(1);
 }
 
-console.log(`TrueForm system test completed with status: ${body.status ?? "unknown"}`);
-console.log(`Run ID: ${body.runId ?? "unknown"}`);
+const runId = body.runId;
+if (!runId) {
+  throw new Error(`Backend did not return a runId: ${JSON.stringify(body)}`);
+}
+
+const finalSnapshot = await pollRun(runId);
+const outputDir = path.resolve("artifacts", "manual-runs");
+await fs.mkdir(outputDir, { recursive: true });
+const outputPath = path.join(outputDir, `trueform-system-test-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
+await fs.writeFile(outputPath, `${JSON.stringify(finalSnapshot, null, 2)}\n`, "utf8");
+
+console.log(`TrueForm system test completed with status: ${finalSnapshot.status ?? "unknown"}`);
+console.log(`Run ID: ${runId}`);
 console.log(`Report saved to ${outputPath}`);
+if (finalSnapshot.status === "failed") process.exit(1);
 
 function printRunConfiguration() {
   console.log("TrueForm system test configuration:");
   console.log(`- targetUrl: ${targetUrl}`);
   console.log(`- loginUrl: ${loginUrl}`);
   console.log(`- environment: ${environment}`);
-  console.log(`- crawl.maxPages: ${maxPages}`);
-  console.log(`- crawl.maxDepth: ${maxDepth}`);
+  console.log(`- crawl.maxPages: ${maxPages ?? "until convergence"}`);
+  console.log(`- crawl.maxDepth: ${maxDepth ?? "until convergence"}`);
   console.log(`- maximumActionsPerPage: ${maxActionsPerPage}`);
   console.log(`- maximumRunDurationSeconds: ${maxDurationSeconds}`);
   console.log(`- testMatrix.enabled: ${matrixEnabled}`);
+}
+
+async function assertBackendReady() {
+  try {
+    const response = await fetch(healthUrl);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  } catch (error) {
+    throw new Error(`Backend is not reachable at ${healthUrl}. Start it with npm run dev before running this script. Cause: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+async function pollRun(runId) {
+  const statusUrl = `${backendUrl.replace(/\/$/, "")}/${encodeURIComponent(runId)}`;
+  const deadline = Date.now() + maxDurationSeconds * 1000 + 60_000;
+  let latest;
+  while (Date.now() < deadline) {
+    const response = await fetch(statusUrl);
+    const text = await response.text();
+    latest = JSON.parse(text);
+    if (["completed", "failed", "stopped"].includes(latest.status)) return latest;
+    console.log(`Run ${runId} status: ${latest.status}; events: ${latest.events?.length ?? 0}`);
+    await delay(5000);
+  }
+  throw new Error(`Timed out waiting for run ${runId}. Last snapshot: ${JSON.stringify(latest)}`);
+}
+
+function optionalNumber(value) {
+  if (value === undefined || value === "") return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function warnIfBackendLimitIsLower(name, requestedValue) {

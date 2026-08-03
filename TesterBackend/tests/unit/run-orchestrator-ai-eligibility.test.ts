@@ -4,7 +4,7 @@ import type { RunContext } from "../../src/testing/run-context.js";
 import type { ElementInventoryItem, PageSnapshot, TestingRunRequest } from "../../src/types/testing.js";
 
 describe("RunOrchestrator AI eligibility", () => {
-  it("skips the AI planner for static pages without form or submission targets", async () => {
+  it("calls the AI planner for static pages so page-level tests can be generated", async () => {
     const orchestrator = new RunOrchestrator();
     let plannerCalled = false;
     (orchestrator as never as { inspector: unknown }).inspector = {
@@ -19,8 +19,8 @@ describe("RunOrchestrator AI eligibility", () => {
 
     const result = await testPage(orchestrator, contextFor());
 
-    expect(plannerCalled).toBe(false);
-    expect(result.report.tests.some((test) => test.id === "ai-form-submission-scope" && test.status === "SKIPPED")).toBe(true);
+    expect(plannerCalled).toBe(true);
+    expect(result.report.tests.some((test) => test.id === "ai-form-submission-scope")).toBe(false);
   });
 
   it("calls the AI planner for form and login-like pages", async () => {

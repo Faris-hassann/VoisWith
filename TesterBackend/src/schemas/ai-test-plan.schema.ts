@@ -17,7 +17,7 @@ const testActionSchema = z
   })
   .strict()
   .superRefine((action, ctx) => {
-    const pageLevelActions = new Set(["NAVIGATE", "ASSERT_URL", "RELOAD", "GO_BACK", "STOP"]);
+    const pageLevelActions = new Set(["NAVIGATE", "ASSERT_URL", "RELOAD", "GO_BACK", "STOP", "WAIT_FOR"]);
     if (!pageLevelActions.has(action.action) && !action.elementId) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

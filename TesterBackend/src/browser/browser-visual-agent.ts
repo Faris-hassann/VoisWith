@@ -63,18 +63,32 @@ export async function installVisibleCursor(page: Page): Promise<void> {
 export async function scrollPageForDiscovery(page: Page): Promise<void> {
   if (typeof page.evaluate !== "function") return;
   await page.evaluate(async () => {
-    const height = Math.max(document.documentElement.scrollHeight, document.body?.scrollHeight ?? 0);
+    const interactiveSelector = "a,button,input,textarea,select,form,[role='button'],[role='dialog'],[role='tab'],[role='menu'],[role='menuitem']";
     const viewport = window.innerHeight || 800;
-    const maxScrollTop = Math.max(0, height - viewport);
-    const steps = Math.min(8, Math.max(1, Math.ceil(maxScrollTop / Math.max(1, viewport * 0.8))));
+    let stablePasses = 0;
+    let previousHeight = 0;
+    let previousInteractiveCount = 0;
+    let y = 0;
+    window.scrollTo({ top: 0, behavior: "auto" });
 
-    for (let index = 0; index <= steps; index += 1) {
-      const y = Math.round((maxScrollTop * index) / steps);
+    for (let index = 0; index < 80 && stablePasses < 3; index += 1) {
+      const height = Math.max(document.documentElement.scrollHeight, document.body?.scrollHeight ?? 0);
+      const maxScrollTop = Math.max(0, height - viewport);
       window.scrollTo({ top: y, behavior: "auto" });
       if (typeof window.__voiswithCursorMove === "function") {
         window.__voiswithCursorMove(Math.max(24, window.innerWidth - 42), Math.min(window.innerHeight - 24, 90 + index * 24), false);
       }
-      await new Promise((resolve) => window.setTimeout(resolve, 150));
+      await new Promise((resolve) => window.setTimeout(resolve, 220));
+      const nextHeight = Math.max(document.documentElement.scrollHeight, document.body?.scrollHeight ?? 0);
+      const interactiveCount = document.querySelectorAll(interactiveSelector).length;
+      if (y >= maxScrollTop && nextHeight === previousHeight && interactiveCount === previousInteractiveCount) {
+        stablePasses += 1;
+      } else {
+        stablePasses = 0;
+      }
+      previousHeight = nextHeight;
+      previousInteractiveCount = interactiveCount;
+      y = Math.min(Math.max(0, nextHeight - viewport), y + Math.max(240, Math.floor(viewport * 0.8)));
     }
 
     window.scrollTo({ top: 0, behavior: "auto" });

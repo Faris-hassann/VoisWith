@@ -5,14 +5,21 @@ export function buildTestingPayload(values: TestingFormValues): TestingRunReques
   const payload: TestingRunRequest = {
     targetUrl: values.targetUrl.trim(),
     authorizationConfirmed: true,
+    selectedTestTypes: values.testTypes.map((type) => type.toLowerCase().replace(/_/g, "-")),
+    allowedOrigins: splitPatterns(values.allowedOriginsText),
+    includeSubdomains: values.includeSubdomains,
+    browserMode: values.browser.headless ? "headless" : "headed",
+    visualizationMode: values.visualizationMode,
+    testData: {},
     testTypes: values.testTypes,
     crawl: {
       strategy: "DFS",
-      maxDepth: values.crawl.maxDepth,
-      maxPages: values.crawl.maxPages,
+      ...(values.crawl.maxDepth !== undefined ? { maxDepth: values.crawl.maxDepth } : {}),
+      ...(values.crawl.maxPages !== undefined ? { maxPages: values.crawl.maxPages } : {}),
       sameOriginOnly: values.crawl.sameOriginOnly,
       includePatterns: splitPatterns(values.crawl.includePatternsText),
       excludePatterns: splitPatterns(values.crawl.excludePatternsText),
+      ignoredQueryParameters: splitPatterns(values.crawl.ignoredQueryParametersText),
     },
     browser: values.browser,
     execution: {
@@ -24,6 +31,7 @@ export function buildTestingPayload(values: TestingFormValues): TestingRunReques
 
   if (values.authenticationEnabled && values.credentials.username && values.credentials.password) {
     payload.credentials = {
+      enabled: true,
       username: values.credentials.username,
       password: values.credentials.password,
       ...(values.credentials.loginUrl ? { loginUrl: values.credentials.loginUrl } : {}),

@@ -1,0 +1,12 @@
+ ⚠ Attempted to load @next/swc-win32-x64-msvc, but an error occurred: \\?\D:\Freelancing\VoisWith\TesterFrontend\node_modules\@next\swc-win32-x64-msvc\next-swc.win32-x64-msvc.node is not a valid Win32 application.
+\\?\D:\Freelancing\VoisWith\TesterFrontend\node_modules\@next\swc-win32-x64-msvc\next-swc.win32-x64-msvc.node
+ ⨯ Failed to start server
+Error: listen EADDRINUSE: address already in use :::3001
+    at <unknown> (Error: listen EADDRINUSE: address already in use :::3001)
+    at new Promise (<anonymous>) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 3001
+}

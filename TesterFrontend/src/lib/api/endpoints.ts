@@ -1,9 +1,9 @@
-import { env } from "../environment/env";
+import { publicEnv } from "../environment/public-env";
 
 export const endpoints = {
   health: "/health",
-  testingRun: env.testRunEndpoint,
-  testingRuns: env.testRunsEndpoint,
+  testingRun: publicEnv.testRunEndpoint,
+  testingRuns: publicEnv.testRunsEndpoint,
   proxyTestingRun: "/api/testing/run",
   proxyTestingRuns: "/api/testing/runs",
 };

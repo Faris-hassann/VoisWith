@@ -19,6 +19,9 @@ interface RunRecord {
   listeners: Set<RunListener>;
   report?: TestingRunResponse;
   error?: unknown;
+  paused: boolean;
+  stopped: boolean;
+  pauseWaiters: Set<() => void>;
 }
 
 const MAX_BUFFERED_EVENTS = 500;
@@ -40,6 +43,9 @@ export class RunRegistry {
       sequence: 0,
       events: [],
       listeners: new Set(),
+      paused: false,
+      stopped: false,
+      pauseWaiters: new Set(),
     };
     this.runs.set(runId, record);
     this.append(runId, {
@@ -53,6 +59,10 @@ export class RunRegistry {
       .run(request, {
         runId,
         onEvent: (event) => this.append(runId, event),
+        control: {
+          isStopped: () => this.runs.get(runId)?.stopped ?? true,
+          waitWhilePaused: () => this.waitWhilePaused(runId),
+        },
       })
       .then((report) => this.complete(runId, report))
       .catch((error) => this.fail(runId, error));
@@ -70,6 +80,54 @@ export class RunRegistry {
     if (!record) return () => undefined;
     record.listeners.add(listener);
     return () => record.listeners.delete(listener);
+  }
+
+  pause(runId: string): AsyncRunSnapshot | undefined {
+    const record = this.runs.get(runId);
+    if (!record || record.status !== "running") return record ? this.snapshot(record) : undefined;
+    record.paused = true;
+    record.status = "paused";
+    this.append(runId, {
+      runId,
+      type: "run:paused",
+      status: "started",
+      message: "Test run paused.",
+    });
+    return this.snapshot(record);
+  }
+
+  resume(runId: string): AsyncRunSnapshot | undefined {
+    const record = this.runs.get(runId);
+    if (!record || record.status !== "paused") return record ? this.snapshot(record) : undefined;
+    record.paused = false;
+    record.status = "running";
+    for (const resolve of record.pauseWaiters) resolve();
+    record.pauseWaiters.clear();
+    this.append(runId, {
+      runId,
+      type: "run:resumed",
+      status: "started",
+      message: "Test run resumed.",
+    });
+    return this.snapshot(record);
+  }
+
+  stop(runId: string): AsyncRunSnapshot | undefined {
+    const record = this.runs.get(runId);
+    if (!record) return undefined;
+    if (record.status === "completed" || record.status === "failed" || record.status === "stopped") return this.snapshot(record);
+    record.stopped = true;
+    record.paused = false;
+    record.status = "stopping";
+    for (const resolve of record.pauseWaiters) resolve();
+    record.pauseWaiters.clear();
+    this.append(runId, {
+      runId,
+      type: "run:stopped",
+      status: "blocked",
+      message: "Stop requested for test run.",
+    });
+    return this.snapshot(record);
   }
 
   append(runId: string, input: RunProgressEventInput): RunProgressEvent | undefined {
@@ -93,15 +151,15 @@ export class RunRegistry {
   private complete(runId: string, report: TestingRunResponse): void {
     const record = this.runs.get(runId);
     if (!record) return;
-    record.status = "completed";
+    record.status = record.stopped ? "stopped" : "completed";
     record.report = report;
     record.completedAt = new Date().toISOString();
     record.updatedAt = record.completedAt;
     this.append(runId, {
       runId,
       type: "run.completed",
-      status: "passed",
-      message: `Test run completed with status ${report.status}.`,
+      status: record.stopped ? "skipped" : "passed",
+      message: record.stopped ? "Test run stopped." : `Test run completed with status ${report.status}.`,
       counts: {
         pagesTested: report.summary.pagesTested,
         testsExecuted: report.summary.testsExecuted,
@@ -150,5 +208,13 @@ export class RunRegistry {
         this.runs.delete(runId);
       }
     }, CLEANUP_AFTER_MS).unref();
+  }
+
+  private async waitWhilePaused(runId: string): Promise<void> {
+    for (;;) {
+      const record = this.runs.get(runId);
+      if (!record || record.stopped || !record.paused) return;
+      await new Promise<void>((resolve) => record.pauseWaiters.add(resolve));
+    }
   }
 }

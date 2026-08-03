@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { Activity, AlertTriangle, CheckCircle2, Loader2, Radio, WifiOff } from "lucide-react";
+import { Activity, AlertTriangle, CheckCircle2, Download, Loader2, Pause, Play, Radio, Square, WifiOff } from "lucide-react";
 import { use, useEffect, useMemo, useRef, useState } from "react";
 import Swal from "sweetalert2";
 import { Button } from "@/components/ui/button";
-import { buildTestingRunWebSocketUrl, getTestingRunStatus } from "@/lib/api/testing.api";
+import { buildTestingRunReportUrl, buildTestingRunWebSocketUrl, controlTestingRun, getTestingRunStatus } from "@/lib/api/testing.api";
 import type { AsyncRunSnapshot, AsyncRunStatus, RunProgressEvent, TestingRunResponse } from "@/lib/api/types";
 import { useReportStore } from "@/providers/report-store-provider";
 
@@ -20,6 +20,8 @@ export default function RunningPage({ params }: { params: Promise<{ runId: strin
   const [report, setReport] = useState<TestingRunResponse>();
   const [error, setError] = useState<unknown>();
   const [startedAt, setStartedAt] = useState<string>();
+  const [liveFrame, setLiveFrame] = useState<string>();
+  const [isControlling, setIsControlling] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const alertShownRef = useRef(false);
   const terminalRef = useRef(false);
@@ -100,6 +102,9 @@ export default function RunningPage({ params }: { params: Promise<{ runId: strin
         }
         if (isEventMessage(payload)) {
           setEvents((current) => dedupeEvents([...current, payload.event]));
+          if (payload.event.liveFrame) {
+            setLiveFrame(`data:${payload.event.liveFrame.mimeType};base64,${payload.event.liveFrame.data}`);
+          }
           if (payload.event.report) completeWithReport(payload.event.report, "completed");
           if (payload.event.type === "run.failed") {
             terminalRef.current = true;
@@ -129,6 +134,22 @@ export default function RunningPage({ params }: { params: Promise<{ runId: strin
 
   const latestEvent = events.at(-1);
   const counts = useMemo(() => summarizeEvents(events, report), [events, report]);
+  const discoveredPages = useMemo(() => summarizePages(events, report), [events, report]);
+  const generatedTests = useMemo(() => events.filter((event) => event.type === "test_case.started" || event.type === "ai.planning_passed").slice(-30), [events]);
+
+  const controlRun = async (action: "pause" | "resume" | "stop") => {
+    setIsControlling(true);
+    try {
+      const snapshot = await controlTestingRun(runId, action);
+      setStatus(snapshot.status);
+      setEvents(snapshot.events);
+      setError(snapshot.error);
+    } catch (caught) {
+      setError(caught);
+    } finally {
+      setIsControlling(false);
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -138,9 +159,17 @@ export default function RunningPage({ params }: { params: Promise<{ runId: strin
           <p className="mt-1 text-sm text-muted-foreground">Streaming backend progress for run {runId}.</p>
         </div>
         {report ? (
-          <Button asChild>
-            <Link href={`/testing/results/${report.runId}`}>View report</Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild>
+              <Link href={`/testing/results/${report.runId}`}>View report</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <a href={buildTestingRunReportUrl(report.runId)} download>
+                <Download className="h-4 w-4" />
+                JSON
+              </a>
+            </Button>
+          </div>
         ) : null}
       </div>
 
@@ -179,6 +208,53 @@ export default function RunningPage({ params }: { params: Promise<{ runId: strin
             {stringify(error)}
           </pre>
         ) : null}
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button type="button" variant="outline" disabled={isControlling || status !== "running"} onClick={() => controlRun("pause")}>
+            <Pause className="h-4 w-4" />
+            Pause
+          </Button>
+          <Button type="button" variant="outline" disabled={isControlling || status !== "paused"} onClick={() => controlRun("resume")}>
+            <Play className="h-4 w-4" />
+            Resume
+          </Button>
+          <Button type="button" variant="outline" disabled={isControlling || ["completed", "failed", "stopped"].includes(status)} onClick={() => controlRun("stop")}>
+            <Square className="h-4 w-4" />
+            Stop
+          </Button>
+        </div>
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.6fr)]">
+        <div className="rounded-lg border bg-card p-5 shadow-sm">
+          <h2 className="font-semibold">Live browser</h2>
+          <div className="mt-3 aspect-video overflow-hidden rounded-md border bg-background">
+            {liveFrame ? (
+              <img src={liveFrame} alt="Live browser frame" className="h-full w-full object-contain" />
+            ) : (
+              <div className="grid h-full place-items-center text-sm text-muted-foreground">Waiting for live-view frames.</div>
+            )}
+          </div>
+        </div>
+        <div className="rounded-lg border bg-card p-5 shadow-sm">
+          <h2 className="font-semibold">DFS discovery</h2>
+          <div className="mt-3 max-h-80 overflow-auto rounded-md border bg-background">
+            {discoveredPages.length === 0 ? (
+              <div className="p-3 text-sm text-muted-foreground">No pages reported yet.</div>
+            ) : (
+              discoveredPages.map((page) => (
+                <div key={page.url} className="border-b p-3 text-sm last:border-b-0">
+                  <div className="truncate font-medium" title={page.url}>{page.url}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">{page.status}</div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-2">
+        <Panel title="Generated tests" empty="No generated tests yet." events={generatedTests} />
+        <Panel title="Console and network" empty="No console or network issue events yet." events={events.filter((event) => event.type.includes("network") || event.type.includes("console") || event.type === "page.snapshot_collected").slice(-30)} />
       </section>
 
       <section className="rounded-lg border bg-card p-5 shadow-sm">
@@ -206,6 +282,29 @@ export default function RunningPage({ params }: { params: Promise<{ runId: strin
         </div>
       </section>
     </div>
+  );
+}
+
+function Panel({ title, empty, events }: { title: string; empty: string; events: RunProgressEvent[] }) {
+  return (
+    <section className="rounded-lg border bg-card p-5 shadow-sm">
+      <h2 className="font-semibold">{title}</h2>
+      <div className="mt-3 max-h-80 overflow-auto rounded-md border bg-background">
+        {events.length === 0 ? (
+          <div className="p-3 text-sm text-muted-foreground">{empty}</div>
+        ) : (
+          events.slice().reverse().map((event) => (
+            <div key={`${event.sequence}-${event.type}`} className="border-b p-3 text-sm last:border-b-0">
+              <div className="flex flex-wrap gap-2">
+                <span className="font-medium">{event.type}</span>
+                <span className="rounded border px-2 py-0.5 text-xs text-muted-foreground">{event.status}</span>
+              </div>
+              <p className="mt-1 text-muted-foreground">{event.message}</p>
+            </div>
+          ))
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -238,6 +337,18 @@ function summarizeEvents(events: RunProgressEvent[], report?: TestingRunResponse
     aiPlanned: events.filter((event) => event.type === "ai.planning_passed").length,
     issues: events.filter((event) => event.type === "test_case.failed" || event.type === "ai.planning_failed").length,
   };
+}
+
+function summarizePages(events: RunProgressEvent[], report?: TestingRunResponse): Array<{ url: string; status: string }> {
+  if (report) {
+    return report.pages.map((page) => ({ url: page.url, status: `${page.status}${page.stateFingerprint ? ` · ${page.stateFingerprint}` : ""}` }));
+  }
+  const byUrl = new Map<string, string>();
+  for (const event of events) {
+    if (!event.pageUrl) continue;
+    if (event.type.includes("page") || event.type.includes("crawl")) byUrl.set(event.pageUrl, event.type);
+  }
+  return [...byUrl.entries()].map(([url, status]) => ({ url, status }));
 }
 
 function connectionLabel(connection: ConnectionState): string {

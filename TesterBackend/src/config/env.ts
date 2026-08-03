@@ -22,13 +22,17 @@ const envSchema = z.object({
   OPENROUTER_TEMPERATURE: numberFromEnv.default("0.1").pipe(z.number().min(0).max(2)),
   OPENROUTER_MAX_OUTPUT_TOKENS: numberFromEnv.default("3000").pipe(z.number().int().min(1)),
   OPENROUTER_TIMEOUT_MS: numberFromEnv.default("30000"),
+  AI_RESPONSE_TIMEOUT_MS: numberFromEnv.optional(),
   OPENROUTER_MAX_RETRIES: numberFromEnv.default("2"),
   OPENROUTER_SITE_URL: z.string().default(""),
   OPENROUTER_APP_NAME: z.string().default("TesterBackend"),
   BROWSER_CHANNEL: z.literal("chrome").default("chrome"),
   BROWSER_HEADLESS: booleanFromEnv.default("false"),
+  PLAYWRIGHT_CHANNEL: z.literal("chrome").optional(),
+  PLAYWRIGHT_HEADLESS: booleanFromEnv.optional(),
   BROWSER_LAUNCH_TIMEOUT_MS: numberFromEnv.default("30000"),
   PAGE_NAVIGATION_TIMEOUT_MS: numberFromEnv.default("30000"),
+  NAVIGATION_TIMEOUT_MS: numberFromEnv.optional(),
   ACTION_TIMEOUT_MS: numberFromEnv.default("10000"),
   MAX_CONCURRENT_RUNS: numberFromEnv.default("1"),
   MAX_PAGES_PER_RUN: numberFromEnv.default("50"),
@@ -42,6 +46,11 @@ const envSchema = z.object({
   REQUIRE_HTTPS: booleanFromEnv.default("true"),
   ARTIFACT_ROOT: z.string().default("artifacts"),
   PROMPT_FILE_PATH: z.string().default("src/prompts/web-test-planner.system.md"),
+  LIVE_VIEW_ENABLED: booleanFromEnv.default("true"),
+  LIVE_VIEW_FRAME_INTERVAL_MS: numberFromEnv.default("1500"),
+  SCREENSHOT_DIRECTORY: z.string().default("artifacts/screenshots"),
+  TRACE_DIRECTORY: z.string().default("artifacts/traces"),
+  TEST_RUN_ALLOWED_ORIGINS: z.string().default(""),
 });
 
 const parsed = envSchema.parse(process.env);
@@ -60,16 +69,16 @@ export const config = {
     baseUrl: parsed.OPENROUTER_BASE_URL.replace(/\/$/, ""),
     temperature: parsed.OPENROUTER_TEMPERATURE,
     maxOutputTokens: parsed.OPENROUTER_MAX_OUTPUT_TOKENS,
-    timeoutMs: parsed.OPENROUTER_TIMEOUT_MS,
+    timeoutMs: parsed.AI_RESPONSE_TIMEOUT_MS ?? parsed.OPENROUTER_TIMEOUT_MS,
     maxRetries: parsed.OPENROUTER_MAX_RETRIES,
     siteUrl: parsed.OPENROUTER_SITE_URL,
     appName: parsed.OPENROUTER_APP_NAME,
   },
   browser: {
-    channel: parsed.BROWSER_CHANNEL,
-    headless: parsed.BROWSER_HEADLESS,
+    channel: parsed.PLAYWRIGHT_CHANNEL ?? parsed.BROWSER_CHANNEL,
+    headless: parsed.PLAYWRIGHT_HEADLESS ?? parsed.BROWSER_HEADLESS,
     launchTimeoutMs: parsed.BROWSER_LAUNCH_TIMEOUT_MS,
-    pageNavigationTimeoutMs: parsed.PAGE_NAVIGATION_TIMEOUT_MS,
+    pageNavigationTimeoutMs: parsed.NAVIGATION_TIMEOUT_MS ?? parsed.PAGE_NAVIGATION_TIMEOUT_MS,
     actionTimeoutMs: parsed.ACTION_TIMEOUT_MS,
   },
   limits: {
@@ -87,6 +96,15 @@ export const config = {
   },
   artifacts: {
     root: parsed.ARTIFACT_ROOT,
+    screenshotDirectory: parsed.SCREENSHOT_DIRECTORY,
+    traceDirectory: parsed.TRACE_DIRECTORY,
+  },
+  liveView: {
+    enabled: parsed.LIVE_VIEW_ENABLED,
+    frameIntervalMs: parsed.LIVE_VIEW_FRAME_INTERVAL_MS,
+  },
+  defaults: {
+    allowedOrigins: parsed.TEST_RUN_ALLOWED_ORIGINS.split(",").map((origin) => origin.trim()).filter(Boolean),
   },
   prompts: {
     filePath: parsed.PROMPT_FILE_PATH,

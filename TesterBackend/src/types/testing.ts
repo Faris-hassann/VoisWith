@@ -7,6 +7,7 @@ import type {
 } from "./report.js";
 
 export interface Credentials {
+  enabled?: boolean;
   loginUrl?: string;
   username: string;
   password: string;
@@ -52,14 +53,20 @@ export interface TestingRunRequest {
   environment?: TestEnvironment;
   credentials?: Credentials;
   roles?: RoleCredentials[];
+  allowedOrigins?: string[];
+  includeSubdomains?: boolean;
+  browserMode?: "headed" | "headless";
+  visualizationMode?: "local" | "live" | "off";
+  testData?: Record<string, unknown>;
   testTypes: TestingType[];
   crawl: {
     strategy: "DFS";
-    maxDepth: number;
-    maxPages: number;
+    maxDepth?: number;
+    maxPages?: number;
     sameOriginOnly: boolean;
     includePatterns: string[];
     excludePatterns: string[];
+    ignoredQueryParameters?: string[];
   };
   browser: {
     channel: "chrome";
@@ -84,8 +91,10 @@ export interface TestingRunRequest {
 export interface PageSnapshot {
   url: string;
   canonicalUrl: string;
+  stateFingerprint?: string;
   title: string;
   headings: string[];
+  landmarks?: string[];
   visibleText: string;
   links: LinkSnapshot[];
   images: AssetSnapshot[];

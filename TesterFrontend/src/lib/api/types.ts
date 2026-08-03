@@ -40,7 +40,14 @@ export type IssueSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFORMATIO
 export interface TestingRunRequest {
   targetUrl: string;
   authorizationConfirmed: true;
+  selectedTestTypes?: string[];
+  allowedOrigins?: string[];
+  includeSubdomains?: boolean;
+  browserMode?: "headed" | "headless";
+  visualizationMode?: "local" | "live" | "off";
+  testData?: Record<string, unknown>;
   credentials?: {
+    enabled?: boolean;
     loginUrl?: string;
     username: string;
     password: string;
@@ -53,11 +60,12 @@ export interface TestingRunRequest {
   testTypes: TestingType[];
   crawl: {
     strategy: "DFS";
-    maxDepth: number;
-    maxPages: number;
+    maxDepth?: number;
+    maxPages?: number;
     sameOriginOnly: boolean;
     includePatterns: string[];
     excludePatterns: string[];
+    ignoredQueryParameters?: string[];
   };
   browser: {
     channel: "chrome";
@@ -93,7 +101,7 @@ export interface TestingRunResponse {
   diagnostics?: RunDiagnostics;
 }
 
-export type AsyncRunStatus = "queued" | "running" | "completed" | "failed";
+export type AsyncRunStatus = "queued" | "running" | "paused" | "stopping" | "stopped" | "completed" | "failed";
 export type RunProgressStatus = "started" | "passed" | "failed" | "skipped" | "info" | "blocked";
 
 export interface AsyncRunStartResponse {
@@ -117,6 +125,11 @@ export interface RunProgressEvent {
   counts?: Record<string, number>;
   diagnostics?: unknown;
   issue?: unknown;
+  liveFrame?: {
+    mimeType: "image/jpeg" | "image/png";
+    data: string;
+    pageUrl?: string;
+  };
   report?: TestingRunResponse;
 }
 
@@ -148,6 +161,7 @@ export interface RunSummary {
 export interface PageReport {
   url: string;
   canonicalUrl: string;
+  stateFingerprint?: string;
   role?: string;
   viewport?: string;
   locale?: string;

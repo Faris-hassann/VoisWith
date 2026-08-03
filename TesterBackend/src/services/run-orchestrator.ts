@@ -37,6 +37,10 @@ let activeRuns = 0;
 export interface RunOrchestratorOptions {
   runId?: string;
   onEvent?: RunEventSink;
+  control?: {
+    isStopped: () => boolean;
+    waitWhilePaused: () => Promise<void>;
+  };
 }
 
 export class RunOrchestrator {
@@ -72,8 +76,8 @@ export class RunOrchestrator {
         ...request,
         crawl: {
           ...request.crawl,
-          maxDepth: Math.min(request.crawl.maxDepth, config.limits.maxDepthPerRun),
-          maxPages: Math.min(request.crawl.maxPages, config.limits.maxPagesPerRun),
+          maxDepth: clampOptionalLimit(request.crawl.maxDepth, config.limits.maxDepthPerRun),
+          maxPages: clampOptionalLimit(request.crawl.maxPages, config.limits.maxPagesPerRun),
         },
         execution: {
           ...request.execution,
@@ -88,7 +92,12 @@ export class RunOrchestrator {
         },
       },
       visitedUrls: new Set(),
+      discoveredUrls: new Set(),
+      visitedStates: new Set(),
       pendingUrls: new Set(),
+      pendingCrawlItems: new Set(),
+      processedInteractions: new Set(),
+      routeFamilies: new Set(),
       skippedUrls: new Map(),
       failedUrls: new Map(),
       redirectHistory: new Map(),
@@ -100,6 +109,7 @@ export class RunOrchestrator {
       openRouterCalls: 0,
       deadlineMs: deadlineFromNow(request.execution.maximumRunDurationSeconds),
       artifactRoot: artifacts.runRoot,
+      control: options.control,
       diagnostics: {
         runId,
         targetUrl: request.targetUrl,
@@ -247,7 +257,12 @@ export class RunOrchestrator {
       direction: targetItem.locale.direction,
       request: localRequest,
       visitedUrls: new Set(),
+      discoveredUrls: new Set(),
+      visitedStates: new Set(),
       pendingUrls: new Set(),
+      pendingCrawlItems: new Set(),
+      processedInteractions: new Set(),
+      routeFamilies: new Set(),
       skippedUrls: new Map(),
       failedUrls: new Map(),
     };
@@ -415,7 +430,7 @@ export class RunOrchestrator {
           artifacts,
           events: input.events,
         });
-        return { report: result.report, links: result.snapshot.links };
+        return { report: result.report, links: result.snapshot.links, stateFingerprint: result.snapshot.stateFingerprint };
       },
     });
 
@@ -487,6 +502,7 @@ export class RunOrchestrator {
       locale: context.localeName,
       counts: { durationMs: navigationMs },
     });
+    await emitLiveFrame(input, session.page, "Page navigation frame.");
 
     const performance = await input.performanceCollector.collect(session.page);
     const snapshot = await this.inspector.inspect({
@@ -527,6 +543,7 @@ export class RunOrchestrator {
         apiCalls: snapshot.observedApiCalls.length,
       },
     });
+    await emitLiveFrame(input, session.page, "Page snapshot frame.");
 
     const baselineResults = buildPageBaselineTests({
       snapshot,
@@ -575,6 +592,7 @@ export class RunOrchestrator {
       const pageReport: PageReport = {
         url: snapshot.url,
         canonicalUrl: snapshot.canonicalUrl,
+        stateFingerprint: snapshot.stateFingerprint,
         role: context.roleName,
         viewport: context.viewportName,
         locale: context.localeName,
@@ -592,7 +610,7 @@ export class RunOrchestrator {
       return { report: pageReport, snapshot };
     }
 
-    const aiEligibility = getAiFormSubmissionEligibility(snapshot);
+    const aiEligibility = { eligible: true, reasons: ["page snapshot"] };
     if (!aiEligibility.eligible) {
       emit(input, {
         runId: context.runId,
@@ -622,6 +640,7 @@ export class RunOrchestrator {
       const pageReport: PageReport = {
         url: snapshot.url,
         canonicalUrl: snapshot.canonicalUrl,
+        stateFingerprint: snapshot.stateFingerprint,
         role: context.roleName,
         viewport: context.viewportName,
         locale: context.localeName,
@@ -646,7 +665,7 @@ export class RunOrchestrator {
         runId: context.runId,
         type: "ai.planning_started",
         status: "started",
-        message: `Sending ${aiEligibility.reasons.join(", ")} context to AI form/login/submission planner.`,
+        message: `Sending ${aiEligibility.reasons.join(", ")} context to AI test-case planner.`,
         pageUrl: snapshot.url,
         role: context.roleName,
         viewport: context.viewportName,
@@ -660,7 +679,7 @@ export class RunOrchestrator {
         runId: context.runId,
         type: "ai.planning_passed",
         status: "passed",
-        message: `AI generated ${aiPlannedTests} form/login/submission test case(s).`,
+        message: `AI generated ${aiPlannedTests} page-level test case(s).`,
         pageUrl: snapshot.url,
         role: context.roleName,
         viewport: context.viewportName,
@@ -693,6 +712,7 @@ export class RunOrchestrator {
       const pageReport: PageReport = {
         url: snapshot.url,
         canonicalUrl: snapshot.canonicalUrl,
+        stateFingerprint: snapshot.stateFingerprint,
         role: context.roleName,
         viewport: context.viewportName,
         locale: context.localeName,
@@ -765,6 +785,7 @@ export class RunOrchestrator {
     const pageReport: PageReport = {
       url: snapshot.url,
       canonicalUrl: snapshot.canonicalUrl,
+      stateFingerprint: snapshot.stateFingerprint,
       role: context.roleName,
       viewport: context.viewportName,
       locale: context.localeName,
@@ -800,6 +821,7 @@ export class RunOrchestrator {
     context.diagnostics.pages.push({
       url: snapshot.url,
       finalUrl: snapshot.url,
+      stateFingerprint: snapshot.stateFingerprint,
       role: context.roleName,
       viewport: context.viewportName,
       locale: context.localeName,
@@ -1063,44 +1085,40 @@ function emit(input: { onEvent?: RunEventSink; events?: RunEventSink }, event: R
   if (sink) sink(event);
 }
 
+async function emitLiveFrame(input: {
+  context: RunContext;
+  session: BrowserSession;
+  events?: RunEventSink;
+}, page: Page, message: string): Promise<void> {
+  if (!config.liveView.enabled || input.context.request.visualizationMode !== "live") return;
+  try {
+    const buffer = await page.screenshot({ type: "jpeg", quality: 55, timeout: 5000 });
+    emit(input, {
+      runId: input.context.runId,
+      type: "live-view:frame",
+      status: "info",
+      message,
+      pageUrl: safePageUrl(page),
+      role: input.context.roleName,
+      viewport: input.context.viewportName,
+      locale: input.context.localeName,
+      liveFrame: {
+        mimeType: "image/jpeg",
+        data: buffer.toString("base64"),
+        pageUrl: safePageUrl(page),
+      },
+    });
+  } catch {
+    // Live view is best-effort and must not fail test execution.
+  }
+}
+
 function safePageUrl(page: Page): string | undefined {
   try {
     return typeof page.url === "function" ? page.url() : undefined;
   } catch {
     return undefined;
   }
-}
-
-function getAiFormSubmissionEligibility(snapshot: PageSnapshot): { eligible: boolean; reasons: string[] } {
-  const reasons: string[] = [];
-  if (snapshot.forms.length > 0) reasons.push("forms");
-
-  const formFieldKinds = new Set<ElementInventoryItem["kind"]>([
-    "input",
-    "textarea",
-    "select",
-    "checkbox",
-    "radio",
-    "file",
-    "search",
-    "submit",
-  ]);
-  const fieldTypePattern = /password|email|user(name)?|login|search|file|checkbox|radio/i;
-  const submissionTextPattern = /log\s*in|sign\s*in|sign\s*up|register|submit|continue|save|send|checkout|upload|validate|verify/i;
-
-  const hasRelevantField = snapshot.elements.some((element) => {
-    if (formFieldKinds.has(element.kind)) return true;
-    return fieldTypePattern.test([element.type, element.name, element.label, element.placeholder, element.accessibleName].filter(Boolean).join(" "));
-  });
-  if (hasRelevantField) reasons.push("form-like fields");
-
-  const hasSubmissionControl = snapshot.elements.some((element) => {
-    if (!["button", "link", "submit"].includes(element.kind)) return false;
-    return submissionTextPattern.test([element.text, element.accessibleName, element.label, element.placeholder, element.name].filter(Boolean).join(" "));
-  });
-  if (hasSubmissionControl) reasons.push("submission controls");
-
-  return { eligible: reasons.length > 0, reasons };
 }
 
 async function capturePageEvidence(input: {
@@ -1140,4 +1158,9 @@ function cloneCredentials(credentials?: TestingRunRequest["credentials"]): Testi
 
 function unique(values: string[]): string[] {
   return [...new Set(values)];
+}
+
+function clampOptionalLimit(requested: number | undefined, emergencyLimit: number): number | undefined {
+  if (requested === undefined) return undefined;
+  return Math.min(requested, emergencyLimit);
 }

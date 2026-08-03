@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { defaultFormValues, testingFormSchema } from "./testing-run.schema";
 
 describe("testingFormSchema", () => {
-  it("requires authorization", () => {
+  it("uses authorization confirmation by default", () => {
     const result = testingFormSchema.safeParse({ ...defaultFormValues, targetUrl: "https://example.com" });
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 
   it("validates recommended defaults when authorization is confirmed", () => {

@@ -7,14 +7,20 @@ import { errorMessage } from "../errors/serialize-error.js";
 
 interface CrawlItem {
   url: string;
+  normalizedUrl: string;
   depth: number;
   parentUrl?: string;
+  discoveredByElementId?: string;
+  navigationPath: string[];
+  authenticationState: "anonymous" | "authenticated";
+  role?: string;
   source: string;
 }
 
 export interface CrawledPageResult {
   report: PageReport;
   links: LinkSnapshot[];
+  stateFingerprint?: string;
 }
 
 export class PageCrawler {
@@ -23,14 +29,37 @@ export class PageCrawler {
     testPage: (url: string) => Promise<CrawledPageResult>;
   }): Promise<void> {
     const { context, testPage } = input;
+    const discoveredUrls = context.discoveredUrls ??= new Set();
+    const visitedStates = context.visitedStates ??= new Set();
+    const pendingCrawlItems = context.pendingCrawlItems ??= new Set();
+    const processedInteractions = context.processedInteractions ??= new Set();
+    const routeFamilies = context.routeFamilies ??= new Set();
     const policy = new ScopePolicy({
       targetOrigin: context.targetOrigin,
       sameOriginOnly: context.request.crawl.sameOriginOnly,
       includePatterns: context.request.crawl.includePatterns,
       excludePatterns: context.request.crawl.excludePatterns,
+      allowedOrigins: context.request.allowedOrigins,
+      includeSubdomains: context.request.includeSubdomains ?? false,
+      ignoredQueryParameters: context.request.crawl.ignoredQueryParameters,
     });
     const seed = policy.evaluate(context.request.targetUrl);
-    const stack: CrawlItem[] = seed.allowed && seed.canonicalUrl ? [{ url: seed.canonicalUrl, depth: 0, source: "seed" }] : [];
+    const stack: CrawlItem[] = seed.allowed && seed.canonicalUrl
+      ? [{
+          url: seed.canonicalUrl,
+          normalizedUrl: seed.canonicalUrl,
+          depth: 0,
+          source: "seed",
+          navigationPath: [seed.canonicalUrl],
+          authenticationState: context.request.credentials ? "authenticated" : "anonymous",
+          role: context.roleName,
+        }]
+      : [];
+    if (seed.canonicalUrl) {
+      discoveredUrls.add(seed.canonicalUrl);
+      context.pendingUrls.add(seed.canonicalUrl);
+      pendingCrawlItems.add(seed.canonicalUrl);
+    }
     context.diagnostics.crawl.events.push({
       name: "Crawler initialized",
       status: seed.allowed ? "PASSED" : "FAILED",
@@ -40,6 +69,16 @@ export class PageCrawler {
     });
 
     while (stack.length > 0) {
+      if (context.control?.isStopped()) {
+        context.diagnostics.crawl.events.push({
+          name: "Crawler stopped",
+          status: "SKIPPED",
+          timestamp: new Date().toISOString(),
+          message: "Run was stopped by request.",
+        });
+        break;
+      }
+      await context.control?.waitWhilePaused();
       if (isDeadlineExceeded(context.deadlineMs)) {
         context.diagnostics.crawl.events.push({
           name: "Crawler stopped",
@@ -49,7 +88,7 @@ export class PageCrawler {
         });
         break;
       }
-      if (context.visitedUrls.size >= context.request.crawl.maxPages) {
+      if (context.request.crawl.maxPages !== undefined && context.visitedUrls.size >= context.request.crawl.maxPages) {
         context.diagnostics.crawl.events.push({
           name: "Crawler stopped",
           status: "SKIPPED",
@@ -61,7 +100,7 @@ export class PageCrawler {
       const item = stack.pop();
       if (!item) continue;
       context.pendingUrls.delete(item.url);
-      if (context.visitedUrls.has(item.url)) continue;
+      pendingCrawlItems.delete(item.normalizedUrl);
       context.diagnostics.crawl.events.push({
         name: "Crawler popped URL",
         status: "INFO",
@@ -84,7 +123,7 @@ export class PageCrawler {
         });
         continue;
       }
-      if (item.depth > context.request.crawl.maxDepth) {
+      if (context.request.crawl.maxDepth !== undefined && item.depth > context.request.crawl.maxDepth) {
         context.skippedUrls.set(item.url, "max-depth");
         context.diagnostics.crawl.events.push({
           name: "URL skipped",
@@ -95,31 +134,60 @@ export class PageCrawler {
         });
         continue;
       }
+      const family = routeFamily(decision.canonicalUrl);
+      routeFamilies.add(family);
 
       try {
         const result = await testPage(decision.canonicalUrl);
         const report = result.report;
+        const stateKey = `${decision.canonicalUrl}#${result.stateFingerprint ?? "default"}`;
+        if (visitedStates.has(stateKey)) {
+          context.skippedUrls.set(decision.canonicalUrl, "duplicate-state");
+          context.diagnostics.crawl.events.push({
+            name: "State skipped",
+            status: "SKIPPED",
+            timestamp: new Date().toISOString(),
+            url: decision.canonicalUrl,
+            message: "Duplicate URL and state fingerprint.",
+          });
+          continue;
+        }
         context.pageReports.push(report);
         context.visitedUrls.add(decision.canonicalUrl);
+        visitedStates.add(stateKey);
         const links = result.links;
         context.diagnostics.crawl.discoveredCandidates += links.length;
         let acceptedLinks = 0;
         let skippedLinks = 0;
         for (const link of links.reverse()) {
           const candidateUrl = link.canonicalHref ?? link.href;
+          const interactionKey = `${decision.canonicalUrl}:${link.sourceElementId ?? link.text}:${candidateUrl}`;
+          if (processedInteractions.has(interactionKey)) {
+            skippedLinks += 1;
+            continue;
+          }
+          processedInteractions.add(interactionKey);
           const next = policy.evaluate(candidateUrl, decision.canonicalUrl);
           if (
             next.allowed &&
             next.canonicalUrl &&
             !context.visitedUrls.has(next.canonicalUrl) &&
-            !context.pendingUrls.has(next.canonicalUrl)
+            !context.pendingUrls.has(next.canonicalUrl) &&
+            !pendingCrawlItems.has(next.canonicalUrl)
           ) {
             acceptedLinks += 1;
+            discoveredUrls.add(next.canonicalUrl);
             context.pendingUrls.add(next.canonicalUrl);
+            pendingCrawlItems.add(next.canonicalUrl);
             stack.push({
               url: next.canonicalUrl,
+              normalizedUrl: next.canonicalUrl,
               depth: item.depth + 1,
               parentUrl: decision.canonicalUrl,
+              discoveredByElementId: link.sourceElementId,
+              navigationPath: [...item.navigationPath, next.canonicalUrl],
+              authenticationState: item.authenticationState,
+              role: item.role,
               source: link.sourceElementId ?? (link.text || "link"),
             });
           } else {
@@ -170,5 +238,23 @@ export class PageCrawler {
         });
       }
     }
+    if (stack.length === 0) {
+      context.diagnostics.crawl.events.push({
+        name: "Crawler converged",
+        status: "PASSED",
+        timestamp: new Date().toISOString(),
+        message: "DFS stack empty; no pending URL crawl items remain.",
+      });
+    }
   }
+}
+
+function routeFamily(url: string): string {
+  const parsed = new URL(url);
+  const path = parsed.pathname
+    .split("/")
+    .filter(Boolean)
+    .map((part) => (/^\d+$/.test(part) || /^[0-9a-f-]{12,}$/i.test(part) ? ":id" : part.toLowerCase()))
+    .join("/");
+  return `${parsed.origin}/${path}`;
 }

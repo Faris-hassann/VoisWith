@@ -1,4 +1,4 @@
-import { env } from "../environment/env";
+import { publicEnv } from "../environment/public-env";
 import { createApiError, mapNetworkError } from "./errors";
 
 export interface ApiClientOptions {
@@ -14,7 +14,7 @@ export async function apiRequest<T>(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 330000);
   const signal = mergeSignals(controller.signal, options.signal);
-  const url = endpoint.startsWith("http") ? endpoint : `${env.apiBaseUrl}${endpoint}`;
+  const url = endpoint.startsWith("http") ? endpoint : `${publicEnv.apiBaseUrl}${endpoint}`;
   const headers = new Headers(init.headers);
   if (init.body && !headers.has("content-type")) {
     headers.set("content-type", "application/json");

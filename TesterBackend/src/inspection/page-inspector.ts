@@ -1,5 +1,6 @@
 import type { Page } from "playwright";
 import { canonicalizeUrl } from "../crawler/url-canonicalizer.js";
+import { StateFingerprintService } from "../crawler/state-fingerprint-service.js";
 import type { ConsoleObservation, NetworkObservation } from "../types/report.js";
 import type { ElementInventoryItem, FormSnapshot, PageSnapshot } from "../types/testing.js";
 import { ElementInventoryBuilder } from "./element-inventory.js";
@@ -16,6 +17,7 @@ interface RawLinkSnapshot {
 interface PageDomData {
   text: string;
   headings: string[];
+  landmarks: string[];
   links: RawLinkSnapshot[];
   tables: string[];
   images: Array<{ src: string; alt?: string }>;
@@ -26,6 +28,7 @@ interface PageDomData {
 
 export class PageInspector {
   private readonly inventoryBuilder = new ElementInventoryBuilder();
+  private readonly fingerprints = new StateFingerprintService();
 
   async inspect(input: {
     page: Page;
@@ -66,6 +69,10 @@ export class PageInspector {
       const text = document.body?.innerText?.replace(/\\s+/g, " ").trim().slice(0, 8000) ?? "";
       const headings = [...document.querySelectorAll("h1,h2,h3")]
         .map((heading) => heading.textContent?.trim())
+        .filter(Boolean)
+        .slice(0, 30);
+      const landmarks = [...document.querySelectorAll("header,nav,main,aside,footer,[role='banner'],[role='navigation'],[role='main'],[role='contentinfo'],[role='complementary']")]
+        .map((landmark) => landmark.getAttribute("role") || landmark.tagName.toLowerCase())
         .filter(Boolean)
         .slice(0, 30);
       const linkCandidates = [];
@@ -172,16 +179,27 @@ export class PageInspector {
           description: "Document direction is " + documentDirection + ".",
         },
       ];
-      return { text, headings, links, tables, images, scripts, visibleValidationErrors, uiObservations };
+      return { text, headings, landmarks, links, tables, images, scripts, visibleValidationErrors, uiObservations };
     })()`);
 
     const forms = buildFormSnapshots(elements);
+    const stateFingerprint = this.fingerprints.fingerprint({
+      normalizedUrl: canonicalUrl,
+      title,
+      headings: pageData.headings,
+      landmarks: pageData.landmarks,
+      forms,
+      elements,
+      dialogs: elements.filter((element) => element.kind === "dialog"),
+    });
 
     return {
       url,
       canonicalUrl,
+      stateFingerprint,
       title,
       headings: pageData.headings,
+      landmarks: pageData.landmarks,
       visibleText: pageData.text,
       links: buildLinkSnapshots(pageData.links, elements, input.targetOrigin, url),
       images: buildAssetSnapshots(pageData.images, input.targetOrigin, url),

@@ -6,11 +6,12 @@ TesterFrontend is a Next.js App Router prototype for configuring and reviewing a
 
 - `/` redirects to `/testing/new`
 - `/testing/new` configures and starts a test
+- `/testing/running/[runId]` streams WebSocket events, live-view frames, DFS discovery, and run controls
 - `/testing/results/[runId]` shows an in-memory completed report
 - `/testing/history` explains backend history is unavailable
 - `/settings` shows API configuration
 - `/about` explains safety and limitations
-- `/api/testing/run` optionally proxies to the backend when `NEXT_PUBLIC_API_MODE=proxy`
+- `/api/testing/runs` optionally proxies async backend runs when `NEXT_PUBLIC_API_MODE=proxy`
 
 ## Environment
 
@@ -18,6 +19,7 @@ TesterFrontend is a Next.js App Router prototype for configuring and reviewing a
 NEXT_PUBLIC_API_BASE_URL=http://localhost:3000
 NEXT_PUBLIC_API_DOCS_URL=http://localhost:3000/docs/
 NEXT_PUBLIC_TEST_RUN_ENDPOINT=/api/v1/testing/run
+NEXT_PUBLIC_TEST_RUNS_ENDPOINT=/api/v1/testing/runs
 NEXT_PUBLIC_APP_NAME=WebTest AI
 NEXT_PUBLIC_ENABLE_MOCK_MODE=false
 NEXT_PUBLIC_API_MODE=direct
@@ -47,4 +49,5 @@ npm run e2e
 - OpenRouter keys never belong in the frontend.
 - Playwright is never run by the frontend.
 - Credentials are omitted from storage, query keys, URLs, review summaries, and logs.
-- The backend currently exposes a single long-running test endpoint, so progress is indeterminate and history is unavailable.
+- The backend returns a run ID immediately, then streams status, live-view frames, generated tests, and final report state over WebSocket with polling fallback.
+- Pause, resume, stop, and JSON report download are routed through the backend run API.

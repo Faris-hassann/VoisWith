@@ -29,8 +29,6 @@ export function TestConfigurationForm() {
 
   const onSubmit = form.handleSubmit(async (formValues) => {
     setError(undefined);
-    const confirmed = window.confirm("Run this authorized test now? Safe mode blocks destructive and payment-like actions by default.");
-    if (!confirmed) return;
     const payload = buildTestingPayload(formValues);
     form.setValue("credentials.password", "");
     setIsStarting(true);
@@ -56,10 +54,10 @@ export function TestConfigurationForm() {
           <Field label="Target URL" error={form.formState.errors.targetUrl?.message}>
             <input className="w-full rounded-md border bg-background px-3 py-2 text-sm" placeholder="https://example.com" {...form.register("targetUrl")} />
           </Field>
-          <label className="flex items-start gap-3 rounded-md border p-3">
-            <input type="checkbox" className="mt-1" checked={values.authorizationConfirmed === true} onChange={(event) => form.setValue("authorizationConfirmed", event.target.checked as true, { shouldValidate: true })} />
-            <span className="text-sm">I confirm that I own this system or have explicit permission to test it.</span>
-          </label>
+          <Field label="Allowed origins">
+            <textarea className="min-h-16 w-full rounded-md border bg-background px-3 py-2 text-sm" placeholder="Leave blank to use the target origin" {...form.register("allowedOriginsText")} />
+          </Field>
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" {...form.register("includeSubdomains")} /> Include subdomains of allowed origins</label>
           <p className="text-xs text-muted-foreground">HTTPS is preferred. Localhost and private-network targets may be rejected by backend SSRF protection.</p>
         </CardContent>
       </Card>
@@ -113,13 +111,14 @@ export function TestConfigurationForm() {
           <CardContent className="grid gap-4">
             <Field label="Strategy"><input disabled className="w-full rounded-md border bg-muted px-3 py-2 text-sm" value="DFS" readOnly /></Field>
             <div className="grid grid-cols-2 gap-3">
-              <NumberField label="Maximum depth" name="crawl.maxDepth" form={form} />
-              <NumberField label="Maximum pages" name="crawl.maxPages" form={form} />
+              <NumberField label="Emergency max depth" name="crawl.maxDepth" form={form} />
+              <NumberField label="Emergency max pages" name="crawl.maxPages" form={form} />
             </div>
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" {...form.register("crawl.sameOriginOnly")} /> Same-origin only</label>
             <Field label="Include patterns"><textarea className="min-h-20 w-full rounded-md border bg-background px-3 py-2 text-sm" {...form.register("crawl.includePatternsText")} /></Field>
             <Field label="Exclude patterns"><textarea className="min-h-28 w-full rounded-md border bg-background px-3 py-2 text-sm" {...form.register("crawl.excludePatternsText")} /></Field>
-            <p className="text-xs text-muted-foreground">Up to {values.crawl.maxPages} pages, with a maximum link depth of {values.crawl.maxDepth}.</p>
+            <Field label="Ignored query parameters"><textarea className="min-h-20 w-full rounded-md border bg-background px-3 py-2 text-sm" {...form.register("crawl.ignoredQueryParametersText")} /></Field>
+            <p className="text-xs text-muted-foreground">By default the crawler runs until DFS convergence. Emergency limits are only applied when set.</p>
           </CardContent>
         </Card>
 
@@ -128,6 +127,13 @@ export function TestConfigurationForm() {
           <CardContent className="grid gap-4">
             <Field label="Browser channel"><input disabled className="w-full rounded-md border bg-muted px-3 py-2 text-sm" value="chrome" readOnly /></Field>
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" {...form.register("browser.headless")} /> Headless mode</label>
+            <Field label="Visualization mode">
+              <select className="w-full rounded-md border bg-background px-3 py-2 text-sm" {...form.register("visualizationMode")}>
+                <option value="live">Live browser viewer</option>
+                <option value="local">Local headed Chrome</option>
+                <option value="off">Off</option>
+              </select>
+            </Field>
             <div className="grid grid-cols-2 gap-3">
               <NumberField label="Viewport width" name="browser.viewport.width" form={form} />
               <NumberField label="Viewport height" name="browser.viewport.height" form={form} />
@@ -155,11 +161,11 @@ export function TestConfigurationForm() {
             <Review label="Target" value={values.targetUrl || "Not set"} />
             <Review label="Credentials" value={authEnabled ? "Credentials provided" : "No authentication"} />
             <Review label="Testing types" value={`${values.testTypes.length} selected`} />
-            <Review label="Crawl" value={`${values.crawl.maxPages} pages, depth ${values.crawl.maxDepth}`} />
+            <Review label="Crawl" value={values.crawl.maxPages || values.crawl.maxDepth ? `Emergency caps configured` : "Exhaustive until convergence"} />
             <Review label="Browser" value={`Chrome ${values.browser.headless ? "headless" : "visible"}`} />
             <Review label="Safety" value={values.execution.safeMode ? "Safe mode enabled" : "Safe mode disabled"} />
           </div>
-          <Button type="submit" disabled={!values.authorizationConfirmed || form.formState.isSubmitting || isStarting}>
+          <Button type="submit" disabled={form.formState.isSubmitting || isStarting}>
             <Play className="h-4 w-4" />
             {isStarting || form.formState.isSubmitting ? "Starting" : "Run Test"}
           </Button>
@@ -182,7 +188,14 @@ function Field({ label, error, children }: { label: string; error?: string; chil
 function NumberField({ label, name, form }: { label: string; name: FieldPath<TestingFormValues>; form: ReturnType<typeof useForm<TestingFormValues>> }) {
   return (
     <Field label={label}>
-      <input className="w-full rounded-md border bg-background px-3 py-2 text-sm" type="number" {...form.register(name, { valueAsNumber: true })} />
+      <input
+        className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+        type="number"
+        placeholder="No default limit"
+        {...form.register(name, {
+          setValueAs: (value) => value === "" || Number.isNaN(Number(value)) ? undefined : Number(value),
+        })}
+      />
     </Field>
   );
 }

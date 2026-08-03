@@ -1,6 +1,6 @@
 import type { TestingRunResponse } from "../types/report.js";
 
-export type AsyncRunStatus = "queued" | "running" | "completed" | "failed";
+export type AsyncRunStatus = "queued" | "running" | "paused" | "stopping" | "stopped" | "completed" | "failed";
 export type RunProgressStatus = "started" | "passed" | "failed" | "skipped" | "info" | "blocked";
 
 export interface RunProgressEvent {
@@ -17,6 +17,11 @@ export interface RunProgressEvent {
   counts?: Record<string, number>;
   diagnostics?: unknown;
   issue?: unknown;
+  liveFrame?: {
+    mimeType: "image/jpeg" | "image/png";
+    data: string;
+    pageUrl?: string;
+  };
   report?: TestingRunResponse;
 }
 

@@ -11,7 +11,12 @@ export interface RunContext {
   direction?: "ltr" | "rtl";
   request: TestingRunRequest;
   visitedUrls: Set<string>;
+  discoveredUrls?: Set<string>;
+  visitedStates?: Set<string>;
   pendingUrls: Set<string>;
+  pendingCrawlItems?: Set<string>;
+  processedInteractions?: Set<string>;
+  routeFamilies?: Set<string>;
   skippedUrls: Map<string, string>;
   failedUrls: Map<string, string>;
   redirectHistory: Map<string, string[]>;
@@ -23,5 +28,9 @@ export interface RunContext {
   openRouterCalls: number;
   deadlineMs: number;
   artifactRoot: string;
+  control?: {
+    isStopped: () => boolean;
+    waitWhilePaused: () => Promise<void>;
+  };
   diagnostics: RunDiagnostics;
 }

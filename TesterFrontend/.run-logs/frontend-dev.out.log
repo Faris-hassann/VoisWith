@@ -1,0 +1,11 @@
+
+> testerfrontend@1.0.0 dev
+> npm run clean && next dev -p 3001
+
+
+> testerfrontend@1.0.0 clean
+> node scripts/clean-next.mjs
+
+Removed stale .next cache
+   next-swc build: wasm build @next/swc-wasm-nodejs
+[?25h

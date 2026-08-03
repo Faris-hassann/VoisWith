@@ -43,6 +43,7 @@ export interface RunSummary {
 export interface PageReport {
   url: string;
   canonicalUrl: string;
+  stateFingerprint?: string;
   role?: string;
   viewport?: string;
   locale?: string;
@@ -200,6 +201,7 @@ export interface RunDiagnostics {
 export interface PageDiagnostics {
   url: string;
   finalUrl?: string;
+  stateFingerprint?: string;
   role?: string;
   viewport?: string;
   locale?: string;

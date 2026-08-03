@@ -48,4 +48,31 @@ describe("testingRunRequestSchema", () => {
     expect(parsed.roles?.map((role) => role.name)).toEqual(["Admin", "Client"]);
     expect(parsed.testMatrix.locales[0]?.direction).toBe("rtl");
   });
+
+  it("accepts the new exhaustive testing request shape", () => {
+    const parsed = testingRunRequestSchema.parse({
+      targetUrl: "https://example.com/app",
+      authorizationConfirmed: true,
+      selectedTestTypes: ["smoke", "navigation", "error-handling"],
+      allowedOrigins: ["https://example.com"],
+      includeSubdomains: true,
+      browserMode: "headed",
+      visualizationMode: "live",
+      credentials: {
+        enabled: true,
+        loginUrl: "https://example.com/login",
+        username: "admin@example.com",
+        password: "secret",
+      },
+      allowDestructiveActions: false,
+    });
+
+    expect(parsed.testTypes).toEqual(["SMOKE", "NAVIGATION", "ERROR_HANDLING"]);
+    expect(parsed.allowedOrigins).toEqual(["https://example.com"]);
+    expect(parsed.includeSubdomains).toBe(true);
+    expect(parsed.crawl.maxPages).toBeUndefined();
+    expect(parsed.crawl.maxDepth).toBeUndefined();
+    expect(parsed.browser.headless).toBe(false);
+    expect(parsed.visualizationMode).toBe("live");
+  });
 });

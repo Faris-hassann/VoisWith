@@ -14,6 +14,9 @@ function isHttpUrl(value: string): boolean {
 export const testingFormSchema = z
   .object({
     targetUrl: httpUrl,
+    allowedOriginsText: z.string(),
+    includeSubdomains: z.boolean(),
+    visualizationMode: z.enum(["local", "live", "off"]),
     authorizationConfirmed: z.literal(true, {
       errorMap: () => ({ message: "You must confirm authorization before running a test." }),
     }),
@@ -31,11 +34,12 @@ export const testingFormSchema = z
     testTypes: z.array(z.enum(TEST_TYPES)).min(1, "Select at least one testing type."),
     crawl: z.object({
       strategy: z.literal("DFS"),
-      maxDepth: z.number().int().min(0).max(20),
-      maxPages: z.number().int().min(1).max(1000),
+      maxDepth: z.number().int().min(0).max(10000).optional(),
+      maxPages: z.number().int().min(1).max(1000000).optional(),
       sameOriginOnly: z.boolean(),
       includePatternsText: z.string(),
       excludePatternsText: z.string(),
+      ignoredQueryParametersText: z.string(),
     }),
     browser: z.object({
       channel: z.literal("chrome"),
@@ -100,17 +104,21 @@ export const recommendedTypes = [
 
 export const defaultFormValues: TestingFormValues = {
   targetUrl: "",
-  authorizationConfirmed: false as unknown as true,
+  allowedOriginsText: "",
+  includeSubdomains: false,
+  visualizationMode: "live",
+  authorizationConfirmed: true,
   authenticationEnabled: false,
   credentials: {},
   testTypes: [...recommendedTypes],
   crawl: {
     strategy: "DFS",
-    maxDepth: 2,
-    maxPages: 5,
+    maxDepth: undefined,
+    maxPages: undefined,
     sameOriginOnly: true,
     includePatternsText: "",
     excludePatternsText: "/logout\n/delete\n/remove\n/payment\n/checkout\n/unsubscribe",
+    ignoredQueryParametersText: "utm_source\nutm_medium\nutm_campaign\nutm_term\nutm_content\nfbclid\ngclid",
   },
   browser: {
     channel: "chrome",

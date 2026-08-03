@@ -13,14 +13,32 @@ const fieldHintsSchema = z
 
 const credentialsSchema = z
   .object({
+    enabled: z.boolean().optional(),
     loginUrl: z.string().url().optional(),
-    username: z.string().min(1).max(500),
-    password: z.string().min(1).max(2000),
+    username: z.string().min(1).max(500).optional(),
+    password: z.string().min(1).max(2000).optional(),
     fieldHints: fieldHintsSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.enabled === false) return;
+    if (!value.username) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["username"], message: "Username is required when credentials are enabled." });
+    }
+    if (!value.password) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["password"], message: "Password is required when credentials are enabled." });
+    }
+  })
+  .transform((value) => {
+    if (value.enabled === false) return undefined;
+    return {
+      ...value,
+      username: value.username ?? "",
+      password: value.password ?? "",
+    };
+  });
 
-export const testingRunRequestSchema = z
+const baseTestingRunRequestSchema = z
   .object({
     targetUrl: z.string().url(),
     environment: z.enum(["production", "staging"]).default("production"),
@@ -73,14 +91,29 @@ export const testingRunRequestSchema = z
       .strict()
       .default({}),
     testTypes: z.array(z.enum(TEST_TYPES)).min(1).max(TEST_TYPES.length),
+    selectedTestTypes: z.array(z.string()).optional(),
+    allowedOrigins: z.array(z.string().url()).max(50).optional(),
+    includeSubdomains: z.boolean().default(false),
+    browserMode: z.enum(["headed", "headless"]).optional(),
+    visualizationMode: z.enum(["local", "live", "off"]).default("local"),
+    testData: z.record(z.unknown()).default({}),
     crawl: z
       .object({
         strategy: z.literal("DFS").default("DFS"),
-        maxDepth: z.number().int().min(0).max(20).default(5),
-        maxPages: z.number().int().min(1).max(1000).default(5),
+        maxDepth: z.number().int().min(0).max(10_000).optional(),
+        maxPages: z.number().int().min(1).max(1_000_000).optional(),
         sameOriginOnly: z.boolean().default(true),
         includePatterns: patternArraySchema,
         excludePatterns: patternArraySchema.default(["/logout", "/delete", "/remove", "/payment"]),
+        ignoredQueryParameters: patternArraySchema.default([
+          "utm_source",
+          "utm_medium",
+          "utm_campaign",
+          "utm_term",
+          "utm_content",
+          "fbclid",
+          "gclid",
+        ]),
       })
       .strict()
       .default({}),
@@ -111,6 +144,94 @@ export const testingRunRequestSchema = z
       .strict()
       .default({}),
   })
-  .strict();
+  .passthrough()
+  .transform((value) => {
+    const targetOrigin = new URL(value.targetUrl).origin;
+    const selectedTestTypes = normalizeSelectedTestTypes(value.selectedTestTypes);
+    const testTypes = selectedTestTypes.length > 0 ? selectedTestTypes : value.testTypes;
+    const browserMode = value.browserMode ?? (value.browser.headless ? "headless" : "headed");
+    return {
+      ...value,
+      testTypes,
+      allowedOrigins: value.allowedOrigins?.length ? value.allowedOrigins.map((origin) => new URL(origin).origin) : [targetOrigin],
+      includeSubdomains: value.includeSubdomains,
+      browserMode,
+      visualizationMode: value.visualizationMode,
+      testData: value.testData,
+      browser: {
+        ...value.browser,
+        headless: browserMode === "headless",
+      },
+      crawl: {
+        ...value.crawl,
+        sameOriginOnly: value.crawl.sameOriginOnly && !value.allowedOrigins?.length,
+      },
+    };
+  });
+
+export const testingRunRequestSchema = z.preprocess(normalizeNewRequestShape, baseTestingRunRequestSchema);
 
 export type TestingRunRequestInput = z.input<typeof testingRunRequestSchema>;
+
+function normalizeNewRequestShape(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object") return raw;
+  const input = raw as Record<string, unknown>;
+  const selectedTestTypes = Array.isArray(input.selectedTestTypes) ? normalizeSelectedTestTypes(input.selectedTestTypes) : undefined;
+  const credentials = normalizeCredentials(input.credentials);
+  return {
+    ...input,
+    testTypes: input.testTypes ?? selectedTestTypes ?? ["SMOKE"],
+    credentials,
+    browser: {
+      channel: "chrome",
+      headless: input.browserMode === "headless",
+      viewport: { width: 1440, height: 900 },
+      ...(isRecord(input.browser) ? input.browser : {}),
+    },
+    execution: {
+      safeMode: true,
+      allowFormSubmission: true,
+      allowFileUploads: false,
+      allowDestructiveActions: Boolean(input.allowDestructiveActions),
+      allowPayments: false,
+      maximumActionsPerPage: 15,
+      maximumRunDurationSeconds: 1800,
+      ...(isRecord(input.execution) ? input.execution : {}),
+    },
+  };
+}
+
+function normalizeCredentials(value: unknown): unknown {
+  if (!isRecord(value)) return value;
+  if (value.enabled === false) return undefined;
+  return value;
+}
+
+function normalizeSelectedTestTypes(values: unknown[] | undefined) {
+  if (!values) return [];
+  const aliases: Record<string, (typeof TEST_TYPES)[number]> = {
+    smoke: "SMOKE",
+    navigation: "NAVIGATION",
+    links: "LINKS",
+    forms: "FORMS",
+    validation: "FORM_VALIDATION",
+    functional: "POSITIVE",
+    authentication: "AUTHENTICATION",
+    authorization: "AUTHORIZATION",
+    accessibility: "ACCESSIBILITY_TECHNICAL",
+    responsive: "CHROMIUM_COMPATIBILITY",
+    "error-handling": "ERROR_HANDLING",
+    ui: "SMOKE",
+    session: "SESSION",
+    "end-to-end": "END_TO_END",
+    regression: "REGRESSION_BASELINE",
+  };
+  return values
+    .map((value) => String(value).trim())
+    .map((value) => aliases[value.toLowerCase()] ?? value.toUpperCase().replace(/[\s-]+/g, "_"))
+    .filter((value): value is (typeof TEST_TYPES)[number] => (TEST_TYPES as readonly string[]).includes(value));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
