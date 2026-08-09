@@ -74,7 +74,7 @@ export const openApiDocument = {
                     },
                     execution: {
                       safeMode: true,
-                      allowFormSubmission: true,
+                      allowFormSubmission: false,
                       allowFileUploads: true,
                       allowDestructiveActions: false,
                       allowPayments: false,
@@ -91,6 +91,24 @@ export const openApiDocument = {
                         { name: "english-ltr", locale: "en-US", direction: "ltr" },
                         { name: "arabic-rtl", locale: "ar", direction: "rtl" },
                       ],
+                    },
+                  },
+                },
+                writeEnabledTest: {
+                  summary: "Form submission enabled, writes acknowledged",
+                  description:
+                    "writeActionsAcknowledged must be true whenever allowFormSubmission is true. This holds for anonymous runs as well as credentialed ones.",
+                  value: {
+                    targetUrl: "https://staging.example.com",
+                    authorizationConfirmed: true,
+                    writeActionsAcknowledged: true,
+                    environment: "staging",
+                    testTypes: ["FORMS", "FORM_VALIDATION"],
+                    execution: {
+                      safeMode: true,
+                      allowFormSubmission: true,
+                      allowDestructiveActions: false,
+                      allowPayments: false,
                     },
                   },
                 },
@@ -254,6 +272,11 @@ export const openApiDocument = {
             const: true,
             description: "Must be true. Caller confirms authorization to test the target.",
           },
+          writeActionsAcknowledged: {
+            type: "boolean",
+            description:
+              "Must be true whenever execution.allowFormSubmission is true, regardless of whether credentials are supplied. Acknowledges that the run may create or modify data on the target.",
+          },
           environment: { type: "string", enum: ["production", "staging"], default: "production" },
           credentials: { $ref: "#/components/schemas/Credentials" },
           roles: {
@@ -352,7 +375,12 @@ export const openApiDocument = {
         additionalProperties: false,
         properties: {
           safeMode: { type: "boolean", default: true },
-          allowFormSubmission: { type: "boolean", default: true },
+          allowFormSubmission: {
+            type: "boolean",
+            default: false,
+            description:
+              "Permits write actions against observed forms. Requires writeActionsAcknowledged: true on the request, whether or not credentials are supplied.",
+          },
           allowFileUploads: { type: "boolean", default: true },
           allowDestructiveActions: { type: "boolean", default: false },
           allowPayments: { type: "boolean", default: false },
@@ -400,21 +428,101 @@ export const openApiDocument = {
       },
       TestingRunResponse: {
         type: "object",
+        required: ["runId", "runStatus", "findingsStatus", "status", "summary", "coverageLimitations"],
         properties: {
           runId: { type: "string" },
+          runStatus: {
+            type: "string",
+            enum: ["COMPLETED", "STOPPED", "ERRORED"],
+            description: "Whether the run itself finished, was stopped, or errored.",
+          },
+          findingsStatus: {
+            type: "string",
+            enum: ["PASSED", "ISSUES_FOUND", "INCONCLUSIVE"],
+            description: "What the run concluded about the target.",
+          },
           status: {
             type: "string",
             enum: ["PASSED", "FAILED", "PARTIAL", "ERROR", "INCONCLUSIVE"],
+            deprecated: true,
+            description:
+              "Deprecated alias derived from runStatus and findingsStatus. Retained for existing consumers; prefer the two fields above.",
+          },
+          stoppedReason: {
+            type: "string",
+            enum: ["converged", "page_budget", "depth_budget", "time_budget", "user_stopped", "error"],
+            description: "Why the run stopped. An exhausted AI budget never stops a run and is not a value here.",
           },
           startedAt: { type: "string", format: "date-time" },
           completedAt: { type: "string", format: "date-time" },
           targetOrigin: { type: "string" },
           selectedTestingTypes: { type: "array", items: { type: "string", enum: TEST_TYPES } },
-          summary: { type: "object" },
+          summary: { $ref: "#/components/schemas/RunSummary" },
           pages: { type: "array", items: { type: "object" } },
           issues: { type: "array", items: { type: "object" } },
-          coverageLimitations: { type: "array", items: { type: "object" } },
-          artifacts: { type: "array", items: { type: "object" } },
+          coverageLimitations: {
+            type: "array",
+            description: "Exactly one row per selected test type, including selected types that could not execute.",
+            items: { $ref: "#/components/schemas/CoverageLimitation" },
+          },
+          artifacts: { type: "array", items: { $ref: "#/components/schemas/EvidenceReference" } },
+        },
+      },
+      RunSummary: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "pagesDiscovered",
+          "pagesTested",
+          "pagesSkipped",
+          "testsExecuted",
+          "passedTests",
+          "failedTests",
+          "skippedTests",
+          "blockedByPolicy",
+          "inconclusiveTests",
+          "consoleErrors",
+          "failedNetworkRequests",
+          "artifactsBytes",
+        ],
+        properties: {
+          pagesDiscovered: { type: "integer", minimum: 0 },
+          pagesTested: { type: "integer", minimum: 0 },
+          pagesSkipped: { type: "integer", minimum: 0 },
+          testsExecuted: { type: "integer", minimum: 0 },
+          passedTests: { type: "integer", minimum: 0 },
+          failedTests: { type: "integer", minimum: 0 },
+          skippedTests: { type: "integer", minimum: 0 },
+          blockedByPolicy: { type: "integer", minimum: 0 },
+          inconclusiveTests: { type: "integer", minimum: 0 },
+          consoleErrors: { type: "integer", minimum: 0 },
+          failedNetworkRequests: { type: "integer", minimum: 0 },
+          artifactsBytes: { type: "integer", minimum: 0, description: "Total on-disk size of retained artifacts." },
+        },
+      },
+      CoverageLimitation: {
+        type: "object",
+        additionalProperties: false,
+        required: ["testType", "availability", "executed", "reason"],
+        properties: {
+          testType: { type: "string", enum: TEST_TYPES },
+          availability: { type: "string", enum: ["implemented", "partial", "planned"] },
+          executed: { type: "boolean" },
+          reason: { type: "string" },
+        },
+      },
+      EvidenceReference: {
+        type: "object",
+        required: ["id", "type", "path"],
+        properties: {
+          id: { type: "string" },
+          type: {
+            type: "string",
+            enum: ["screenshot", "trace", "network", "console", "report", "download", "fixture"],
+          },
+          path: { type: "string" },
+          description: { type: "string" },
+          sizeBytes: { type: "integer", minimum: 0 },
         },
       },
       ErrorResponse: {

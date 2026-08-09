@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s http://localhost:3002/api/v1/testing/runs/40b70030-c67a-4de3-a38b-0559e371f599 -o /c/Users/felmo/AppData/Local/Temp/claude/d--Freelancing-VoisWith/d555f798-3af8-45a7-9fe2-73af4052b466/scratchpad/poll1.json)",
+      "Bash(node -e ' *)",
+      "Bash(jobs -l)",
+      "Bash(netstat -ano)"
+    ]
+  }
+}

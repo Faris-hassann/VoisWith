@@ -5,11 +5,14 @@ export function mockCompletedReport(request: TestingRunRequest): TestingRunRespo
   const started = new Date(now.getTime() - 18000);
   return {
     runId: "mock-run-001",
+    runStatus: "COMPLETED",
+    findingsStatus: "ISSUES_FOUND",
     status: "PARTIAL",
     startedAt: started.toISOString(),
     completedAt: now.toISOString(),
     targetOrigin: new URL(request.targetUrl).origin,
     selectedTestingTypes: request.testTypes,
+    stoppedReason: "converged",
     summary: {
       pagesDiscovered: 3,
       pagesTested: 2,
@@ -22,6 +25,7 @@ export function mockCompletedReport(request: TestingRunRequest): TestingRunRespo
       inconclusiveTests: 0,
       consoleErrors: 1,
       failedNetworkRequests: 1,
+      artifactsBytes: 0,
     },
     pages: [
       {
@@ -101,8 +105,10 @@ export function mockCompletedReport(request: TestingRunRequest): TestingRunRespo
     ],
     coverageLimitations: [
       {
-        area: "Progress",
-        reason: "Backend currently returns a completed report from one long-running request.",
+        testType: "AUTHORIZATION",
+        availability: "partial",
+        executed: false,
+        reason: "Selected, but current implementation only supports limited results for this test type.",
       },
     ],
     artifacts: [],

@@ -20,6 +20,7 @@ export const testingFormSchema = z
     authorizationConfirmed: z.literal(true, {
       errorMap: () => ({ message: "You must confirm authorization before running a test." }),
     }),
+    writeActionsAcknowledged: z.boolean().default(false),
     authenticationEnabled: z.boolean().default(false),
     credentials: z
       .object({
@@ -82,6 +83,13 @@ export const testingFormSchema = z
     if (value.execution.allowPayments && !value.paymentAcknowledged) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["execution", "allowPayments"], message: "Payments require acknowledgement." });
     }
+    if (value.execution.allowFormSubmission && !value.writeActionsAcknowledged) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["writeActionsAcknowledged"],
+        message: "You must acknowledge write actions before enabling form submission.",
+      });
+    }
   });
 
 export type TestingFormValues = z.infer<typeof testingFormSchema>;
@@ -108,6 +116,7 @@ export const defaultFormValues: TestingFormValues = {
   includeSubdomains: false,
   visualizationMode: "live",
   authorizationConfirmed: true,
+  writeActionsAcknowledged: false,
   authenticationEnabled: false,
   credentials: {},
   testTypes: [...recommendedTypes],
@@ -127,7 +136,7 @@ export const defaultFormValues: TestingFormValues = {
   },
   execution: {
     safeMode: true,
-    allowFormSubmission: true,
+    allowFormSubmission: false,
     allowFileUploads: false,
     allowDestructiveActions: false,
     allowPayments: false,

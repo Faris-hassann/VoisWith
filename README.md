@@ -1,83 +1,210 @@
-# AI UiPath Flow Builder
+# VoisWith
 
-MVP desktop/web application that turns a natural-language prompt into a safe, reviewable UiPath project scaffold.
+This repository contains two projects:
 
-## What this MVP does
+- [TesterBackend](TesterBackend/README.md), an Express 5, TypeScript, Playwright, and OpenRouter backend for authorized black-box functional testing.
+- [TesterFrontend](TesterFrontend/README.md), a Next.js App Router frontend for configuring and reviewing runs from the backend.
 
-- Next.js ChatGPT-like UI for entering an automation prompt.
-- Node.js/Express TypeScript backend with modular agent, browser, UiPath, selector, desktop-control, and logging services.
-- Rule-based prompt refinement and structured JSON plan generation.
-- UiPath project generation under `generated-projects/{projectName}` with `project.json`, `Main.xaml`, and `automation-plan.json`.
-- Playwright browser controller endpoints for opening a browser and sending refined prompts to a configurable AI page.
-- Safety-first dry-run behavior, credential detection, masked logs, and explicit confirmation before opening UiPath Studio.
-
-## Architecture
+## Repository Layout
 
 ```text
-frontend/                  Next.js web UI
-backend/                   Express TypeScript API
-backend/src/agent          Prompt refinement, plan generation, validation, safety
-backend/src/browser        Playwright browser controller
-backend/src/uipath         UiPath project and XAML generators
-backend/src/selectors      Selector manager placeholder
-backend/src/desktop-control Desktop/UiPath Studio integration placeholder
-backend/src/logs           Log service with masking
-templates/uipath           UiPath templates
-generated-projects         Generated UiPath projects
-logs                       Runtime logs
-selectors                  Captured selector store
+TesterBackend/   Express + Playwright backend
+TesterFrontend/  Next.js frontend
 ```
 
-## Setup
+## TesterBackend
+
+TesterBackend exposes these endpoints:
+
+```text
+GET  /docs
+GET  /openapi.json
+GET  /health
+POST /api/v1/testing/run
+POST /api/v1/testing/runs
+GET  /api/v1/testing/runs/:runId
+POST /api/v1/testing/runs/:runId/pause
+POST /api/v1/testing/runs/:runId/resume
+POST /api/v1/testing/runs/:runId/stop
+GET  /api/v1/testing/runs/:runId/report.json
+WS   /api/v1/testing/runs/:runId/stream
+```
+
+When `AUTO_OPEN_SWAGGER=true`, running `npm run dev` opens Swagger automatically.
+
+### Setup
 
 ```bash
+cd TesterBackend
 npm install
-cp backend/.env.example backend/.env
-cp frontend/.env.example frontend/.env.local
+copy .env.example .env
+npm run playwright:install:chrome
 npm run dev
 ```
 
-- Frontend: http://localhost:3000
-- Backend: http://localhost:4000
+Then open:
 
-## Useful commands
+```text
+http://localhost:3000/docs
+```
+
+Add your OpenRouter secret manually in `.env`:
+
+```env
+OPENROUTER_API_KEY=your_secret_here
+OPENROUTER_MODELS=vendor/model-a:free,vendor/model-b:free,vendor/model-c:free
+```
+
+`OPENROUTER_MODELS` takes exactly 3 pinned OpenRouter free-model slugs, tried in order. The free-tier catalogue rotates — run `npm run openrouter:models` from `TesterBackend` to list what's currently available rather than reusing ids from an old `.env` or chat transcript. The backend refuses to boot if fewer than 3 are set, any fail the `vendor/model:free` shape, or any is no longer listed by OpenRouter.
+
+Do not commit `.env`.
+
+### Frontend Linking
+
+Set allowed frontend origins in `.env`:
+
+```env
+FRONTEND_ORIGINS=http://localhost:3000,http://localhost:5173
+```
+
+Your frontend can call:
+
+```text
+http://localhost:3000/api/v1/testing/runs
+```
+
+Swagger/OpenAPI is available for generating clients:
+
+```text
+http://localhost:3000/openapi.json
+```
+
+### Safety
+
+- Only test systems you own or are explicitly authorized to test.
+- The caller must send `authorizationConfirmed: true`.
+- Credentials are redacted from logs/errors and never sent to OpenRouter.
+- AI plans are schema-validated and policy-checked before Playwright execution.
+- Safe mode blocks destructive, payment, message-sending, permission-changing, and legal-acceptance actions by default.
+- The AI receives sanitized page snapshots with internal element IDs only; it never receives cookies, passwords, tokens, or raw HTML.
+- Authorization checks only run when explicit role credentials are supplied.
+
+### Architecture
+
+The backend runs authorized black-box website tests using:
+
+```text
+create run -> launch Playwright -> authenticate -> iterative DFS crawl -> scan/fingerprint page state
+-> AI JSON test planning -> schema/policy validation -> deterministic Playwright execution
+-> artifacts/report -> final cross-page diagnostics
+```
+
+The crawler uses an explicit stack and convergence tracking for discovered URLs, visited URLs, visited state fingerprints, pending crawl items, processed interactions, and route families. Requests may provide emergency `crawl.maxPages` or `crawl.maxDepth`, but they are not required for normal exhaustive crawling.
+
+### Live View
+
+Local mode opens headed Chrome on the backend machine when `browserMode` is `headed`.
+
+Remote/live mode sends compressed screenshot frames through the existing WebSocket as `live-view:frame` events. Configure with:
+
+```env
+LIVE_VIEW_ENABLED=true
+LIVE_VIEW_FRAME_INTERVAL_MS=1500
+```
+
+### Environment Variables
+
+Important values:
+
+```env
+OPENROUTER_API_KEY=
+OPENROUTER_MODELS=
+PLAYWRIGHT_HEADLESS=false
+PLAYWRIGHT_CHANNEL=chrome
+AI_RESPONSE_TIMEOUT_MS=30000
+ACTION_TIMEOUT_MS=10000
+NAVIGATION_TIMEOUT_MS=30000
+TEST_RUN_ALLOWED_ORIGINS=
+SCREENSHOT_DIRECTORY=artifacts/screenshots
+TRACE_DIRECTORY=artifacts/traces
+```
+
+Legacy `BROWSER_*`, `OPENROUTER_TIMEOUT_MS`, and `PAGE_NAVIGATION_TIMEOUT_MS` variables still work.
+
+### System Test
+
+Start the backend, then run the TrueForm system test with credentials in memory:
+
+```powershell
+cd TesterBackend
+npm run dev
+$env:TRUEFORM_PASSWORD="..."
+npm run trueform:system-test
+```
+
+The script starts an async run, polls until completion, and writes the final snapshot under `artifacts/manual-runs`.
+
+### Scripts
 
 ```bash
+cd TesterBackend
+npm run dev
+npm run build
+npm run lint
+npm test
+```
+
+## TesterFrontend
+
+TesterFrontend is a Next.js App Router prototype for configuring and reviewing authorized web test runs from `TesterBackend`.
+
+### Routes
+
+- `/` redirects to `/testing/new`
+- `/testing/new` configures and starts a test
+- `/testing/running/[runId]` streams WebSocket events, live-view frames, DFS discovery, and run controls
+- `/testing/results/[runId]` shows an in-memory completed report
+- `/testing/history` explains backend history is unavailable
+- `/settings` shows API configuration
+- `/about` explains safety and limitations
+- `/api/testing/runs` optionally proxies async backend runs when `NEXT_PUBLIC_API_MODE=proxy`
+
+### Environment
+
+```env
+NEXT_PUBLIC_API_BASE_URL=http://localhost:3000
+NEXT_PUBLIC_API_DOCS_URL=http://localhost:3000/docs/
+NEXT_PUBLIC_TEST_RUN_ENDPOINT=/api/v1/testing/run
+NEXT_PUBLIC_TEST_RUNS_ENDPOINT=/api/v1/testing/runs
+NEXT_PUBLIC_APP_NAME=WebTest AI
+NEXT_PUBLIC_ENABLE_MOCK_MODE=false
+NEXT_PUBLIC_API_MODE=direct
+```
+
+Run the backend on port `3000` and the frontend on port `3001`.
+
+The backend must allow this origin:
+
+```env
+FRONTEND_ORIGINS=http://localhost:3000,http://localhost:3001,http://localhost:5173
+```
+
+### Commands
+
+```bash
+cd TesterFrontend
+npm install
+npm run dev
 npm run typecheck
 npm run build
-npm run dev -w backend
-npm run dev -w frontend
+npm test
+npm run e2e
 ```
 
-## Example prompt
+### Notes
 
-> Create a UiPath flow that opens Google, searches Facebook, opens Facebook, types Faris as username and faris1234 as password.
-
-## Example generated automation plan
-
-```json
-{
-  "projectName": "Generated_Create_a_UiPath_flow_that_opens_Goo",
-  "summary": "MVP automation plan generated from natural language prompt.",
-  "dryRun": true,
-  "warnings": [
-    "Credential-like text was detected in the prompt.",
-    "Credentials detected. Values are masked in logs and should be replaced with UiPath secure credential assets.",
-    "Some actions require explicit user confirmation before execution."
-  ],
-  "requiresConfirmation": true,
-  "steps": [
-    { "id": "step-1", "action": "log_message", "description": "Start generated automation" },
-    { "id": "step-2", "action": "open_browser", "description": "Open browser", "target": "https://www.google.com" },
-    { "id": "step-4", "action": "type_into", "selectorName": "google_search_box", "value": "Facebook" }
-  ]
-}
-```
-
-## Safety notes
-
-- The full MVP flow creates files only; opening UiPath Studio is a separate endpoint requiring `confirmed: true`.
-- Prompt credentials are detected and warnings are returned.
-- Log messages are masked for password/token-like values.
-- Sensitive XAML fields are generated as `[REPLACE_WITH_SECURE_CREDENTIAL]` placeholders.
-- Drag-and-drop UiPath Studio control is intentionally deferred; direct file generation is the stable MVP path.
+- OpenRouter keys never belong in the frontend.
+- Playwright is never run by the frontend.
+- Credentials are omitted from storage, query keys, URLs, review summaries, and logs.
+- The backend returns a run ID immediately, then streams status, live-view frames, generated tests, and final report state over WebSocket with polling fallback.
+- Pause, resume, stop, and JSON report download are routed through the backend run API.

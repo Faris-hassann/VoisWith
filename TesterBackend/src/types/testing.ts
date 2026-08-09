@@ -50,6 +50,7 @@ export interface TestMatrixSettings {
 export interface TestingRunRequest {
   targetUrl: string;
   authorizationConfirmed: boolean;
+  writeActionsAcknowledged?: boolean;
   environment?: TestEnvironment;
   credentials?: Credentials;
   roles?: RoleCredentials[];
@@ -100,7 +101,7 @@ export interface PageSnapshot {
   images: AssetSnapshot[];
   scripts: AssetSnapshot[];
   elements: ElementInventoryItem[];
-  forms: FormSnapshot[];
+  forms: InspectedForm[];
   tables: string[];
   dialogs: ElementInventoryItem[];
   currentQueryParameters: Record<string, string>;
@@ -135,11 +136,12 @@ export interface LinkSnapshot {
   sourceElementId?: string;
 }
 
-export interface FormSnapshot {
+export interface InspectedForm {
   elementId: string;
   implicit?: boolean;
   method?: string;
   action?: string;
+  routeFamily?: string;
   fields: ElementInventoryItem[];
   submitControls: ElementInventoryItem[];
   apparentPurpose?: string;

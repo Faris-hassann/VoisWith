@@ -51,10 +51,10 @@ export default function HistoryPage() {
               </CardHeader>
               <CardContent>
                 <div className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-5">
-                  <Info label="Status" value={<StatusBadge value={report.status} />} />
+                  <Info label="Run" value={<StatusBadge value={report.runStatus} />} />
+                  <Info label="Findings" value={<StatusBadge value={report.findingsStatus} />} />
                   <Info label="Completed" value={new Date(report.completedAt).toLocaleString()} />
                   <Info label="Duration" value={duration} />
-                  <Info label="Pages" value={`${report.summary.pagesTested}`} />
                   <Info label="Issues" value={`${report.issues.length}`} />
                 </div>
               </CardContent>

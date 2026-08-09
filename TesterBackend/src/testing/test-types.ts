@@ -28,6 +28,66 @@ export const TEST_TYPES = [
 
 export type TestingType = (typeof TEST_TYPES)[number];
 
+export const IMPLEMENTED_TEST_TYPES = [
+  "SMOKE",
+  "PAGE_DISCOVERY",
+  "NAVIGATION",
+  "LINKS",
+  "FORMS",
+  "FORM_VALIDATION",
+  "AUTHENTICATION",
+  "API_NETWORK",
+  "ERROR_HANDLING",
+  "PERFORMANCE_BASIC",
+  "CONSOLE_ERRORS",
+  "ACCESSIBILITY_TECHNICAL",
+  "PASSIVE_SECURITY",
+] as const satisfies readonly TestingType[];
+
+export const DEFAULT_ENABLED_TEST_TYPES = [
+  "SMOKE",
+  "PAGE_DISCOVERY",
+  "NAVIGATION",
+  "LINKS",
+  "FORMS",
+  "FORM_VALIDATION",
+  "AUTHENTICATION",
+  "API_NETWORK",
+  "ERROR_HANDLING",
+  "PERFORMANCE_BASIC",
+  "CONSOLE_ERRORS",
+  "ACCESSIBILITY_TECHNICAL",
+] as const satisfies readonly TestingType[];
+
+export const PARTIAL_TEST_TYPES = [
+  "SESSION",
+  "AUTHORIZATION",
+  "CHROMIUM_COMPATIBILITY",
+] as const satisfies readonly TestingType[];
+
+export const PLANNED_TEST_TYPES = [
+  "POSITIVE",
+  "NEGATIVE",
+  "BOUNDARY",
+  "END_TO_END",
+  "BUSINESS_RULES",
+  "FILE_UPLOAD_SAFE",
+  "DATA_INTEGRITY_OBSERVABLE",
+  "RELIABILITY_BASIC",
+  "REGRESSION_BASELINE",
+] as const satisfies readonly TestingType[];
+
+export type TestTypeAvailability = "implemented" | "partial" | "planned";
+
+const IMPLEMENTED = new Set<TestingType>(IMPLEMENTED_TEST_TYPES);
+const PARTIAL = new Set<TestingType>(PARTIAL_TEST_TYPES);
+
+export function getTestTypeAvailability(testType: TestingType): TestTypeAvailability {
+  if (IMPLEMENTED.has(testType)) return "implemented";
+  if (PARTIAL.has(testType)) return "partial";
+  return "planned";
+}
+
 export const TEST_TYPE_CAPABILITIES: Record<TestingType, { proves: string; cannotProve: string }> = {
   SMOKE: {
     proves: "Core pages load and basic interactions are reachable.",

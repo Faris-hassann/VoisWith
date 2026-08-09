@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildFormSnapshots } from "../../src/inspection/page-inspector.js";
+import { buildInspectedForms } from "../../src/inspection/page-inspector.js";
 import { RunOrchestrator } from "../../src/services/run-orchestrator.js";
 import type { RunContext } from "../../src/testing/run-context.js";
 import type { ElementInventoryItem, PageSnapshot, TestingRunRequest } from "../../src/types/testing.js";
@@ -14,7 +14,7 @@ describe("RunOrchestrator AI eligibility", () => {
     (orchestrator as never as { planner: unknown }).planner = {
       plan: async () => {
         plannerCalled = true;
-        return { pageSummary: "", identifiedPurpose: "", risks: [], testCases: [], additionalLinksToPrioritize: [], pageTestingComplete: true };
+        return { testCases: [], source: "none", batchesPlanned: 0, batchesFallenBack: 0 };
       },
     };
 
@@ -40,7 +40,7 @@ describe("RunOrchestrator AI eligibility", () => {
     (orchestrator as never as { planner: unknown }).planner = {
       plan: async () => {
         plannerCalled = true;
-        return { pageSummary: "Login", identifiedPurpose: "Login", risks: [], testCases: [], additionalLinksToPrioritize: [], pageTestingComplete: true };
+        return { testCases: [], source: "none", batchesPlanned: 0, batchesFallenBack: 0 };
       },
     };
 
@@ -117,7 +117,7 @@ function contextFor(): RunContext {
       login: { status: "SKIPPED", message: "No credentials supplied." },
       crawl: { acceptedUrls: [], skippedUrls: [], failedUrls: [], discoveredCandidates: 0, noInternalLinksPages: [], events: [] },
       pages: [],
-      ai: { calls: 0, maxCalls: 50, disabled: false, openRouterConfigured: true, modelConfigured: true, successes: 0, failures: [], validationFailures: [] },
+      ai: { calls: 0, maxCalls: 50, disabled: false, openRouterConfigured: true, modelConfigured: true, successes: 0, failures: [], validationFailures: [], maxTestCases: 400, testCasesGenerated: 0, testCasesDropped: 0, deterministicFallbacks: 0 },
     },
   };
 }
@@ -133,7 +133,7 @@ function snapshotFor(url: string, elements: ElementInventoryItem[] = []): PageSn
     images: [],
     scripts: [],
     elements,
-    forms: buildFormSnapshots(elements),
+    forms: buildInspectedForms(elements),
     tables: [],
     dialogs: [],
     currentQueryParameters: {},

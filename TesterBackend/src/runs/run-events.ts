@@ -17,6 +17,7 @@ export interface RunProgressEvent {
   counts?: Record<string, number>;
   diagnostics?: unknown;
   issue?: unknown;
+  stoppedReason?: TestingRunResponse["stoppedReason"];
   liveFrame?: {
     mimeType: "image/jpeg" | "image/png";
     data: string;

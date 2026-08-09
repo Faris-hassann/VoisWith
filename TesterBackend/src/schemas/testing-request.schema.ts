@@ -45,6 +45,7 @@ const baseTestingRunRequestSchema = z
     authorizationConfirmed: z.literal(true, {
       errorMap: () => ({ message: "authorizationConfirmed must be true" }),
     }),
+    writeActionsAcknowledged: z.boolean().optional(),
     credentials: credentialsSchema.optional(),
     roles: z
       .array(
@@ -134,7 +135,7 @@ const baseTestingRunRequestSchema = z
     execution: z
       .object({
         safeMode: z.boolean().default(true),
-        allowFormSubmission: z.boolean().default(true),
+        allowFormSubmission: z.boolean().default(false),
         allowFileUploads: z.boolean().default(true),
         allowDestructiveActions: z.boolean().default(false),
         allowPayments: z.boolean().default(false),
@@ -145,6 +146,15 @@ const baseTestingRunRequestSchema = z
       .default({}),
   })
   .passthrough()
+  .superRefine((value, ctx) => {
+    if (value.execution.allowFormSubmission && value.writeActionsAcknowledged !== true) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["writeActionsAcknowledged"],
+        message: "writeActionsAcknowledged must be true when allowFormSubmission is enabled.",
+      });
+    }
+  })
   .transform((value) => {
     const targetOrigin = new URL(value.targetUrl).origin;
     const selectedTestTypes = normalizeSelectedTestTypes(value.selectedTestTypes);
@@ -158,6 +168,7 @@ const baseTestingRunRequestSchema = z
       browserMode,
       visualizationMode: value.visualizationMode,
       testData: value.testData,
+      writeActionsAcknowledged: value.writeActionsAcknowledged,
       browser: {
         ...value.browser,
         headless: browserMode === "headless",
@@ -190,7 +201,7 @@ function normalizeNewRequestShape(raw: unknown): unknown {
     },
     execution: {
       safeMode: true,
-      allowFormSubmission: true,
+      allowFormSubmission: false,
       allowFileUploads: false,
       allowDestructiveActions: Boolean(input.allowDestructiveActions),
       allowPayments: false,

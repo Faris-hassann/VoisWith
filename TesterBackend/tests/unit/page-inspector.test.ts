@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildFormSnapshots, buildLinkSnapshots } from "../../src/inspection/page-inspector.js";
+import { buildInspectedForms, buildLinkSnapshots } from "../../src/inspection/page-inspector.js";
 import type { ElementInventoryItem } from "../../src/types/testing.js";
 
-describe("buildFormSnapshots", () => {
+describe("buildInspectedForms", () => {
   it("keeps inputs inside different forms separate", () => {
     const elements = [
       element("form_a", "form"),
@@ -13,7 +13,7 @@ describe("buildFormSnapshots", () => {
       element("submit_b", "submit", { formOwnerElementId: "form_b", text: "Search" }),
     ];
 
-    const forms = buildFormSnapshots(elements);
+    const forms = buildInspectedForms(elements);
 
     expect(forms).toHaveLength(2);
     expect(forms.find((form) => form.elementId === "form_a")?.fields.map((field) => field.id)).toEqual(["email"]);
@@ -21,7 +21,7 @@ describe("buildFormSnapshots", () => {
   });
 
   it("detects an implicit form for standalone inputs and submit buttons", () => {
-    const forms = buildFormSnapshots([
+    const forms = buildInspectedForms([
       element("email", "input", { placeholder: "Email" }),
       element("submit", "submit", { text: "Subscribe" }),
     ]);

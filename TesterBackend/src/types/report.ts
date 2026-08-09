@@ -1,7 +1,11 @@
 import type { TestingType } from "../testing/test-types.js";
+import type { LlmAttempt, LlmFailureReason } from "../errors/error-codes.js";
 import type { TestAction } from "./ai.js";
+import type { FormTestCase } from "./llm-contract.js";
 
-export type RunStatus = "PASSED" | "FAILED" | "PARTIAL" | "ERROR" | "INCONCLUSIVE";
+export type RunStatus = "COMPLETED" | "STOPPED" | "ERRORED";
+export type FindingsStatus = "PASSED" | "ISSUES_FOUND" | "INCONCLUSIVE";
+export type LegacyStatus = "PASSED" | "FAILED" | "PARTIAL" | "ERROR" | "INCONCLUSIVE";
 export type TestStatus =
   | "PASSED"
   | "FAILED"
@@ -10,14 +14,24 @@ export type TestStatus =
   | "INCONCLUSIVE"
   | "ERROR";
 export type IssueSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFORMATIONAL";
+export type StoppedReason =
+  | "converged"
+  | "page_budget"
+  | "depth_budget"
+  | "time_budget"
+  | "user_stopped"
+  | "error";
 
 export interface TestingRunResponse {
   runId: string;
-  status: RunStatus;
+  runStatus: RunStatus;
+  findingsStatus: FindingsStatus;
+  status: LegacyStatus;
   startedAt: string;
   completedAt: string;
   targetOrigin: string;
   selectedTestingTypes: TestingType[];
+  stoppedReason?: StoppedReason;
   summary: RunSummary;
   pages: PageReport[];
   issues: Issue[];
@@ -38,6 +52,7 @@ export interface RunSummary {
   inconclusiveTests: number;
   consoleErrors: number;
   failedNetworkRequests: number;
+  artifactsBytes: number;
 }
 
 export interface PageReport {
@@ -55,6 +70,8 @@ export interface PageReport {
   performanceObservations: PerformanceObservation[];
   evidence: EvidenceReference[];
   skippedReason?: string;
+  /** Plan-only this phase (Phase 4 adds execution/assertion) — never counted in RunSummary.testsExecuted. */
+  plannedTestCases?: FormTestCase[];
 }
 
 export interface TestCaseResult {
@@ -128,6 +145,8 @@ export interface EvidenceReference {
   type: "screenshot" | "trace" | "network" | "console" | "report" | "download" | "fixture";
   path: string;
   description?: string;
+  /** On-disk size, recorded by the artifact manager. Feeds RunSummary.artifactsBytes. */
+  sizeBytes?: number;
 }
 
 export interface SkippedPage {
@@ -143,9 +162,10 @@ export interface BlockedAction {
 }
 
 export interface CoverageLimitation {
-  area: string;
+  testType: TestingType;
+  availability: "implemented" | "partial" | "planned";
+  executed: boolean;
   reason: string;
-  recommendation?: string;
 }
 
 export interface RunDiagnostics {
@@ -196,10 +216,18 @@ export interface RunDiagnostics {
     disabled: boolean;
     openRouterConfigured: boolean;
     modelConfigured: boolean;
-    model?: string;
+    /** The 3 pinned model slugs, tried in order. Undefined when AI is not configured. */
+    models?: string[];
     successes: number;
-    failures: Array<{ pageUrl?: string; message: string }>;
-    validationFailures: Array<{ pageUrl?: string; message: string }>;
+    failures: Array<{ pageUrl?: string; message: string; reason?: LlmFailureReason; attempts?: LlmAttempt[] }>;
+    validationFailures: Array<{ pageUrl?: string; message: string; reason?: LlmFailureReason; attempts?: LlmAttempt[] }>;
+    /** DESIGN-DECISIONS.md §5: MAX_AI_TEST_CASES_PER_RUN, run-wide across AI and deterministic-fallback cases alike. */
+    maxTestCases: number;
+    testCasesGenerated: number;
+    /** Cases that would have exceeded maxTestCases; reported as truncated_by_budget in coverageLimitations, never silently dropped. */
+    testCasesDropped: number;
+    /** Number of batches that exhausted the 3-model chain and fell through to the deterministic generator. */
+    deterministicFallbacks: number;
   };
 }
 

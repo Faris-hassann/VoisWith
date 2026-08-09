@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { config } from "./config/env.js";
 import { logger } from "./config/logger.js";
+import { preflightOpenRouterModels } from "./config/openrouter-preflight.js";
 import { createApp } from "./app.js";
 import { runRegistry } from "./controllers/testing.controller.js";
 import { attachTestingRunWebSocketServer } from "./websocket/testing-run-stream.js";
@@ -25,13 +26,24 @@ server.on("error", (error: NodeJS.ErrnoException) => {
   process.exit(1);
 });
 
-server.listen(config.port, () => {
-  const swaggerUrl = `http://localhost:${config.port}/docs`;
-  logger.info({ port: config.port, swaggerUrl }, "TesterBackend listening");
-  if (config.autoOpenSwagger) {
-    openUrl(swaggerUrl);
+start();
+
+async function start(): Promise<void> {
+  try {
+    await preflightOpenRouterModels();
+  } catch (error) {
+    logger.error({ err: error }, "OpenRouter model preflight failed; refusing to start");
+    process.exit(1);
   }
-});
+
+  server.listen(config.port, () => {
+    const swaggerUrl = `http://localhost:${config.port}/docs`;
+    logger.info({ port: config.port, swaggerUrl }, "TesterBackend listening");
+    if (config.autoOpenSwagger) {
+      openUrl(swaggerUrl);
+    }
+  });
+}
 
 function openUrl(url: string): void {
   const command =

@@ -5,6 +5,7 @@ export function buildTestingPayload(values: TestingFormValues): TestingRunReques
   const payload: TestingRunRequest = {
     targetUrl: values.targetUrl.trim(),
     authorizationConfirmed: true,
+    writeActionsAcknowledged: values.writeActionsAcknowledged,
     selectedTestTypes: values.testTypes.map((type) => type.toLowerCase().replace(/_/g, "-")),
     allowedOrigins: splitPatterns(values.allowedOriginsText),
     includeSubdomains: values.includeSubdomains,

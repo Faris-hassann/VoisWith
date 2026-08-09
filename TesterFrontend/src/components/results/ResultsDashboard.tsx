@@ -7,7 +7,7 @@ import { useMemo } from "react";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
-import type { ConsoleObservation, Issue, NetworkObservation, PageReport, PerformanceObservation, TestCaseResult, TestingRunResponse } from "@/lib/api/types";
+import type { ConsoleObservation, CoverageLimitation, Issue, NetworkObservation, PageReport, PerformanceObservation, TestCaseResult, TestingRunResponse } from "@/lib/api/types";
 import { RawReportViewer } from "./RawReportViewer";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import { SimpleTable } from "./SimpleTable";
@@ -115,8 +115,9 @@ const artifactColumns: ColumnDef<{ id: string; type: string; path: string; descr
   { header: "Path", accessorKey: "path" },
   { header: "Description", accessorKey: "description" },
 ];
-const coverageColumns: ColumnDef<{ area: string; reason: string; recommendation?: string }>[] = [
-  { header: "Area", accessorKey: "area" },
+const coverageColumns: ColumnDef<CoverageLimitation>[] = [
+  { header: "Test type", accessorKey: "testType", cell: ({ row }) => <span className="font-mono text-xs">{row.original.testType}</span> },
+  { header: "Availability", cell: ({ row }) => <StatusBadge value={row.original.availability} /> },
+  { header: "Executed", cell: ({ row }) => (row.original.executed ? "Yes" : "No") },
   { header: "Reason", accessorKey: "reason" },
-  { header: "Recommendation", accessorKey: "recommendation" },
 ];

@@ -12,7 +12,7 @@ import { config } from "../config/env.js";
 import { logger } from "../config/logger.js";
 import { PageCrawler } from "../crawler/page-crawler.js";
 import { AppError } from "../errors/app-error.js";
-import { ERROR_CODES } from "../errors/error-codes.js";
+import { ERROR_CODES, type LlmAttempt } from "../errors/error-codes.js";
 import { errorMessage, serializeError } from "../errors/serialize-error.js";
 import { PageInspector } from "../inspection/page-inspector.js";
 import { ReportAggregator } from "../reporting/report-aggregator.js";
@@ -21,12 +21,12 @@ import { redactSecrets } from "../security/secret-redaction.js";
 import type { RunContext } from "../testing/run-context.js";
 import { buildPageBaselineTests } from "../testing/page-baseline-tests.js";
 import { buildLinkHealthTests } from "../testing/link-health-checker.js";
-import type { TestAction, TestCase, TestPlan } from "../types/ai.js";
+import type { TestAction, TestCase } from "../types/ai.js";
 import type { PageReport, TestCaseResult, TestStepResult, TestingRunResponse } from "../types/report.js";
 import type { ElementInventoryItem, PageSnapshot, TestingRunRequest } from "../types/testing.js";
 import { locatorFromDescriptor } from "../actions/playwright-action-executor.js";
 import { deadlineFromNow } from "../utilities/timeout.js";
-import { AiTestPlanner } from "../ai/ai-test-planner.js";
+import { AiTestPlanner, type FormPlanResult } from "../ai/ai-test-planner.js";
 import { ActionPolicyEngine } from "../actions/action-policy-engine.js";
 import { PlaywrightActionExecutor } from "../actions/playwright-action-executor.js";
 import { AssertionEngine } from "../assertions/assertion-engine.js";
@@ -139,11 +139,15 @@ export class RunOrchestrator {
           maxCalls: config.limits.maxOpenRouterCallsPerRun,
           disabled: config.limits.maxOpenRouterCallsPerRun <= 0,
           openRouterConfigured: Boolean(config.openRouter.apiKey),
-          modelConfigured: Boolean(config.openRouter.model),
-          model: config.openRouter.model || undefined,
+          modelConfigured: config.openRouter.models.length === 3,
+          models: config.openRouter.models.length ? config.openRouter.models : undefined,
           successes: 0,
           failures: [],
           validationFailures: [],
+          maxTestCases: config.limits.maxAiTestCasesPerRun,
+          testCasesGenerated: 0,
+          testCasesDropped: 0,
+          deterministicFallbacks: 0,
         },
       },
     };
@@ -180,17 +184,18 @@ export class RunOrchestrator {
       this.recordAuthorizationDiagnostics(context);
 
       const report = this.aggregator.aggregate(context, new Date().toISOString());
-      logger.info({ runId, status: report.status, summary: report.summary }, "Test run completed");
+      logger.info({ runId, runStatus: report.runStatus, findingsStatus: report.findingsStatus, summary: report.summary }, "Test run completed");
       emit(options, {
         runId,
         type: "run.report_ready",
-        status: report.status === "ERROR" ? "failed" : "passed",
-        message: `Final report is ready with status ${report.status}.`,
+        status: report.runStatus === "ERRORED" ? "failed" : "passed",
+        message: `Final report is ready with runStatus ${report.runStatus} and findingsStatus ${report.findingsStatus}.`,
         counts: {
           pagesTested: report.summary.pagesTested,
           testsExecuted: report.summary.testsExecuted,
           issues: report.issues.length,
         },
+        stoppedReason: report.stoppedReason,
       });
       return report;
     } catch (error) {
@@ -222,7 +227,13 @@ export class RunOrchestrator {
         evidence: [],
         skippedReason: serialized.message,
       });
-      return { ...this.aggregator.aggregate(context, new Date().toISOString()), status: "ERROR" };
+      const report = this.aggregator.aggregate(context, new Date().toISOString());
+      return {
+        ...report,
+        runStatus: "ERRORED",
+        status: "ERROR",
+        stoppedReason: "error",
+      };
     } finally {
       if (context.request.credentials) {
         context.request.credentials.username = "";
@@ -673,12 +684,11 @@ export class RunOrchestrator {
       return { report: pageReport, snapshot };
     }
 
-    let plan: TestPlan;
-    let aiPlannedTests = 0;
+    let planResult: FormPlanResult;
     try {
       emit(input, {
         runId: context.runId,
-        type: "ai.planning_started",
+        type: "ai.batch_started",
         status: "started",
         message: `Sending discovered form inputs to AI test-case planner (${aiEligibility.reasons.join(", ")}).`,
         pageUrl: snapshot.url,
@@ -686,28 +696,34 @@ export class RunOrchestrator {
         viewport: context.viewportName,
         locale: context.localeName,
       });
-      plan = await this.planner.plan(context, snapshot);
-      aiPlannedTests = plan.testCases.length;
-      context.diagnostics.ai.successes += 1;
-      logger.info({ runId: context.runId, url: snapshot.url, aiPlannedTests }, "AI planning completed");
+      planResult = await this.planner.plan(context, snapshot);
+      logger.info(
+        { runId: context.runId, url: snapshot.url, aiPlannedTests: planResult.testCases.length, source: planResult.source },
+        "AI planning completed",
+      );
       emit(input, {
         runId: context.runId,
-        type: "ai.planning_passed",
-        status: "passed",
-        message: `AI generated ${aiPlannedTests} page-level test case(s).`,
+        type: planResult.batchesFallenBack > 0 ? "ai.batch_failed" : "ai.planning_passed",
+        status: planResult.batchesFallenBack > 0 ? "failed" : "passed",
+        message: `Planned ${planResult.testCases.length} form test case(s) across ${planResult.batchesPlanned} batch(es) (${planResult.source}).`,
         pageUrl: snapshot.url,
         role: context.roleName,
         viewport: context.viewportName,
         locale: context.localeName,
-        counts: { aiPlannedTests },
+        counts: { aiPlannedTests: planResult.testCases.length },
       });
     } catch (error) {
+      // planner.plan() degrades to the deterministic generator internally on
+      // any LLM failure — this catch only fires for a genuinely unexpected
+      // error (e.g. a bug in snapshot building), so deterministic/baseline
+      // checks still count fully and nothing is synthesized as a target
+      // finding. It captures no screenshot: there is nothing on the page to
+      // show, since planning never produced anything to act on.
       const message = errorMessage(error);
-      context.diagnostics.ai.failures.push({ pageUrl: snapshot.url, message });
-      if (error instanceof AppError && error.code === ERROR_CODES.INVALID_AI_RESPONSE) {
-        context.diagnostics.ai.validationFailures.push({ pageUrl: snapshot.url, message });
-      }
-      logger.warn({ err: redactSecrets(error), runId: context.runId, url: snapshot.url }, "AI planning failed");
+      const reason = error instanceof AppError ? error.llmFailureReason : undefined;
+      const attempts = extractLlmAttempts(error);
+      context.diagnostics.ai.failures.push({ pageUrl: snapshot.url, message, reason, attempts });
+      logger.warn({ err: redactSecrets(error), runId: context.runId, url: snapshot.url }, "AI planning failed unexpectedly");
       emit(input, {
         runId: context.runId,
         type: "ai.planning_failed",
@@ -719,11 +735,6 @@ export class RunOrchestrator {
         locale: context.localeName,
         diagnostics: serializeError(error),
       });
-      const evidence = await input.evidenceCollector.screenshotOnFailure(
-        session.page,
-        `${context.runId}-ai-plan-failure`,
-        "AI planning failed.",
-      );
       const pageReport: PageReport = {
         url: snapshot.url,
         canonicalUrl: snapshot.canonicalUrl,
@@ -732,71 +743,23 @@ export class RunOrchestrator {
         viewport: context.viewportName,
         locale: context.localeName,
         direction: context.direction,
-        status: summarizePageStatus([
-          ...baselineResults,
-          ...linkHealthResults,
-          {
-            id: "ai-planning",
-            name: "AI planning",
-            type: "SMOKE",
-            status: "ERROR",
-            steps: [],
-            assertions: [],
-            error: message,
-            actualResult: message,
-            evidence,
-            reproductionSteps: [`Open ${snapshot.url}`, "Request AI test plan"],
-            confidence: 0.9,
-          },
-        ]),
-        tests: [
-          ...baselineResults,
-          ...linkHealthResults,
-          {
-            id: "ai-planning",
-            name: "AI planning",
-            type: "SMOKE",
-            status: "ERROR",
-            steps: [],
-            assertions: [],
-            error: message,
-            actualResult: message,
-            evidence,
-            reproductionSteps: [`Open ${snapshot.url}`, "Request AI test plan"],
-            confidence: 0.9,
-          },
-        ],
+        status: summarizePageStatus([...baselineResults, ...linkHealthResults]),
+        tests: [...baselineResults, ...linkHealthResults],
         consoleErrors: snapshot.consoleErrors,
         failedNetworkRequests: snapshot.failedRequests,
         performanceObservations: snapshot.performance,
-        evidence: [...pageEvidence, ...evidence],
+        evidence: pageEvidence,
+        skippedReason: `AI test-case planning failed: ${message}`,
       };
       this.recordPageDiagnostics(context, pageReport, snapshot, baselineResults.length, 0, navigationMs);
       await this.writePageReportArtifact(input.artifacts, context, pageReport, input.events);
       return { report: pageReport, snapshot };
     }
 
-    context.previousPageSummaries.push(plan.pageSummary);
+    // Plan-only this phase (Phase 4 adds execution/assertion): planned cases
+    // are recorded for visibility but never inflate testsExecuted, since the
+    // report must never claim work it did not do.
     const testResults: TestCaseResult[] = [...baselineResults, ...linkHealthResults];
-    const executor = new PlaywrightActionExecutor(context.runId);
-    const assertionEngine = new AssertionEngine();
-    const elementMap = new Map(snapshot.elements.map((element) => [element.id, element]));
-
-    for (const testCase of plan.testCases.slice(0, context.request.execution.maximumActionsPerPage)) {
-      const result = await this.executeTestCase({
-        context,
-        session,
-        testCase,
-        elementMap,
-        executor,
-        assertionEngine,
-        evidenceCollector: input.evidenceCollector,
-        events: input.events,
-      });
-      context.previousTestResults.push(`${result.name}: ${result.status}`);
-      testResults.push(result);
-    }
-
     const pageReport: PageReport = {
       url: snapshot.url,
       canonicalUrl: snapshot.canonicalUrl,
@@ -811,8 +774,9 @@ export class RunOrchestrator {
       failedNetworkRequests: snapshot.failedRequests,
       performanceObservations: snapshot.performance,
       evidence: pageEvidence,
+      plannedTestCases: planResult.testCases.length > 0 ? planResult.testCases : undefined,
     };
-    this.recordPageDiagnostics(context, pageReport, snapshot, baselineResults.length, aiPlannedTests, navigationMs);
+    this.recordPageDiagnostics(context, pageReport, snapshot, baselineResults.length, planResult.testCases.length, navigationMs);
     await this.writePageReportArtifact(input.artifacts, context, pageReport, input.events);
     return { report: pageReport, snapshot };
   }
@@ -1106,7 +1070,7 @@ function emitAiDiagnostics(input: { onEvent?: RunEventSink; events?: RunEventSin
     disabled: context.diagnostics.ai.disabled,
     openRouterConfigured: context.diagnostics.ai.openRouterConfigured,
     modelConfigured: context.diagnostics.ai.modelConfigured,
-    model: context.diagnostics.ai.model,
+    models: context.diagnostics.ai.models,
   };
 
   if (context.diagnostics.ai.disabled) {
@@ -1280,4 +1244,13 @@ function unique(values: string[]): string[] {
 function clampOptionalLimit(requested: number | undefined, emergencyLimit: number): number | undefined {
   if (requested === undefined) return undefined;
   return Math.min(requested, emergencyLimit);
+}
+
+/** Pulls the full per-model attempt history off an OpenRouterClient exhaustion error, when present. */
+function extractLlmAttempts(error: unknown): LlmAttempt[] | undefined {
+  if (!(error instanceof AppError)) return undefined;
+  const details = error.details;
+  if (!details || typeof details !== "object" || !("attempts" in details)) return undefined;
+  const attempts = (details as { attempts: unknown }).attempts;
+  return Array.isArray(attempts) ? (attempts as LlmAttempt[]) : undefined;
 }

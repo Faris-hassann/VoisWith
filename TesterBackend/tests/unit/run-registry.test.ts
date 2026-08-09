@@ -76,7 +76,10 @@ function requestFor(): TestingRunRequest {
 function reportFor(runId: string): TestingRunResponse {
   return {
     runId,
+    runStatus: "COMPLETED",
+    findingsStatus: "PASSED",
     status: "PASSED",
+    stoppedReason: "converged",
     startedAt: new Date().toISOString(),
     completedAt: new Date().toISOString(),
     targetOrigin: "https://example.com",
@@ -93,6 +96,7 @@ function reportFor(runId: string): TestingRunResponse {
       inconclusiveTests: 0,
       consoleErrors: 0,
       failedNetworkRequests: 0,
+      artifactsBytes: 0,
     },
     pages: [],
     issues: [],

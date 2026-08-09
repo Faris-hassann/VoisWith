@@ -55,7 +55,7 @@ export function DiagnosticsPanel({ report }: { report: TestingRunResponse }) {
             <Row label="Budget" value={`${diagnostics.ai.maxCalls ?? "Unknown"}`} />
             <Row label="Enabled" value={diagnostics.ai.disabled ? "No" : "Yes"} />
             <Row label="OpenRouter key" value={diagnostics.ai.openRouterConfigured === false ? "Missing" : "Configured"} />
-            <Row label="Model" value={diagnostics.ai.modelConfigured === false ? "Missing" : diagnostics.ai.model ?? "Configured"} />
+            <Row label="Models" value={diagnostics.ai.modelConfigured === false ? "Missing" : diagnostics.ai.models?.join(", ") ?? "Configured"} />
             <Row label="Calls" value={`${diagnostics.ai.calls}`} />
             <Row label="Successes" value={`${diagnostics.ai.successes}`} />
             <Row label="Failures" value={`${diagnostics.ai.failures.length}`} />

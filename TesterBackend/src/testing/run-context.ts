@@ -1,5 +1,5 @@
 import type { TestingRunRequest } from "../types/testing.js";
-import type { PageReport, RunDiagnostics } from "../types/report.js";
+import type { PageReport, RunDiagnostics, StoppedReason } from "../types/report.js";
 
 export interface RunContext {
   runId: string;
@@ -28,6 +28,13 @@ export interface RunContext {
   openRouterCalls: number;
   deadlineMs: number;
   artifactRoot: string;
+  /**
+   * Set by the crawler when it exits, before the report aggregator reads it.
+   * Precedence when multiple conditions apply: error > user_stopped >
+   * time_budget > page_budget > depth_budget > converged.
+   * See DESIGN-DECISIONS.md §3, §9.
+   */
+  stoppedReason?: StoppedReason;
   control?: {
     isStopped: () => boolean;
     waitWhilePaused: () => Promise<void>;

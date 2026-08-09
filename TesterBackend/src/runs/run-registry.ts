@@ -159,12 +159,13 @@ export class RunRegistry {
       runId,
       type: "run.completed",
       status: record.stopped ? "skipped" : "passed",
-      message: record.stopped ? "Test run stopped." : `Test run completed with status ${report.status}.`,
+      message: record.stopped ? "Test run stopped." : `Test run completed with runStatus ${report.runStatus} and findingsStatus ${report.findingsStatus}.`,
       counts: {
         pagesTested: report.summary.pagesTested,
         testsExecuted: report.summary.testsExecuted,
         issues: report.issues.length,
       },
+      stoppedReason: report.stoppedReason,
       report,
     });
     this.scheduleCleanup(runId);

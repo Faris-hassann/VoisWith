@@ -21,3 +21,7 @@ export async function withTimeout<T>(
     if (timer) clearTimeout(timer);
   }
 }
+
+export function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}

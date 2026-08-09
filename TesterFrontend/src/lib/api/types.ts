@@ -26,8 +26,59 @@ export const TEST_TYPES = [
   "ACCESSIBILITY_TECHNICAL",
 ] as const;
 
+export const IMPLEMENTED_TEST_TYPES = [
+  "SMOKE",
+  "PAGE_DISCOVERY",
+  "NAVIGATION",
+  "LINKS",
+  "FORMS",
+  "FORM_VALIDATION",
+  "AUTHENTICATION",
+  "API_NETWORK",
+  "ERROR_HANDLING",
+  "PERFORMANCE_BASIC",
+  "CONSOLE_ERRORS",
+  "ACCESSIBILITY_TECHNICAL",
+  "PASSIVE_SECURITY",
+] as const;
+
+export const DEFAULT_ENABLED_TEST_TYPES = [
+  "SMOKE",
+  "PAGE_DISCOVERY",
+  "NAVIGATION",
+  "LINKS",
+  "FORMS",
+  "FORM_VALIDATION",
+  "AUTHENTICATION",
+  "API_NETWORK",
+  "ERROR_HANDLING",
+  "PERFORMANCE_BASIC",
+  "CONSOLE_ERRORS",
+  "ACCESSIBILITY_TECHNICAL",
+] as const;
+
+export const PARTIAL_TEST_TYPES = [
+  "SESSION",
+  "AUTHORIZATION",
+  "CHROMIUM_COMPATIBILITY",
+] as const;
+
+export const PLANNED_TEST_TYPES = [
+  "POSITIVE",
+  "NEGATIVE",
+  "BOUNDARY",
+  "END_TO_END",
+  "BUSINESS_RULES",
+  "FILE_UPLOAD_SAFE",
+  "DATA_INTEGRITY_OBSERVABLE",
+  "RELIABILITY_BASIC",
+  "REGRESSION_BASELINE",
+] as const;
+
 export type TestingType = (typeof TEST_TYPES)[number];
-export type RunStatus = "PASSED" | "FAILED" | "PARTIAL" | "ERROR" | "INCONCLUSIVE";
+export type RunStatus = "COMPLETED" | "STOPPED" | "ERRORED";
+export type FindingsStatus = "PASSED" | "ISSUES_FOUND" | "INCONCLUSIVE";
+export type LegacyStatus = "PASSED" | "FAILED" | "PARTIAL" | "ERROR" | "INCONCLUSIVE";
 export type TestStatus =
   | "PASSED"
   | "FAILED"
@@ -36,10 +87,18 @@ export type TestStatus =
   | "INCONCLUSIVE"
   | "ERROR";
 export type IssueSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFORMATIONAL";
+export type StoppedReason =
+  | "converged"
+  | "page_budget"
+  | "depth_budget"
+  | "time_budget"
+  | "user_stopped"
+  | "error";
 
 export interface TestingRunRequest {
   targetUrl: string;
   authorizationConfirmed: true;
+  writeActionsAcknowledged?: boolean;
   selectedTestTypes?: string[];
   allowedOrigins?: string[];
   includeSubdomains?: boolean;
@@ -88,11 +147,14 @@ export interface TestingRunRequest {
 
 export interface TestingRunResponse {
   runId: string;
-  status: RunStatus;
+  runStatus: RunStatus;
+  findingsStatus: FindingsStatus;
+  status: LegacyStatus;
   startedAt: string;
   completedAt: string;
   targetOrigin: string;
   selectedTestingTypes: TestingType[];
+  stoppedReason?: StoppedReason;
   summary: RunSummary;
   pages: PageReport[];
   issues: Issue[];
@@ -125,6 +187,7 @@ export interface RunProgressEvent {
   counts?: Record<string, number>;
   diagnostics?: unknown;
   issue?: unknown;
+  stoppedReason?: TestingRunResponse["stoppedReason"];
   liveFrame?: {
     mimeType: "image/jpeg" | "image/png";
     data: string;
@@ -156,6 +219,7 @@ export interface RunSummary {
   inconclusiveTests: number;
   consoleErrors: number;
   failedNetworkRequests: number;
+  artifactsBytes: number;
 }
 
 export interface PageReport {
@@ -173,6 +237,21 @@ export interface PageReport {
   performanceObservations: PerformanceObservation[];
   evidence: EvidenceReference[];
   skippedReason?: string;
+  /** Plan-only: AI/deterministic form test cases planned but not executed. Never counted in RunSummary.testsExecuted. */
+  plannedTestCases?: FormTestCase[];
+}
+
+/** The five-value outcome enum an AI or deterministic planner may request. INCONCLUSIVE is result-only, never requestable. */
+export type ExpectedOutcomeKind = "VALIDATION_ERROR" | "FIELD_ERROR" | "SUBMIT_ACCEPTED" | "NO_NAVIGATION" | "ERROR_MESSAGE_SHOWN";
+
+export interface FormTestCase {
+  caseId: string;
+  formId: string;
+  testType: TestingType;
+  intent: string;
+  inputs: Array<{ elementId: string; value: string }>;
+  submit: boolean;
+  expectedOutcome: { kind: ExpectedOutcomeKind; elementId?: string };
 }
 
 export interface TestCaseResult {
@@ -251,12 +330,15 @@ export interface EvidenceReference {
   type: "screenshot" | "trace" | "network" | "console" | "report" | "download" | "fixture";
   path: string;
   description?: string;
+  /** On-disk size recorded by the backend. Feeds RunSummary.artifactsBytes. */
+  sizeBytes?: number;
 }
 
 export interface CoverageLimitation {
-  area: string;
+  testType: TestingType;
+  availability: "implemented" | "partial" | "planned";
+  executed: boolean;
   reason: string;
-  recommendation?: string;
 }
 
 export interface RunDiagnostics {
@@ -291,10 +373,17 @@ export interface RunDiagnostics {
     disabled?: boolean;
     openRouterConfigured?: boolean;
     modelConfigured?: boolean;
-    model?: string;
+    /** The pinned model slugs, tried in order. Undefined when AI is not configured. */
+    models?: string[];
     successes: number;
-    failures: Array<{ pageUrl?: string; message: string }>;
-    validationFailures: Array<{ pageUrl?: string; message: string }>;
+    failures: Array<{ pageUrl?: string; message: string; reason?: string; attempts?: Array<{ model: string; reason: string; message: string }> }>;
+    validationFailures: Array<{ pageUrl?: string; message: string; reason?: string; attempts?: Array<{ model: string; reason: string; message: string }> }>;
+    /** Run-wide MAX_AI_TEST_CASES_PER_RUN, across AI and deterministic-fallback cases alike. */
+    maxTestCases?: number;
+    testCasesGenerated?: number;
+    /** Cases that would have exceeded maxTestCases; reported as truncated_by_budget in coverageLimitations. */
+    testCasesDropped?: number;
+    deterministicFallbacks?: number;
   };
 }
 

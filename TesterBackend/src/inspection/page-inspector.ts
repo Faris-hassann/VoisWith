@@ -2,7 +2,7 @@ import type { Page } from "playwright";
 import { canonicalizeUrl } from "../crawler/url-canonicalizer.js";
 import { StateFingerprintService } from "../crawler/state-fingerprint-service.js";
 import type { ConsoleObservation, NetworkObservation } from "../types/report.js";
-import type { ElementInventoryItem, FormSnapshot, PageSnapshot } from "../types/testing.js";
+import type { ElementInventoryItem, InspectedForm, PageSnapshot } from "../types/testing.js";
 import { ElementInventoryBuilder } from "./element-inventory.js";
 
 const FIELD_KINDS = new Set<ElementInventoryItem["kind"]>(["input", "textarea", "select", "checkbox", "radio", "file", "search"]);
@@ -182,7 +182,7 @@ export class PageInspector {
       return { text, headings, landmarks, links, tables, images, scripts, visibleValidationErrors, uiObservations };
     })()`);
 
-    const forms = buildFormSnapshots(elements);
+    const forms = buildInspectedForms(elements);
     const stateFingerprint = this.fingerprints.fingerprint({
       normalizedUrl: canonicalUrl,
       title,
@@ -263,8 +263,8 @@ export function buildLinkSnapshots(
   });
 }
 
-export function buildFormSnapshots(elements: ElementInventoryItem[]): FormSnapshot[] {
-  const forms: FormSnapshot[] = elements
+export function buildInspectedForms(elements: ElementInventoryItem[]): InspectedForm[] {
+  const forms: InspectedForm[] = elements
     .filter((element) => element.kind === "form")
     .map((form) => ({
       elementId: form.id,

@@ -1,12 +1,12 @@
 import crypto from "node:crypto";
-import type { ElementInventoryItem, FormSnapshot } from "../types/testing.js";
+import type { ElementInventoryItem, InspectedForm } from "../types/testing.js";
 
 export interface StateFingerprintInput {
   normalizedUrl: string;
   title: string;
   headings: string[];
   landmarks: string[];
-  forms: FormSnapshot[];
+  forms: InspectedForm[];
   elements: ElementInventoryItem[];
   dialogs: ElementInventoryItem[];
   role?: string;

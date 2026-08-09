@@ -34,6 +34,11 @@ export class PageCrawler {
     const pendingCrawlItems = context.pendingCrawlItems ??= new Set();
     const processedInteractions = context.processedInteractions ??= new Set();
     const routeFamilies = context.routeFamilies ??= new Set();
+    // Depth-pruned URLs use `continue`, not `break`, so a depth limit can never
+    // itself trip the loop's exit condition. Tracked separately so a crawl that
+    // exhausts its stack only because deeper items were pruned reports
+    // depth_budget rather than the more optimistic converged.
+    let depthLimited = false;
     const policy = new ScopePolicy({
       targetOrigin: context.targetOrigin,
       sameOriginOnly: context.request.crawl.sameOriginOnly,
@@ -76,6 +81,7 @@ export class PageCrawler {
           timestamp: new Date().toISOString(),
           message: "Run was stopped by request.",
         });
+        context.stoppedReason = "user_stopped";
         break;
       }
       await context.control?.waitWhilePaused();
@@ -86,6 +92,7 @@ export class PageCrawler {
           timestamp: new Date().toISOString(),
           message: "Run deadline exceeded.",
         });
+        context.stoppedReason = "time_budget";
         break;
       }
       if (context.request.crawl.maxPages !== undefined && context.visitedUrls.size >= context.request.crawl.maxPages) {
@@ -95,6 +102,7 @@ export class PageCrawler {
           timestamp: new Date().toISOString(),
           message: `Maximum page limit reached: ${context.request.crawl.maxPages}.`,
         });
+        context.stoppedReason = "page_budget";
         break;
       }
       const item = stack.pop();
@@ -124,6 +132,7 @@ export class PageCrawler {
         continue;
       }
       if (context.request.crawl.maxDepth !== undefined && item.depth > context.request.crawl.maxDepth) {
+        depthLimited = true;
         context.skippedUrls.set(item.url, "max-depth");
         context.diagnostics.crawl.events.push({
           name: "URL skipped",
@@ -239,11 +248,16 @@ export class PageCrawler {
       }
     }
     if (stack.length === 0) {
+      // The loop's own invariant guarantees this only happens on natural
+      // exhaustion: every budget/stop exit above breaks while stack.length > 0.
+      context.stoppedReason = depthLimited ? "depth_budget" : "converged";
       context.diagnostics.crawl.events.push({
-        name: "Crawler converged",
+        name: depthLimited ? "Crawler converged (depth-limited)" : "Crawler converged",
         status: "PASSED",
         timestamp: new Date().toISOString(),
-        message: "DFS stack empty; no pending URL crawl items remain.",
+        message: depthLimited
+          ? "DFS stack empty, but URLs beyond the configured max depth were pruned."
+          : "DFS stack empty; no pending URL crawl items remain.",
       });
     }
   }
