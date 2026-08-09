@@ -183,6 +183,13 @@ export interface ElementInventoryItem {
   formMethod?: string;
   formOwnerElementId?: string;
   locator: LocatorDescriptor;
+  /**
+   * A plain CSS selector for the element, kept alongside `locator` because
+   * assertion code that runs *inside* the page needs something
+   * `document.querySelector` understands — a Playwright role/label locator has
+   * no DOM equivalent. See assertions/outcome-evaluator.ts.
+   */
+  cssSelector?: string;
 }
 
 export interface LocatorDescriptor {

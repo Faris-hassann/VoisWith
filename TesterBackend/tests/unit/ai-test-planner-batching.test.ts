@@ -51,7 +51,7 @@ describe("AiTestPlanner batching", () => {
     // 4 forms -> batches of [3, 1], so 2 sequential OpenRouter calls.
     const snapshot = snapshotWithForms(4);
 
-    const result = await planner.plan(context, snapshot);
+    const result = await planner.plan(context, snapshot, buildFormSnapshots(snapshot.forms, snapshot.url));
 
     expect(result.batchesPlanned).toBe(2);
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -69,7 +69,7 @@ describe("AiTestPlanner batching", () => {
     const context = contextFor();
     const snapshot = snapshotWithForms(4); // batches of [3, 1]
 
-    const result = await planner.plan(context, snapshot);
+    const result = await planner.plan(context, snapshot, buildFormSnapshots(snapshot.forms, snapshot.url));
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(result.batchesFallenBack).toBe(1);
@@ -104,7 +104,7 @@ describe("AiTestPlanner batching", () => {
 
     const planner = new AiTestPlanner();
     const context = contextFor();
-    const result = await planner.plan(context, snapshot);
+    const result = await planner.plan(context, snapshot, buildFormSnapshots(snapshot.forms, snapshot.url));
 
     expect(result.testCases).toHaveLength(1);
     expect(context.diagnostics.ai.testCasesDropped).toBe(1);
@@ -119,7 +119,7 @@ describe("AiTestPlanner batching", () => {
     const context = contextFor();
     const snapshot = snapshotWithForms(1);
 
-    const result = await planner.plan(context, snapshot);
+    const result = await planner.plan(context, snapshot, buildFormSnapshots(snapshot.forms, snapshot.url));
 
     expect(result.source).toBe("deterministic");
     expect(result.testCases.length).toBeGreaterThan(0);
@@ -182,6 +182,7 @@ function contextFor(): import("../../src/testing/run-context.js").RunContext {
         successes: 0,
         failures: [],
         validationFailures: [],
+        recoveredAttempts: [],
         maxTestCases: 400,
         testCasesGenerated: 0,
         testCasesDropped: 0,

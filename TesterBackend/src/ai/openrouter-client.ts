@@ -13,6 +13,14 @@ interface Attempt {
   retryAfterMs?: number;
 }
 
+export interface StructuredPlanResult {
+  value: unknown;
+  /** The model that actually answered — not necessarily the first in the chain. */
+  model: string;
+  /** Attempts that failed before this call succeeded. Empty when the first model answered. */
+  recoveredAttempts: LlmAttempt[];
+}
+
 /** Cap on how long a single Retry-After wait is honored for, regardless of what the header says. */
 const MAX_RETRY_AFTER_MS = 5000;
 
@@ -40,7 +48,7 @@ export class OpenRouterClient {
     context: unknown;
     /** Optional shape check beyond JSON parsing; a failure here joins the same repair/next-model ladder as a parse failure. */
     validate?: (value: unknown) => { ok: true } | { ok: false; message: string };
-  }): Promise<unknown> {
+  }): Promise<StructuredPlanResult> {
     if (!config.openRouter.apiKey || config.openRouter.models.length !== 3) {
       throw new AppError({
         code: ERROR_CODES.AI_REQUEST_FAILURE,
@@ -54,7 +62,11 @@ export class OpenRouterClient {
 
     for (const model of config.openRouter.models) {
       const first = await this.attempt(model, input.systemPrompt, input.context, input.validate);
-      if (first.ok) return first.value;
+      // Attempts that failed before an eventual success are returned as
+      // `recoveredAttempts`, not discarded. Previously they vanished entirely:
+      // a model could burn a full 30s timeout and, if a later model answered,
+      // the run reported successes with an empty failures list.
+      if (first.ok) return { value: first.value, model, recoveredAttempts: attempts };
       attempts.push({ model, reason: first.reason!, message: first.message ?? "unknown error" });
 
       if (first.reason === LLM_FAILURE_REASONS.LLM_RATE_LIMITED && first.retryAfterMs) {
@@ -66,7 +78,7 @@ export class OpenRouterClient {
       if (repairable) {
         const repairPrompt = `${input.systemPrompt}\n\nYour previous response could not be parsed as valid JSON matching the required schema. Parse error: ${first.message}\nReturn ONLY valid JSON that matches the schema exactly.`;
         const repaired = await this.attempt(model, repairPrompt, input.context, input.validate);
-        if (repaired.ok) return repaired.value;
+        if (repaired.ok) return { value: repaired.value, model, recoveredAttempts: attempts };
         attempts.push({ model, reason: repaired.reason!, message: repaired.message ?? "unknown error" });
       }
     }
@@ -143,12 +155,26 @@ export class OpenRouterClient {
 
     let data: { choices?: Array<{ message?: { content?: string }; finish_reason?: string }> };
     try {
-      data = (await response.json()) as typeof data;
+      // fetch() settles as soon as headers arrive, so the body stream is a
+      // second unbounded wait — a slow-streaming model can blow the run's
+      // deadline while never tripping OPENROUTER_TIMEOUT_MS. Bound it too.
+      data = (await withTimeout(
+        response.json() as Promise<typeof data>,
+        config.openRouter.timeoutMs,
+        "OpenRouter response body timed out.",
+      )) as typeof data;
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // A body that never finished arriving is a transport problem, not a
+      // malformed payload — repairing the prompt cannot fix a stalled stream,
+      // so it must not be classified as repairable.
+      const timedOut = message.includes("timed out");
       return {
         ok: false,
-        reason: LLM_FAILURE_REASONS.LLM_INVALID_JSON,
-        message: `OpenRouter response body was not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+        reason: timedOut ? LLM_FAILURE_REASONS.LLM_TRANSPORT_ERROR : LLM_FAILURE_REASONS.LLM_INVALID_JSON,
+        message: timedOut
+          ? `Model ${model} response body timed out after ${config.openRouter.timeoutMs}ms.`
+          : `OpenRouter response body was not valid JSON: ${message}`,
       };
     }
 

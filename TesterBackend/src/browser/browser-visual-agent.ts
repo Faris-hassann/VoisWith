@@ -5,6 +5,14 @@ const CURSOR_SCRIPT = `(() => {
   const STYLE_ID = "__voiswith_visible_cursor_style";
 
   function ensureCursor() {
+    // addInitScript runs at document-start, before <head> exists. Without this
+    // guard the overlay threw "Cannot read properties of null (appendChild)"
+    // into the page console on every navigation — and the CONSOLE_ERRORS check
+    // then reported our own decoration as a defect in the target.
+    const styleHost = document.head || document.documentElement;
+    const cursorHost = document.documentElement || document.body;
+    if (!styleHost || !cursorHost) return null;
+
     if (!document.getElementById(STYLE_ID)) {
       const style = document.createElement("style");
       style.id = STYLE_ID;
@@ -29,7 +37,7 @@ const CURSOR_SCRIPT = `(() => {
         "  height: 24px;",
         "}",
       ].join("\\n");
-      document.head.appendChild(style);
+      styleHost.appendChild(style);
     }
 
     let cursor = document.getElementById(CURSOR_ID);
@@ -37,13 +45,14 @@ const CURSOR_SCRIPT = `(() => {
       cursor = document.createElement("div");
       cursor.id = CURSOR_ID;
       cursor.setAttribute("aria-hidden", "true");
-      document.documentElement.appendChild(cursor);
+      cursorHost.appendChild(cursor);
     }
     return cursor;
   }
 
   function move(x, y, active) {
     const cursor = ensureCursor();
+    if (!cursor) return;
     cursor.style.left = Math.max(0, Math.round(x)) + "px";
     cursor.style.top = Math.max(0, Math.round(y)) + "px";
     cursor.dataset.active = active ? "true" : "false";

@@ -22,8 +22,14 @@ import type { RunContext } from "../testing/run-context.js";
 import { buildPageBaselineTests } from "../testing/page-baseline-tests.js";
 import { buildLinkHealthTests } from "../testing/link-health-checker.js";
 import type { TestAction, TestCase } from "../types/ai.js";
-import type { PageReport, TestCaseResult, TestStepResult, TestingRunResponse } from "../types/report.js";
-import type { ElementInventoryItem, PageSnapshot, TestingRunRequest } from "../types/testing.js";
+import type { FormSnapshot } from "../types/llm-contract.js";
+import type { PageReport, StoppedReason, TestCaseResult, TestStepResult, TestingRunResponse } from "../types/report.js";
+import type { ElementInventoryItem, InspectedForm, PageSnapshot, TestingRunRequest } from "../types/testing.js";
+import { buildFormSnapshotsWithForms } from "../ai/form-snapshot-builder.js";
+import { classifyForm } from "../safety/form-classifier.js";
+import { dedupeFormSnapshots } from "../testing/form-dedup.js";
+import { executeFormTestCase } from "../testing/form-test-executor.js";
+import { severityForInformational } from "../reporting/severity.js";
 import { locatorFromDescriptor } from "../actions/playwright-action-executor.js";
 import { deadlineFromNow } from "../utilities/timeout.js";
 import { AiTestPlanner, type FormPlanResult } from "../ai/ai-test-planner.js";
@@ -98,7 +104,10 @@ export class RunOrchestrator {
       pendingUrls: new Set(),
       pendingCrawlItems: new Set(),
       processedInteractions: new Set(),
-      routeFamilies: new Set(),
+      routeFamilies: new Map(),
+      // Deliberately NOT reset per matrix target: §7's rule is one form tested
+      // once for the whole run, and localContext inherits this reference.
+      processedForms: new Map(),
       skippedUrls: new Map(),
       failedUrls: new Map(),
       redirectHistory: new Map(),
@@ -144,6 +153,7 @@ export class RunOrchestrator {
           successes: 0,
           failures: [],
           validationFailures: [],
+          recoveredAttempts: [],
           maxTestCases: config.limits.maxAiTestCasesPerRun,
           testCasesGenerated: 0,
           testCasesDropped: 0,
@@ -280,7 +290,7 @@ export class RunOrchestrator {
       pendingUrls: new Set(),
       pendingCrawlItems: new Set(),
       processedInteractions: new Set(),
-      routeFamilies: new Set(),
+      routeFamilies: new Map(),
       skippedUrls: new Map(),
       failedUrls: new Map(),
     };
@@ -456,6 +466,10 @@ export class RunOrchestrator {
     for (const [url, reason] of localContext.skippedUrls) context.skippedUrls.set(`${targetItem.role.name}:${targetItem.viewport.name}:${targetItem.locale.name}:${url}`, reason);
     for (const [url, reason] of localContext.failedUrls) context.failedUrls.set(`${targetItem.role.name}:${targetItem.viewport.name}:${targetItem.locale.name}:${url}`, reason);
     context.openRouterCalls = localContext.openRouterCalls;
+    // The crawler records stoppedReason on the *local* context, so without this
+    // merge the run report silently falls back to "converged" even when a
+    // target ran out of time — a truncated crawl that claims to be complete.
+    context.stoppedReason = mergeStoppedReason(context.stoppedReason, localContext.stoppedReason);
 
     logger.info(
       {
@@ -684,6 +698,61 @@ export class RunOrchestrator {
       return { report: pageReport, snapshot };
     }
 
+    // §4 then §7, both before the planner: a privileged form must never reach
+    // the model at all, and a duplicate must never cost an AI call.
+    const built = buildFormSnapshotsWithForms(
+      snapshot.forms,
+      snapshot.url,
+      context.request.crawl.ignoredQueryParameters ?? [],
+    );
+    const classificationContext = { pageTitle: snapshot.title, headings: snapshot.headings, pageUrl: snapshot.url };
+    const softBlockedByFormId = new Map<string, string>();
+    const formsByFormId = new Map<string, InspectedForm>();
+    const classifiedSnapshots: FormSnapshot[] = [];
+    const blockedResults: TestCaseResult[] = [];
+
+    for (const { snapshot: formSnapshot, form } of built) {
+      formsByFormId.set(formSnapshot.formId, form);
+      const classification = classifyForm(form, classificationContext);
+      if (classification.decision === "blocked_privileged") {
+        emit(input, {
+          runId: context.runId,
+          type: "form:blocked_privileged",
+          status: "blocked",
+          message: `Form ${formSnapshot.elementId} ${classification.block}-blocked by the privileged-form classifier (${classification.matchedSignal}).`,
+          pageUrl: snapshot.url,
+          role: context.roleName,
+          viewport: context.viewportName,
+          locale: context.localeName,
+          diagnostics: { formId: formSnapshot.formId, decision: "blocked_privileged", matchedSignal: classification.matchedSignal },
+        });
+        if (classification.block === "hard") {
+          // Never planned, never submitted — recorded so the gap is visible.
+          blockedResults.push(blockedFormResult(formSnapshot.formId, formSnapshot.elementId, classification.matchedSignal, snapshot.url));
+          continue;
+        }
+        // Soft block: still planned and filled, but the executor forces
+        // submit off and records why.
+        softBlockedByFormId.set(formSnapshot.formId, classification.matchedSignal);
+      }
+      classifiedSnapshots.push(formSnapshot);
+    }
+
+    const dedup = dedupeFormSnapshots(classifiedSnapshots, context.processedForms ??= new Map(), snapshot.url);
+    for (const duplicate of dedup.duplicates) {
+      emit(input, {
+        runId: context.runId,
+        type: "form:duplicate_skipped",
+        status: "skipped",
+        message: `Form ${duplicate.elementId} already tested on ${duplicate.firstPageUrl}.`,
+        pageUrl: snapshot.url,
+        role: context.roleName,
+        viewport: context.viewportName,
+        locale: context.localeName,
+        diagnostics: { formId: duplicate.formId, decision: duplicate.decision },
+      });
+    }
+
     let planResult: FormPlanResult;
     try {
       emit(input, {
@@ -696,7 +765,7 @@ export class RunOrchestrator {
         viewport: context.viewportName,
         locale: context.localeName,
       });
-      planResult = await this.planner.plan(context, snapshot);
+      planResult = await this.planner.plan(context, snapshot, dedup.unique);
       logger.info(
         { runId: context.runId, url: snapshot.url, aiPlannedTests: planResult.testCases.length, source: planResult.source },
         "AI planning completed",
@@ -756,10 +825,52 @@ export class RunOrchestrator {
       return { report: pageReport, snapshot };
     }
 
-    // Plan-only this phase (Phase 4 adds execution/assertion): planned cases
-    // are recorded for visibility but never inflate testsExecuted, since the
-    // report must never claim work it did not do.
-    const testResults: TestCaseResult[] = [...baselineResults, ...linkHealthResults];
+    // Phase 4: planned cases are now executed and judged against §6, so they
+    // legitimately count toward testsExecuted. `plannedTestCases` still
+    // records what was planned, including anything execution could not reach.
+    const executedResults: TestCaseResult[] = [];
+    for (const testCase of planResult.testCases) {
+      const form = formsByFormId.get(testCase.formId);
+      if (!form) continue;
+      emit(input, {
+        runId: context.runId,
+        type: "test_case.started",
+        status: "started",
+        message: `Executing form test case: ${testCase.intent}.`,
+        pageUrl: snapshot.url,
+        role: context.roleName,
+        viewport: context.viewportName,
+        locale: context.localeName,
+      });
+      const result = await executeFormTestCase({
+        page: session.page,
+        testCase,
+        target: { form, softBlockedSignal: softBlockedByFormId.get(testCase.formId) },
+        elementMap: new Map(snapshot.elements.map((element) => [element.id, element])),
+        allowFormSubmission: context.request.execution.allowFormSubmission,
+        screenshotOnFailure: (page, name, description) => input.evidenceCollector.screenshotOnFailure(page, name, description),
+        runId: context.runId,
+      });
+      executedResults.push(result);
+      emit(input, {
+        runId: context.runId,
+        type: result.status === "PASSED" ? "test_case.passed" : "test_case.failed",
+        status: result.status === "PASSED" ? "passed" : result.status === "INCONCLUSIVE" ? "skipped" : "failed",
+        message: result.actualResult ?? result.name,
+        pageUrl: snapshot.url,
+        role: context.roleName,
+        viewport: context.viewportName,
+        locale: context.localeName,
+      });
+      // Reload unconditionally between cases. A URL comparison is not enough:
+      // a form posting to its own path leaves the URL identical while
+      // replacing the DOM with a confirmation page, after which every later
+      // case fills fields that no longer exist and reports INCONCLUSIVE.
+      // Cases must be independent, and that means a known starting state.
+      await session.page.goto(snapshot.url, { waitUntil: "domcontentloaded" }).catch(() => undefined);
+    }
+
+    const testResults: TestCaseResult[] = [...baselineResults, ...linkHealthResults, ...blockedResults, ...executedResults];
     const pageReport: PageReport = {
       url: snapshot.url,
       canonicalUrl: snapshot.canonicalUrl,
@@ -1244,6 +1355,56 @@ function unique(values: string[]): string[] {
 function clampOptionalLimit(requested: number | undefined, emergencyLimit: number): number | undefined {
   if (requested === undefined) return undefined;
   return Math.min(requested, emergencyLimit);
+}
+
+/**
+ * DESIGN-DECISIONS.md §9: whichever budget trips first wins. Across matrix
+ * targets the most severe reason survives, so a later target that converged
+ * can never mask an earlier one that ran out of time or was stopped.
+ */
+const STOPPED_REASON_PRECEDENCE: StoppedReason[] = [
+  "error",
+  "user_stopped",
+  "time_budget",
+  "page_budget",
+  "depth_budget",
+  "converged",
+];
+
+/**
+ * Folds a matrix target's own stoppedReason into the run-level one, most
+ * severe wins. Exported for direct testing: the bug this prevents (a
+ * time-limited target aggregating to `converged`) is invisible from the
+ * outside until a whole matrix run is driven end to end.
+ */
+export function mergeStoppedReason(current: StoppedReason | undefined, incoming: StoppedReason | undefined): StoppedReason | undefined {
+  if (!incoming) return current;
+  if (!current) return incoming;
+  const currentRank = STOPPED_REASON_PRECEDENCE.indexOf(current);
+  const incomingRank = STOPPED_REASON_PRECEDENCE.indexOf(incoming);
+  return incomingRank < currentRank ? incoming : current;
+}
+
+/**
+ * A hard-blocked form (§4) is recorded rather than silently omitted — the run
+ * must be able to say which forms it deliberately did not test, and why.
+ * INFO per §8's "skipped or blocked forms" row.
+ */
+function blockedFormResult(formId: string, elementId: string, matchedSignal: string, pageUrl: string): TestCaseResult {
+  return {
+    id: `form-blocked-${formId.slice(0, 8)}`,
+    name: `Privileged form not tested (${matchedSignal})`,
+    type: "FORMS",
+    status: "SKIPPED",
+    steps: [],
+    assertions: [],
+    expectedResult: "Form is eligible for safe automated testing.",
+    actualResult: `Blocked by the privileged-form classifier: ${matchedSignal}.`,
+    evidence: [],
+    reproductionSteps: [`Open ${pageUrl}`, `Inspect form ${elementId}`],
+    severity: severityForInformational("form_blocked"),
+    confidence: 1,
+  };
 }
 
 /** Pulls the full per-model attempt history off an OpenRouterClient exhaustion error, when present. */

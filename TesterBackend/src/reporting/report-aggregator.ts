@@ -125,10 +125,15 @@ export class ReportAggregator {
       };
     });
 
+    // Counted from the reason prefix the crawler writes when it drains a
+    // non-empty stack, so a truncated crawl is visible in the summary rather
+    // than only in diagnostics. See DESIGN-DECISIONS.md §9.
+    const pagesNotReached = [...context.skippedUrls.values()].filter((reason) => reason.startsWith("not-reached:")).length;
     const summary = {
       pagesDiscovered: context.visitedUrls.size + context.skippedUrls.size + context.failedUrls.size,
       pagesTested: pages.filter((page) => page.status !== "SKIPPED").length,
       pagesSkipped: context.skippedUrls.size,
+      pagesNotReached,
       testsExecuted: tests.length,
       passedTests: tests.filter((test) => test.status === "PASSED").length,
       failedTests: failedTests.length,

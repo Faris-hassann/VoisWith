@@ -65,7 +65,16 @@ export class ElementInventoryBuilder {
         const role = element.getAttribute("role")?.toLowerCase();
         const text = element.textContent?.toLowerCase() ?? "";
         if (tag === "a") return "link";
-        if (tag === "button") return /submit|save|continue|send/i.test(text) ? "submit" : "button";
+        if (tag === "button") {
+          // The type attribute is authoritative, and HTML's default for a
+          // button inside a form is submit. Text is only a fallback: real
+          // submit buttons say "Sign in" or "Subscribe" far more often than
+          // they say "Submit", and treating those as plain buttons left forms
+          // with no submit control for the executor to activate.
+          if (type === "submit") return "submit";
+          if (!type && element.form) return "submit";
+          return /submit|save|continue|send/i.test(text) ? "submit" : "button";
+        }
         if (tag === "textarea") return "textarea";
         if (tag === "select") return "select";
         if (tag === "form") return "form";
@@ -73,6 +82,7 @@ export class ElementInventoryBuilder {
         if (role === "tab") return "tab";
         if (role === "menu" || role === "menuitem") return "menu";
         if (tag === "input") {
+          if (type === "submit" || type === "image") return "submit";
           if (type === "checkbox") return "checkbox";
           if (type === "radio") return "radio";
           if (type === "file") return "file";
@@ -142,6 +152,7 @@ export class ElementInventoryBuilder {
       id: `element_${index + 1}`,
       ...item,
       locator: this.locatorFor(item),
+      cssSelector: item.css,
     }));
   }
 

@@ -68,7 +68,10 @@ describe("OpenRouterClient", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await new OpenRouterClient().createStructuredPlan({ systemPrompt: "sys", context: {} });
-    expect(result).toEqual({ testCases: [] });
+    expect(result.value).toEqual({ testCases: [] });
+    expect(result.model).toBe("vendor-a/model-a:free");
+    // Nothing failed on the way, so there is nothing to report as recovered.
+    expect(result.recoveredAttempts).toEqual([]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -81,8 +84,13 @@ describe("OpenRouterClient", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await new OpenRouterClient().createStructuredPlan({ systemPrompt: "sys", context: {} });
-    expect(result).toEqual({ testCases: [] });
+    expect(result.value).toEqual({ testCases: [] });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    // The failed first attempt survives as a recovered attempt rather than
+    // vanishing just because a later try succeeded.
+    expect(result.recoveredAttempts).toEqual([
+      { model: "vendor-a/model-a:free", reason: LLM_FAILURE_REASONS.LLM_INVALID_JSON, message: expect.any(String) },
+    ]);
   });
 
   it("preserves every model's own failure reason on full exhaustion, not just the last", async () => {

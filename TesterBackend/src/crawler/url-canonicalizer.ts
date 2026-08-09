@@ -77,17 +77,6 @@ export function looksLikeLoopUrl(url: string): boolean {
   return repeatedPath || tooManyQueryParams || paginationDepth;
 }
 
-export function routeFamilyFor(url: URL | string): string {
-  const parsed = typeof url === "string" ? new URL(url) : url;
-  const path = parsed.pathname
-    .split("/")
-    .filter(Boolean)
-    .map((part) => (/^\d+$/.test(part) || /^[0-9a-f-]{12,}$/i.test(part) ? ":id" : part.toLowerCase()))
-    .join("/");
-  const queryKeys = [...parsed.searchParams.keys()].sort().join("&");
-  return `${parsed.origin}/${path}${queryKeys ? `?${queryKeys}` : ""}`;
-}
-
 function ignoredParams(options: CanonicalizeOptions): Set<string> {
   return new Set([...(TRACKING_PARAMS), ...(options.ignoredQueryParameters ?? []).map((param) => param.toLowerCase())]);
 }

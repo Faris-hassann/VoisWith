@@ -3,6 +3,7 @@ import type { RunContext } from "../testing/run-context.js";
 import type { PageReport } from "../types/report.js";
 import type { LinkSnapshot } from "../types/testing.js";
 import { isDeadlineExceeded } from "../utilities/timeout.js";
+import { routeFamily } from "../utilities/route-family.js";
 import { errorMessage } from "../errors/serialize-error.js";
 
 interface CrawlItem {
@@ -23,6 +24,9 @@ export interface CrawledPageResult {
   stateFingerprint?: string;
 }
 
+/** DESIGN-DECISIONS.md §9. */
+const MAX_INSTANCES_PER_ROUTE_FAMILY = 3;
+
 export class PageCrawler {
   async crawl(input: {
     context: RunContext;
@@ -33,7 +37,7 @@ export class PageCrawler {
     const visitedStates = context.visitedStates ??= new Set();
     const pendingCrawlItems = context.pendingCrawlItems ??= new Set();
     const processedInteractions = context.processedInteractions ??= new Set();
-    const routeFamilies = context.routeFamilies ??= new Set();
+    const routeFamilies = context.routeFamilies ??= new Map();
     // Depth-pruned URLs use `continue`, not `break`, so a depth limit can never
     // itself trip the loop's exit condition. Tracked separately so a crawl that
     // exhausts its stack only because deeper items were pruned reports
@@ -143,13 +147,30 @@ export class PageCrawler {
         });
         continue;
       }
-      const family = routeFamily(decision.canonicalUrl);
-      routeFamilies.add(family);
+      const family = routeFamily(decision.canonicalUrl, context.request.crawl.ignoredQueryParameters ?? []);
+      // DESIGN-DECISIONS.md §9 caps instances per route family, so a listing of
+      // 400 products costs 3 page visits rather than 400. Checked before
+      // testPage so the budget saves the work, not just the bookkeeping.
+      const familyVisits = routeFamilies.get(family) ?? 0;
+      if (familyVisits >= MAX_INSTANCES_PER_ROUTE_FAMILY) {
+        context.skippedUrls.set(decision.canonicalUrl, `route-family-limit:${family}`);
+        context.diagnostics.crawl.events.push({
+          name: "Route family limit reached",
+          status: "SKIPPED",
+          timestamp: new Date().toISOString(),
+          url: decision.canonicalUrl,
+          message: `Already visited ${familyVisits} instance(s) of route family ${family}.`,
+        });
+        continue;
+      }
 
       try {
         const result = await testPage(decision.canonicalUrl);
         const report = result.report;
-        const stateKey = `${decision.canonicalUrl}#${result.stateFingerprint ?? "default"}`;
+        // §9: crawl state is keyed on route family + DOM structure hash, not the
+        // raw URL — two URLs in the same family rendering the same structure are
+        // the same state regardless of their ids.
+        const stateKey = `${family}#${result.stateFingerprint ?? "default"}`;
         if (visitedStates.has(stateKey)) {
           context.skippedUrls.set(decision.canonicalUrl, "duplicate-state");
           context.diagnostics.crawl.events.push({
@@ -157,13 +178,14 @@ export class PageCrawler {
             status: "SKIPPED",
             timestamp: new Date().toISOString(),
             url: decision.canonicalUrl,
-            message: "Duplicate URL and state fingerprint.",
+            message: "Duplicate route family and DOM structure hash.",
           });
           continue;
         }
         context.pageReports.push(report);
         context.visitedUrls.add(decision.canonicalUrl);
         visitedStates.add(stateKey);
+        routeFamilies.set(family, familyVisits + 1);
         const links = result.links;
         context.diagnostics.crawl.discoveredCandidates += links.length;
         let acceptedLinks = 0;
@@ -177,13 +199,17 @@ export class PageCrawler {
           }
           processedInteractions.add(interactionKey);
           const next = policy.evaluate(candidateUrl, decision.canonicalUrl);
-          if (
-            next.allowed &&
-            next.canonicalUrl &&
-            !context.visitedUrls.has(next.canonicalUrl) &&
-            !context.pendingUrls.has(next.canonicalUrl) &&
-            !pendingCrawlItems.has(next.canonicalUrl)
-          ) {
+          // A link that is already visited or already queued is not "skipped" —
+          // it is accounted for elsewhere and will be (or has been) tested.
+          // Only a scope-policy rejection is a real skip; conflating the two
+          // made skippedUrls useless as a coverage signal, since fully-tested
+          // pages showed up in it purely for being linked twice.
+          const alreadyAccountedFor =
+            !!next.canonicalUrl &&
+            (context.visitedUrls.has(next.canonicalUrl) ||
+              context.pendingUrls.has(next.canonicalUrl) ||
+              pendingCrawlItems.has(next.canonicalUrl));
+          if (next.allowed && next.canonicalUrl && !alreadyAccountedFor) {
             acceptedLinks += 1;
             discoveredUrls.add(next.canonicalUrl);
             context.pendingUrls.add(next.canonicalUrl);
@@ -201,7 +227,9 @@ export class PageCrawler {
             });
           } else {
             skippedLinks += 1;
-            context.skippedUrls.set(candidateUrl, next.reason ?? "duplicate-or-visited");
+            if (!alreadyAccountedFor) {
+              context.skippedUrls.set(candidateUrl, next.reason ?? "out-of-scope");
+            }
           }
         }
         context.diagnostics.crawl.events.push({
@@ -259,16 +287,23 @@ export class PageCrawler {
           ? "DFS stack empty, but URLs beyond the configured max depth were pruned."
           : "DFS stack empty; no pending URL crawl items remain.",
       });
+    } else {
+      // A budget or stop request ended the crawl with work still queued. Those
+      // pages were never visited and never will be — recording them is what
+      // makes a truncated crawl distinguishable from a complete one.
+      const reason = `not-reached:${context.stoppedReason ?? "unknown"}`;
+      const unreached = new Set(stack.map((queued) => queued.url));
+      for (const url of unreached) {
+        context.skippedUrls.set(url, reason);
+      }
+      context.diagnostics.crawl.unreachedUrls = [...unreached];
+      context.diagnostics.crawl.events.push({
+        name: "Crawler left URLs unreached",
+        status: "SKIPPED",
+        timestamp: new Date().toISOString(),
+        message: `${unreached.size} queued URL(s) were never visited because the crawl stopped (${context.stoppedReason ?? "unknown"}).`,
+      });
     }
   }
 }
 
-function routeFamily(url: string): string {
-  const parsed = new URL(url);
-  const path = parsed.pathname
-    .split("/")
-    .filter(Boolean)
-    .map((part) => (/^\d+$/.test(part) || /^[0-9a-f-]{12,}$/i.test(part) ? ":id" : part.toLowerCase()))
-    .join("/");
-  return `${parsed.origin}/${path}`;
-}

@@ -1,9 +1,10 @@
 import type { Page } from "playwright";
 import { config } from "../config/env.js";
 import { assertSafeTargetUrl } from "../security/ssrf-protection.js";
-import type { TestCaseResult, TestStatus } from "../types/report.js";
+import type { IssueSeverity, TestCaseResult, TestStatus } from "../types/report.js";
 import type { LinkSnapshot, TestingRunRequest } from "../types/testing.js";
 import type { TestingType } from "./test-types.js";
+import { severityForServerError } from "../reporting/severity.js";
 
 const MAX_LINKS_PER_PAGE = 300;
 
@@ -80,6 +81,8 @@ async function checkLink(input: LinkHealthInput, link: LinkSnapshot, index: numb
       expected: "Link returns a successful or redirect HTTP status.",
       actual: `${targetUrl} returned HTTP ${statusCode}.`,
       href: targetUrl,
+      // §8 rates a 5xx HIGH; a 4xx stays at the default MEDIUM for a broken link.
+      severity: statusCode >= 500 ? severityForServerError() : undefined,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -113,6 +116,8 @@ function linkResult(input: {
   expected: string;
   actual: string;
   href?: string;
+  /** Overrides the status-derived rating with an explicit §8 table value. */
+  severity?: IssueSeverity;
 }): TestCaseResult {
   return {
     id: input.id,
@@ -138,7 +143,7 @@ function linkResult(input: {
     error: ["FAILED", "ERROR"].includes(input.status) ? input.actual : undefined,
     evidence: [],
     reproductionSteps: ["Navigate to page", `Check link destination${input.href ? `: ${input.href}` : ""}`],
-    severity: input.status === "FAILED" ? "MEDIUM" : input.status === "SKIPPED" ? "INFORMATIONAL" : undefined,
+    severity: input.severity ?? (input.status === "FAILED" ? "MEDIUM" : input.status === "SKIPPED" ? "INFORMATIONAL" : undefined),
     confidence: input.status === "PASSED" ? 0.9 : 0.75,
   };
 }

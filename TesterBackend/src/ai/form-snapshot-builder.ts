@@ -19,9 +19,28 @@ const FIELD_KIND_MAP: Record<string, FormFieldKind> = {
  * locator, no full/action URL — route family and visible field metadata only.
  * See DESIGN-DECISIONS.md §3.
  */
-export function buildFormSnapshots(forms: InspectedForm[], pageUrl: string): FormSnapshot[] {
-  const family = routeFamily(pageUrl);
-  const snapshots: FormSnapshot[] = [];
+/**
+ * Pairs each sanitized snapshot with the inspector form it came from.
+ *
+ * The executor needs the original `InspectedForm` to find submit controls and
+ * locator descriptors — none of which may cross the LLM boundary — so the
+ * association is returned here rather than recomputed from a `formId` later.
+ */
+export interface BuiltFormSnapshot {
+  snapshot: FormSnapshot;
+  form: InspectedForm;
+}
+
+export function buildFormSnapshotsWithForms(
+  forms: InspectedForm[],
+  pageUrl: string,
+  ignoredQueryParameters: string[] = [],
+): BuiltFormSnapshot[] {
+  // formId is keyed on the route family, so it must be computed with the same
+  // ignore list the crawler uses — otherwise the same form on ?utm_source=a and
+  // ?utm_source=b would produce two different formIds and be tested twice.
+  const family = routeFamily(pageUrl, ignoredQueryParameters);
+  const built: BuiltFormSnapshot[] = [];
 
   for (const form of forms) {
     const visibleFields = form.fields.filter((field) => !field.hidden);
@@ -44,10 +63,19 @@ export function buildFormSnapshots(forms: InspectedForm[], pageUrl: string): For
     // Fail closed: a snapshot our own serializer cannot produce cleanly is
     // dropped rather than sent to the model half-formed.
     const parsed = formSnapshotSchema.safeParse(snapshot);
-    if (parsed.success) snapshots.push(parsed.data);
+    if (parsed.success) built.push({ snapshot: parsed.data, form });
   }
 
-  return snapshots;
+  return built;
+}
+
+/** Snapshots only, for callers that never need to act on the page. */
+export function buildFormSnapshots(
+  forms: InspectedForm[],
+  pageUrl: string,
+  ignoredQueryParameters: string[] = [],
+): FormSnapshot[] {
+  return buildFormSnapshotsWithForms(forms, pageUrl, ignoredQueryParameters).map((built) => built.snapshot);
 }
 
 function fieldSnapshot(field: ElementInventoryItem): FormFieldSnapshot {
@@ -70,10 +98,18 @@ function fieldSnapshot(field: ElementInventoryItem): FormFieldSnapshot {
   return snapshot;
 }
 
-/** DESIGN-DECISIONS.md §7: sha1 of sorted "name|label|role:type" per field, elementId and values excluded. */
+/**
+ * DESIGN-DECISIONS.md §7, verbatim:
+ *   fieldSignature = sha1(sorted(field.name || field.label || elementRole + ":" + type).join("|"))
+ *
+ * Note the precedence: `":" + type` belongs to the *fallback* arm only. A field
+ * with a name contributes its name alone. `elementId` is excluded because it
+ * regenerates per page, and values are excluded entirely — that is what lets
+ * the same form be recognized across pages.
+ */
 function fieldSignature(fields: ElementInventoryItem[]): string {
   const parts = fields
-    .map((field) => `${field.name || field.label || field.role || field.kind}:${field.type ?? field.kind}`)
+    .map((field) => field.name || field.label || `${field.role ?? field.kind}:${field.type ?? field.kind}`)
     .sort();
   return sha1(parts.join("|"));
 }

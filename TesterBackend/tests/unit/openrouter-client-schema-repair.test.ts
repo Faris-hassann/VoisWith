@@ -68,7 +68,11 @@ describe("OpenRouterClient schema validation", () => {
 
     const result = await new OpenRouterClient().createStructuredPlan({ systemPrompt: "sys", context: {}, validate });
 
-    expect(result).toEqual({ testCases: [] });
+    expect(result.value).toEqual({ testCases: [] });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    // The schema-invalid first attempt is still reported, not erased by the fix.
+    expect(result.recoveredAttempts).toEqual([
+      { model: "vendor-a/model-a:free", reason: LLM_FAILURE_REASONS.LLM_SCHEMA_INVALID, message: expect.any(String) },
+    ]);
   });
 });

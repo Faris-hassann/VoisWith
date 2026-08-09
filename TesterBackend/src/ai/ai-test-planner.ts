@@ -4,12 +4,11 @@ import type { RunContext } from "../testing/run-context.js";
 import type { LlmAttempt } from "../errors/error-codes.js";
 import { AppError } from "../errors/app-error.js";
 import { LLM_FAILURE_REASONS } from "../errors/error-codes.js";
-import type { FormTestCase } from "../types/llm-contract.js";
+import type { FormSnapshot, FormTestCase } from "../types/llm-contract.js";
 import type { PageSnapshot } from "../types/testing.js";
 import { delay } from "../utilities/timeout.js";
 import { batchFormSnapshots } from "./form-batcher.js";
 import { validateFormTestPlan } from "./form-plan-validator.js";
-import { buildFormSnapshots } from "./form-snapshot-builder.js";
 import { OpenRouterClient } from "./openrouter-client.js";
 import { PromptLoader } from "./prompt-loader.js";
 
@@ -30,8 +29,12 @@ export class AiTestPlanner {
   private readonly client = new OpenRouterClient();
   private readonly prompts = new PromptLoader();
 
-  async plan(context: RunContext, snapshot: PageSnapshot): Promise<FormPlanResult> {
-    const snapshots = buildFormSnapshots(snapshot.forms, snapshot.url);
+  /**
+   * Snapshots are built and deduped by the caller: dedup is run-scoped crawl
+   * bookkeeping (§7), and threading that state through the LLM path would put
+   * crawl concerns inside the planner.
+   */
+  async plan(context: RunContext, snapshot: PageSnapshot, snapshots: FormSnapshot[]): Promise<FormPlanResult> {
     const batches = batchFormSnapshots(snapshots);
 
     const testCases: FormTestCase[] = [];
@@ -56,7 +59,7 @@ export class AiTestPlanner {
         }
 
         try {
-          const raw = await this.client.createStructuredPlan({
+          const response = await this.client.createStructuredPlan({
             systemPrompt: await this.prompts.load(),
             context: { formCount: batch.length, forms: batch },
             validate: (value) => {
@@ -64,7 +67,12 @@ export class AiTestPlanner {
               return result.ok ? { ok: true } : { ok: false, message: JSON.stringify(result.details) };
             },
           });
-          const validated = validateFormTestPlan(raw, batch);
+          // A model that failed before another rescued the call still gets
+          // recorded — otherwise a 30s timeout is invisible in the report.
+          for (const attempt of response.recoveredAttempts) {
+            context.diagnostics.ai.recoveredAttempts.push({ pageUrl: snapshot.url, ...attempt });
+          }
+          const validated = validateFormTestPlan(response.value, batch);
           if (validated.ok) {
             batchCases = validated.plan.testCases;
             context.diagnostics.ai.successes += 1;

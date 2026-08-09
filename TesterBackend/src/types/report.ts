@@ -44,6 +44,8 @@ export interface RunSummary {
   pagesDiscovered: number;
   pagesTested: number;
   pagesSkipped: number;
+  /** Queued but never visited because a budget or stop request ended the crawl. */
+  pagesNotReached: number;
   testsExecuted: number;
   passedTests: number;
   failedTests: number;
@@ -207,6 +209,8 @@ export interface RunDiagnostics {
     failedUrls: Array<{ url: string; reason: string }>;
     discoveredCandidates: number;
     noInternalLinksPages: string[];
+    /** URLs still queued when a budget or stop request ended the crawl — never visited. */
+    unreachedUrls?: string[];
     events: DiagnosticEvent[];
   };
   pages: PageDiagnostics[];
@@ -221,6 +225,11 @@ export interface RunDiagnostics {
     successes: number;
     failures: Array<{ pageUrl?: string; message: string; reason?: LlmFailureReason; attempts?: LlmAttempt[] }>;
     validationFailures: Array<{ pageUrl?: string; message: string; reason?: LlmFailureReason; attempts?: LlmAttempt[] }>;
+    /**
+     * Attempts that failed but were rescued by a later model in the chain, so the
+     * call still succeeded. Without these a timed-out model leaves no trace at all.
+     */
+    recoveredAttempts: Array<LlmAttempt & { pageUrl?: string }>;
     /** DESIGN-DECISIONS.md §5: MAX_AI_TEST_CASES_PER_RUN, run-wide across AI and deterministic-fallback cases alike. */
     maxTestCases: number;
     testCasesGenerated: number;

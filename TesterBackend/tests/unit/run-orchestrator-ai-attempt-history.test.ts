@@ -147,7 +147,7 @@ function contextFor(): RunContext {
       login: { status: "SKIPPED", message: "No credentials supplied." },
       crawl: { acceptedUrls: [], skippedUrls: [], failedUrls: [], discoveredCandidates: 0, noInternalLinksPages: [], events: [] },
       pages: [],
-      ai: { calls: 0, maxCalls: 25, disabled: false, openRouterConfigured: true, modelConfigured: true, successes: 0, failures: [], validationFailures: [], maxTestCases: 400, testCasesGenerated: 0, testCasesDropped: 0, deterministicFallbacks: 0 },
+      ai: { calls: 0, maxCalls: 25, disabled: false, openRouterConfigured: true, modelConfigured: true, successes: 0, failures: [], validationFailures: [], recoveredAttempts: [], maxTestCases: 400, testCasesGenerated: 0, testCasesDropped: 0, deterministicFallbacks: 0 },
     },
   };
 }

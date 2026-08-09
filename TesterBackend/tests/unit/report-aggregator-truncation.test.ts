@@ -104,6 +104,7 @@ function contextFor(input: { testCasesDropped: number; calls: number; maxCalls: 
         successes: 1,
         failures: [],
         validationFailures: [],
+        recoveredAttempts: [],
         maxTestCases: 400,
         testCasesGenerated: input.testCasesDropped > 0 ? 400 : 50,
         testCasesDropped: input.testCasesDropped,

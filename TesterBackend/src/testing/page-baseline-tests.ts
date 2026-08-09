@@ -1,6 +1,7 @@
 import type { TestingType } from "./test-types.js";
 import type { PageSnapshot } from "../types/testing.js";
-import type { TestCaseResult, TestStatus } from "../types/report.js";
+import type { IssueSeverity, TestCaseResult, TestStatus } from "../types/report.js";
+import { severityForPageObservation } from "../reporting/severity.js";
 
 interface BaselineInput {
   snapshot: PageSnapshot;
@@ -95,19 +96,42 @@ export function buildPageBaselineTests(input: BaselineInput): TestCaseResult[] {
   }
 
   if (has("FORM_VALIDATION")) {
-    const fieldsWithValidation = input.snapshot.forms.flatMap((form) =>
-      form.fields.filter((field) => field.required || Object.keys(field.validation ?? {}).length > 0),
-    );
-    tests.push(
-      baselineResult({
-        id: "baseline-form-validation",
-        name: "Form validation attributes observed",
-        type: "FORM_VALIDATION",
-        status: input.snapshot.forms.length === 0 ? "SKIPPED" : fieldsWithValidation.length > 0 ? "PASSED" : "INCONCLUSIVE",
-        expected: "Required fields or validation attributes are visible when forms declare them.",
-        actual: `${fieldsWithValidation.length} fields with required or validation attributes.`,
-      }),
-    );
+    if (input.snapshot.forms.length === 0) {
+      tests.push(
+        baselineResult({
+          id: "baseline-form-validation",
+          name: "Form validation attributes observed",
+          type: "FORM_VALIDATION",
+          status: "SKIPPED",
+          expected: "Required fields or validation attributes are visible when forms declare them.",
+          actual: "No forms were detected on this page.",
+        }),
+      );
+    } else {
+      // Reported per form, not rolled up: §8 rates "missing validation
+      // attributes" MEDIUM, and a page-level roll-up would either hide one bad
+      // form behind a good one or blame every form on the page for it.
+      input.snapshot.forms.forEach((form, index) => {
+        const validatedFields = form.fields.filter(
+          (field) => !field.hidden && (field.required || Object.keys(field.validation ?? {}).length > 0),
+        );
+        const visibleFields = form.fields.filter((field) => !field.hidden);
+        const missing = visibleFields.length > 0 && validatedFields.length === 0;
+        tests.push(
+          baselineResult({
+            id: `baseline-form-validation-${index + 1}`,
+            name: `Form ${index + 1} validation attributes`,
+            type: "FORM_VALIDATION",
+            status: missing ? "FAILED" : "PASSED",
+            expected: "The form declares at least one required field or validation attribute.",
+            actual: missing
+              ? `${visibleFields.length} visible field(s), none declaring required or any validation attribute.`
+              : `${validatedFields.length} of ${visibleFields.length} visible field(s) declare required or validation attributes.`,
+            severity: missing ? severityForPageObservation("missing_validation_attributes") : undefined,
+          }),
+        );
+      });
+    }
   }
 
   if (has("AUTHENTICATION")) {
@@ -274,6 +298,8 @@ function baselineResult(input: {
   status: TestStatus;
   expected: string;
   actual: string;
+  /** Overrides the default status-derived rating with an explicit §8 table value. */
+  severity?: IssueSeverity;
 }): TestCaseResult {
   return {
     id: input.id,
@@ -298,7 +324,7 @@ function baselineResult(input: {
     error: ["FAILED", "ERROR"].includes(input.status) ? input.actual : undefined,
     evidence: [],
     reproductionSteps: ["Navigate to page", "Inspect page snapshot", "Evaluate deterministic baseline check"],
-    severity: input.status === "FAILED" ? "MEDIUM" : input.status === "SKIPPED" ? "INFORMATIONAL" : undefined,
+    severity: input.severity ?? (input.status === "FAILED" ? "MEDIUM" : input.status === "SKIPPED" ? "INFORMATIONAL" : undefined),
     confidence: input.status === "PASSED" ? 0.9 : 0.75,
   };
 }

@@ -292,14 +292,15 @@ TrueForm staging is then a **manual** demo run whose only criterion is that it c
 
 ## 12. Build order
 
-| Phase | Contents |
-| --- | --- |
-| **1. Contracts** | `FormSnapshot`, `TestCase`, `expectedOutcome` enum, `stoppedReason`, split `runStatus`/`findingsStatus`, `coverageLimitations` population |
-| **2. Safety** | privileged-form classifier, `CREATE_ACCOUNT`/`MODIFY_SETTINGS` blocked categories, `writeActionsAcknowledged` gate, captcha skip, consent logging, **deterministic data generator** |
-| **3. LLM path** | 3-form batching, model chain, typed failures, output caps, deterministic fallback |
-| **4. Assertions** | six evaluation rules, mechanical severity table, form dedup |
-| **5. Persistence** | manifest durability, disk-backed history, `GET /runs`, retention sweep, `artifactsBytes`, stream recovery |
-| **6. Live view** | shadow-root cursor overlay, `live-view:cursor` |
+| Phase | Contents | Status |
+| --- | --- | --- |
+| **1. Contracts** | `FormSnapshot`, `TestCase`, `expectedOutcome` enum, `stoppedReason`, split `runStatus`/`findingsStatus`, `coverageLimitations` population | ✅ Complete |
+| **2. Safety** | `writeActionsAcknowledged` gate, captcha skip, consent logging, **deterministic data generator** | ✅ Complete |
+| **2b. Safety (deferred)** | privileged-form classifier, `CREATE_ACCOUNT`/`MODIFY_SETTINGS` blocked categories | ✅ Complete in Phase 4 — was marked complete in Phase 2 but never built; see §14 |
+| **3. LLM path** | 3-form batching, model chain, typed failures, output caps, deterministic fallback | ✅ Complete — see §14 |
+| **4. Assertions** | six evaluation rules, mechanical severity table, form dedup | ⏭ Next — has a blocker, see §14 |
+| **5. Persistence** | manifest durability, disk-backed history, `GET /runs`, retention sweep, `artifactsBytes`, stream recovery | Not started |
+| **6. Live view** | shadow-root cursor overlay, `live-view:cursor` | Not started |
 
 Nothing starts before Phase 1 — the schemas are load-bearing for the validator, policy engine, executor, report, and UI simultaneously. Phase 6 is the demo feature and the one most tempting to build first; it animates a broken pipeline if 1–4 aren't green.
 
@@ -328,3 +329,71 @@ split status fields · `coverageLimitations` honesty · privileged-form classifi
 cursor overlay → retention sweep → `ai.batch_*` UI granularity → third model in the chain
 
 Disk-backed history left the cuttable list when the runtime ceiling moved to 3 hours.
+
+---
+
+## 14. Implementation status log
+
+### Phase 1 — Complete
+`FormSnapshot`, `TestCase` (renamed `FormTestCase` internally — the name `TestCase` is taken by the old page-level planner type, removed in Phase 3), the five-value `expectedOutcome` enum, `stoppedReason`, split `runStatus`/`findingsStatus` with alias mapping, `coverageLimitations`, `artifactsBytes` (sum only — see Phase 2 fix). OpenAPI and both READMEs updated in the same pass. 39 → 112 tests.
+
+### Phase 2 — Complete
+Fixed post-Phase-1 bugs found on a real `entertab.net` run (read-only, no submission): `openrouter/free` was never a valid slug — replaced with `OPENROUTER_MODELS` (3 pinned, comma-separated), enforced offline at parse time and live at boot via `openrouter-preflight.ts`, which fetches the real catalogue and refuses to start on a delisted slug. `npm run openrouter:models` prints the live `:free` catalogue rather than relying on memory — **use this before pinning, the catalogue rotates.** `stoppedReason` was hardcoded to `converged` regardless of exit reason — now recorded at every crawler break site. Tool failures (AI misconfiguration) were leaking into `issues` as target defects — now `diagnostics.ai.failures` + a `coverageLimitations` row only. `artifactsBytes` was `artifact.path ? 0 : 0` — now stats every written file, **confirmed non-zero on live runs (47,959 bytes)**. `MAX_AI_CALLS_PER_RUN` 50→25. 96 → 136 tests.
+
+**Diagnostic checks run before Phase 3, both passed:** `stoppedReason` stays `converged` with `MAX_AI_CALLS_PER_RUN=0` (verified live). `artifactsBytes` non-zero on live runs — **but disk-backed history read-back does not exist yet; that stat is correctly deferred to Phase 5, not a Phase 2 gap.**
+
+### Phase 3 — Complete
+`ai-test-planner.ts` wired to the Phase 1 contract: batches 3 forms / ~4k tokens, builds sanitized `FormSnapshot`s, runs each batch through `normal → repair → next model → deterministic fallback` via a `validate` callback on `openrouter-client.ts` that folds schema failures into the same repair path as parse failures. Old page-level path deleted (`ai-context-builder.ts`'s open-ended prompt, `ai-response-validator.ts`, the 100-case/100-step schema).
+
+Fixed in the same pass: `openrouter-client.ts` now accumulates `attempts[]` (`{model, reason, message}`) across every model and repair attempt instead of discarding all but the last — surfaced in `diagnostics.ai.failures[].attempts`. `OPENROUTER_MAX_OUTPUT_TOKENS` 3000→6000 (reasoning models spend budget on `reasoning_details` before emitting JSON). Prompt now caps output (~6 cases, ~4 steps) — the old prompt had no cap at all. Pacing added: `AI_CALL_PACING_MS` (default 1500) before every AI call after the first in a run; `Retry-After` honored on 429. `truncated_by_budget` now counts `MAX_AI_TEST_CASES_PER_RUN` specifically, not the call budget. Deterministic generator confirmed as the retry ladder's actual last rung, not a separate path. 143 → 161 tests.
+
+**Live verification (the gate that matters — a green suite alone was not treated as sufficient):** real run against `127.0.0.1:43117`, 3 pinned `:free` models, produced schema-valid `FormTestCase`s on both pages reached — 5 and 6 cases, zero fallbacks, zero failures. `testsExecuted` unaffected; planned cases live in `plannedTestCases` only.
+
+**Live-verified model chain** (re-confirmed against `npm run openrouter:models` at the start of Phase 4 — all three still listed):
+
+```
+OPENROUTER_MODELS=nvidia/nemotron-nano-9b-v2:free,poolside/laguna-s-2.1:free,poolside/laguna-xs-2.1:free
+```
+
+The catalogue rotates, so re-run `npm run openrouter:models` before any demo and update this line if a slug has been delisted. **Latency note measured on these three:** a single planning call takes **~55-75s** on the free tier. Budget `maximumRunDurationSeconds` accordingly — a 120s budget is not enough for more than one page, which is exactly what broke the Phase 3 fixture run.
+
+### Phase 4 — Blocker, root cause (this entry previously recorded it wrongly)
+**Corrected.** The earlier version of this entry blamed a false positive in state-fingerprint/route dedup and pointed at `state-fingerprint-service.ts` / `url-canonicalizer.ts`. That was wrong, and it was wrong because the `duplicate-or-visited` skip *label* was taken at face value without reading the crawler's own event log. Both files are innocent; dedup was never involved.
+
+The crawler's event log for that run ends:
+
+```
+[INFO]    Links discovered  | /       | 3 candidates, 2 accepted, 1 skipped.
+[INFO]    Crawler popped URL| /login  | Depth 1, source element_2.
+[INFO]    Links discovered  | /login  | 3 candidates, 0 accepted, 3 skipped.
+[SKIPPED] Crawler stopped   |         | Run deadline exceeded.
+```
+
+`/contact` was discovered and queued correctly — the home page's own `link-health-3` fetched it and got HTTP 200. It was **never popped**, because the crawl ran out of time with it still on the stack: **133.2s elapsed against a `maximumRunDurationSeconds` of 120**, of which the two free-tier AI calls consumed **72s and 56s**. The budget was simply too small for the workload; that part is a test parameter, not a code defect.
+
+Two real reporting defects sat behind it, and both are now fixed and regression-tested:
+
+1. **`stoppedReason` was lost.** The crawler set `time_budget` on the per-matrix-target local context; the parent context never received it, so the aggregator fell back to `converged`. A truncated crawl reported itself complete. Fixed by `mergeStoppedReason` (most-severe-wins) in `run-orchestrator.ts`; covered by `run-orchestrator-stopped-reason-merge.test.ts`.
+2. **The unreached page was invisible.** `duplicate-or-visited` was applied to *any* already-visited-or-queued link, so a genuinely unreached page was indistinguishable from a repeat nav link. Fixed by the `alreadyAccountedFor` guard plus a post-loop pass recording `not-reached:<stoppedReason>` and `diagnostics.crawl.unreachedUrls`; covered by `page-crawler-unreached.test.ts`, whose two bug-pinning assertions were verified to fail against the pre-fix code.
+
+Lesson worth keeping: a skip *label* is not a root cause. The crawler already emitted the true reason in `diagnostics.crawl.events`; reading it first would have saved the misdiagnosis.
+
+### Phase 4 — Assertions, dedup, severity: built and wired, acceptance **not** fully green
+§6 evaluation, §7 dedup, §8 severity and the §4 privileged-form classifier are implemented, wired, and covered (161 → 214 tests). `outcome-evaluator.ts`, `severity.ts` and `form-dedup.ts` existed but were imported by nothing; they now run in the real path via a new `form-test-executor.ts`, and the planner receives snapshots that are already classified and deduped.
+
+**Four defects found only by running it live** — each invisible to a green suite:
+
+1. **`ReferenceError: __name is not defined`** on every form page. `outcome-evaluator.ts` passed *functions* to `page.evaluate`; tsx/esbuild rewrites named function expressions to reference its `__name` helper, which does not exist in the browser. Every form page came back `ERROR`. Fixed by using string-form evaluate, which is why `element-inventory.ts` and `login-detector.ts` already did.
+2. **Field-scoped outcomes never evaluated.** `collectOutcomeFacts` needs a CSS selector, but the inventory prefers `role`/`label` locators, so `targetSelector` was almost always `undefined` — real `VALIDATION_ERROR`s silently read as `NO_NAVIGATION` and produced phantom MEDIUMs. Fixed by carrying `cssSelector` on `ElementInventoryItem`.
+3. **Same-URL POST invalidated later cases.** A form posting to its own path leaves the URL unchanged while replacing the DOM, so the URL-based "did we navigate away" guard missed it and every subsequent case filled fields that no longer existed. Now the page reloads unconditionally between cases.
+4. **`<button type="submit">Sign in</button>` was not recognised as a submit control.** `kindFor` matched only on button *text* (`submit|save|continue|send`), ignoring the `type` attribute, so most real forms had no submit control at all. Fixed to honour `type` and HTML's in-form default.
+
+Also fixed: the live-view cursor overlay called `document.head.appendChild` at document-start before `<head>` existed, throwing into the page console on every navigation — **102 console errors that the CONSOLE_ERRORS check then reported as target defects.** Same "tool failure leaking into issues" class as the Phase 2 bug. Now guarded; the fixture run reports 0.
+
+**Acceptance status — honest:** no single run has met §11 in full.
+- With AI live (runs 3 and 4): all 7 pages reached including `/contact`, `runStatus: COMPLETED`, `findingsStatus: ISSUES_FOUND`, `stoppedReason: converged`, **zero inconclusive**, and all four seeded defects detected — invalid email accepted (HIGH), submit did nothing (HIGH), missing validation attributes (MEDIUM), clean control passing.
+- The final run, after removing fixture noise, hit **429 on all three models** (five consecutive runs exhausted the shared free-tier ceiling) and degraded to the deterministic generator. It stayed COMPLETED/converged with zero inconclusive, but the deterministic fallback caught only 2 of 4 seeded defects: it emits `INVALID_EMAIL` only for fields already typed `type=email`, so it cannot catch the seeded `type=text` email field. **That is a real coverage limit of the deterministic rung, not a flake.**
+
+**Two open items, deliberately not silently patched:**
+- **§7 contradicts itself.** The formula `formId = sha1(routeFamily + "::" + fieldSignature)` includes the route family, but the prose promises "one form, tested once" and cites a footer form recurring *across pages*. Those cannot both hold: the identical footer form on `/about` and `/pricing` hashes to `7726e4c2…` and `bd8d3a51…`, so dedup never fires and `form:duplicate_skipped` was never emitted in any run. The formula is implemented verbatim as instructed; **the contradiction needs a decision** — either drop `routeFamily` from `formId` (cross-page dedup works, per-route forms collapse) or amend the prose.
+- **Deterministic generator coverage.** It should derive invalid values from the field's *label/name* semantics, not just its declared `type`, or it will keep missing exactly the defects that matter most when the LLM is unavailable.

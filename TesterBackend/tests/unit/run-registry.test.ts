@@ -88,6 +88,7 @@ function reportFor(runId: string): TestingRunResponse {
       pagesDiscovered: 1,
       pagesTested: 1,
       pagesSkipped: 0,
+      pagesNotReached: 0,
       testsExecuted: 1,
       passedTests: 1,
       failedTests: 0,

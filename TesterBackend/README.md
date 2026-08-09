@@ -229,16 +229,19 @@ run.not_found
 `run.event.event.type` can currently be:
 
 ```text
+ai.batch_failed
+ai.batch_started
 ai.skipped_budget
 ai.planning_failed
 ai.planning_passed
-ai.planning_started
 ai:configuration-missing
 ai:disabled
 ai:enabled
 ai:skipped-no-forms
 browser.launched
+form:blocked_privileged
 form:discovered
+form:duplicate_skipped
 form:ready-for-ai
 form:scanning
 live-view:frame
@@ -269,6 +272,13 @@ test_case.started
 ```
 
 Each progress event includes `runId`, `sequence`, `type`, `status`, `timestamp`, and `message`, with optional `pageUrl`, `role`, `viewport`, `locale`, `counts`, `diagnostics`, `issue`, `liveFrame`, or `report`.
+
+Two events carry a structured `diagnostics` payload worth naming:
+
+| Event | `diagnostics` payload | Meaning |
+| --- | --- | --- |
+| `form:blocked_privileged` | `{ formId, decision: "blocked_privileged", matchedSignal }` | The privileged-form classifier (§4) refused the form. A `hard` block is never planned or submitted; a `soft` block is filled but never submitted. `matchedSignal` names the rule that fired, e.g. `submit_label:invite`. |
+| `form:duplicate_skipped` | `{ formId, decision: "duplicate_of:<firstPageUrl>" }` | §7 dedup: this form was already tested on an earlier page. One form is tested once, on the first page it appears. |
 
 ## Stop States
 
@@ -319,6 +329,7 @@ src/ai/prompt-loader.ts
 src/app.ts
 src/artifacts/artifact-manager.ts
 src/assertions/assertion-engine.ts
+src/assertions/outcome-evaluator.ts
 src/authentication/authentication-handler.ts
 src/authentication/login-detector.ts
 src/browser/browser-manager.ts
@@ -346,9 +357,11 @@ src/middleware/error.middleware.ts
 src/middleware/request-id.middleware.ts
 src/prompts/form-test-planner.system.md
 src/reporting/report-aggregator.ts
+src/reporting/severity.ts
 src/routes/testing.routes.ts
 src/runs/run-events.ts
 src/runs/run-registry.ts
+src/safety/form-classifier.ts
 src/schemas/llm-contract.schema.ts
 src/schemas/report.schema.ts
 src/schemas/testing-request.schema.ts
@@ -358,6 +371,8 @@ src/server.ts
 src/services/run-orchestrator.ts
 src/testing/deterministic-form-plan.ts
 src/testing/form-data-generator.ts
+src/testing/form-dedup.ts
+src/testing/form-test-executor.ts
 src/testing/link-health-checker.ts
 src/testing/page-baseline-tests.ts
 src/testing/run-context.ts
