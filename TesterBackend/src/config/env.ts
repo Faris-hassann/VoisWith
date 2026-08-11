@@ -1,5 +1,12 @@
-import "dotenv/config";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { config as loadDotenv } from "dotenv";
 import { z } from "zod";
+
+// Resolve the backend environment independently of the shell's working
+// directory. Explicit process environment variables still take precedence.
+const backendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+loadDotenv({ path: path.join(backendRoot, ".env"), override: false });
 
 const booleanFromEnv = z
   .union([z.literal("true"), z.literal("false"), z.boolean()])

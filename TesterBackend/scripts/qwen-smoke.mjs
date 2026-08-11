@@ -1,11 +1,12 @@
-import "dotenv/config";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { config as loadDotenv } from "dotenv";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const backendRoot = path.resolve(__dirname, "..");
+loadDotenv({ path: path.join(backendRoot, ".env"), override: false });
 
 async function main() {
   const apiKey = process.env.QWEN_API_KEY ?? "";
@@ -74,13 +75,21 @@ async function main() {
       parsedBody = null;
     }
 
-    console.log(JSON.stringify({
+    const result = {
       status: response.status,
       ok: response.ok,
       contentType,
       promptLoaded: prompt.length > 0,
       hasStructuredTestCases: Boolean(extractStructuredValue(parsedBody)),
-    }, null, 2));
+    };
+    console.log(JSON.stringify(result, null, 2));
+
+    if (!result.ok) {
+      throw new Error(`Qwen smoke request failed with HTTP ${result.status}.`);
+    }
+    if (!result.hasStructuredTestCases) {
+      throw new Error("Qwen smoke response did not contain a valid testCases payload.");
+    }
   } finally {
     globalThis.clearTimeout(timer);
   }
