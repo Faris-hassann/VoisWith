@@ -6,6 +6,8 @@ import { outcomePassed, severityForOutcome } from "../reporting/severity.js";
 import type { FormTestCase } from "../types/llm-contract.js";
 import type { TestCaseResult } from "../types/report.js";
 import type { ElementInventoryItem, InspectedForm } from "../types/testing.js";
+import type { FormTestCaseState, RunEventSink } from "../runs/run-events.js";
+import { delay } from "../utilities/timeout.js";
 
 /**
  * Executes a planned `FormTestCase` and judges it against DESIGN-DECISIONS.md §6.
@@ -33,7 +35,20 @@ export interface FormTestExecutionInput {
   allowFormSubmission: boolean;
   screenshotOnFailure: (page: Page, name: string, description: string) => Promise<TestCaseResult["evidence"]>;
   runId: string;
+  pageUrl?: string;
+  role?: string;
+  viewport?: string;
+  locale?: string;
+  planningSource?: "ai" | "deterministic" | "mixed";
+  onEvent?: RunEventSink;
+  extendDeadlineMs?: (milliseconds: number) => void;
+  control?: {
+    isStopped: () => boolean;
+    waitWhilePaused: () => Promise<void>;
+  };
 }
+
+export const SUBMISSION_HOLD_SECONDS = 30;
 
 export async function executeFormTestCase(input: FormTestExecutionInput): Promise<TestCaseResult> {
   const { page, testCase, target, elementMap, allowFormSubmission } = input;
@@ -65,10 +80,16 @@ export async function executeFormTestCase(input: FormTestExecutionInput): Promis
     }
 
     if (testCase.submit) {
-      const submitControl = target.form.submitControls.find((control) => !control.hidden);
+      const submitControl = selectSubmitControl(target.form.submitControls, testCase.intent);
       if (!submitControl) {
         return inconclusive(input, "Form has no visible submit control to activate.", reproductionSteps);
       }
+      const selectedButton = describe(submitControl);
+      await holdBeforeSubmit(input, selectedButton);
+      if (input.control?.isStopped()) {
+        return inconclusive(input, "Run stopped during the pre-submit hold; click was cancelled.", reproductionSteps);
+      }
+      emitCase(input, "submitting", { selectedButton });
       await locatorFromDescriptor(page, submitControl.locator).click({ timeout: 5000 });
       reproductionSteps.push(`Click ${describe(submitControl)}`);
     }
@@ -85,6 +106,69 @@ export async function executeFormTestCase(input: FormTestExecutionInput): Promis
   const observation = evaluateOutcome(testCase.expectedOutcome.kind, facts);
 
   return buildResult(input, observation, reproductionSteps);
+}
+
+async function holdBeforeSubmit(input: FormTestExecutionInput, selectedButton: string): Promise<void> {
+  input.extendDeadlineMs?.(SUBMISSION_HOLD_SECONDS * 1000);
+  const startedAt = new Date().toISOString();
+  emitCase(input, "holding", {
+    selectedButton,
+    holdStartedAt: startedAt,
+    holdDurationSeconds: SUBMISSION_HOLD_SECONDS,
+    holdRemainingSeconds: SUBMISSION_HOLD_SECONDS,
+  });
+  let remainingMs = SUBMISSION_HOLD_SECONDS * 1000;
+  while (remainingMs > 0) {
+    if (input.control?.isStopped()) {
+      emitCase(input, "inconclusive", {
+        selectedButton,
+        holdStartedAt: startedAt,
+        holdDurationSeconds: SUBMISSION_HOLD_SECONDS,
+        holdRemainingSeconds: Math.ceil(remainingMs / 1000),
+        resultMessage: "Run stopped during the pre-submit hold; click was cancelled.",
+      });
+      return;
+    }
+    await input.control?.waitWhilePaused();
+    const step = Math.min(250, remainingMs);
+    await delay(step);
+    remainingMs -= step;
+  }
+}
+
+function emitCase(
+  input: FormTestExecutionInput,
+  status: "holding" | "submitting" | "inconclusive",
+  updates: Partial<FormTestCaseState>,
+): void {
+  input.onEvent?.({
+    runId: input.runId,
+    type: `test_case.${status}`,
+    status: status === "inconclusive" ? "skipped" : "started",
+    message: status === "holding"
+      ? `Holding ${SUBMISSION_HOLD_SECONDS}s before submitting: ${input.testCase.intent}.`
+      : status === "submitting"
+        ? `Submitting form test case: ${input.testCase.intent}.`
+        : updates.resultMessage ?? `Form test case inconclusive: ${input.testCase.intent}.`,
+    pageUrl: input.pageUrl ?? input.page.url(),
+    role: input.role,
+    viewport: input.viewport,
+    locale: input.locale,
+    formTestCase: {
+      runId: input.runId,
+      caseId: input.testCase.caseId,
+      formId: input.testCase.formId,
+      pageUrl: input.pageUrl ?? input.page.url(),
+      role: input.role,
+      viewport: input.viewport,
+      locale: input.locale,
+      planningSource: input.planningSource ?? "mixed",
+      testCase: input.testCase,
+      status,
+      submit: input.testCase.submit,
+      ...updates,
+    },
+  });
 }
 
 /** §4 and the consent gate, in the order that makes the recorded reason most specific. */
@@ -173,4 +257,22 @@ function selectorFor(element: ElementInventoryItem | undefined): string | undefi
 
 function describe(element: ElementInventoryItem): string {
   return element.label ?? element.name ?? element.text ?? element.accessibleName ?? element.id;
+}
+
+/** Selects the most relevant usable commit control when a form exposes more than one. */
+export function selectSubmitControl(
+  controls: ElementInventoryItem[],
+  intent: string,
+): ElementInventoryItem | undefined {
+  const intentWords = new Set(intent.toLowerCase().match(/[a-z0-9]+/g) ?? []);
+  const actionPattern = /\b(submit|save|send|continue|next|apply|confirm|done|create|update|register|sign\s*up|log\s*in)\b/i;
+  return controls
+    .filter((control) => !control.hidden && !control.disabled)
+    .map((control, index) => {
+      const text = [control.text, control.accessibleName, control.label, control.name, control.value].filter(Boolean).join(" ").toLowerCase();
+      const matchingWords = (text.match(/[a-z0-9]+/g) ?? []).filter((word) => intentWords.has(word)).length;
+      const nativeSubmit = control.type?.toLowerCase() === "submit" || control.tagName.toLowerCase() === "button";
+      return { control, index, score: matchingWords * 10 + (actionPattern.test(text) ? 4 : 0) + (nativeSubmit ? 2 : 0) };
+    })
+    .sort((left, right) => right.score - left.score || left.index - right.index)[0]?.control;
 }

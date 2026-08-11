@@ -15,7 +15,7 @@ process.env.ALLOW_PRIVATE_NETWORK_TARGETS = "true";
 process.env.REQUIRE_HTTPS = "false";
 process.env.BROWSER_HEADLESS = "true";
 process.env.MAX_AI_CALLS_PER_RUN = liveAi ? (process.env.MAX_AI_CALLS_PER_RUN || "25") : "0";
-if (liveAi) process.env.QWEN_TIMEOUT_MS = process.env.ACCEPTANCE_AI_TIMEOUT_MS || "60000";
+if (liveAi) process.env.OPENROUTER_TIMEOUT_MS = process.env.ACCEPTANCE_AI_TIMEOUT_MS || "300000";
 
 try {
   if (!(await isFixtureReady())) {
@@ -98,6 +98,24 @@ function assertAcceptance(report, events, isLive) {
     failures.push("clean /login control did not pass conclusively");
   }
   if (!events.some((event) => event.type === "form:duplicate_skipped")) failures.push("cross-page duplicate event missing");
+  const pagesWithPlans = report.pages.filter((page) => (page.plannedTestCases?.length ?? 0) > 0);
+  for (const page of pagesWithPlans) {
+    if (!page.evidence.some((item) => item.description?.includes("saved before sequential execution"))) {
+      failures.push(`planned test-case artifact missing for ${new URL(page.url).pathname}`);
+    }
+  }
+  if (events.filter((event) => event.type === "ai.plan_saved").length !== pagesWithPlans.length) {
+    failures.push("ai.plan_saved event count does not match pages with generated plans");
+  }
+  let activeCase = false;
+  for (const event of events) {
+    if (event.type === "test_case.started") {
+      if (activeCase) failures.push("form test cases overlapped instead of running sequentially");
+      activeCase = true;
+    }
+    if (event.type === "test_case.passed" || event.type === "test_case.failed") activeCase = false;
+  }
+  if (activeCase) failures.push("last form test case did not finish");
   if (!isLive && report.diagnostics?.ai.disabled !== true) failures.push("deterministic run did not disable AI");
   if (isLive && (report.diagnostics?.ai.successes ?? 0) < 1) failures.push("no schema-valid live AI batch completed");
   if (failures.length) throw new Error(`Acceptance failed:\n- ${failures.join("\n- ")}`);

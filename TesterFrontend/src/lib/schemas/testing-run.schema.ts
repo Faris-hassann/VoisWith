@@ -141,7 +141,7 @@ export const defaultFormValues: TestingFormValues = {
     allowDestructiveActions: false,
     allowPayments: false,
     maximumActionsPerPage: 15,
-    maximumRunDurationSeconds: 300,
+    maximumRunDurationSeconds: 10800,
   },
   destructiveAcknowledged: false,
   paymentAcknowledged: false,

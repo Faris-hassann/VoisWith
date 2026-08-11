@@ -10,7 +10,7 @@ import { delay } from "../utilities/timeout.js";
 import { batchFormSnapshots } from "./form-batcher.js";
 import { validateFormTestPlan } from "./form-plan-validator.js";
 import { PromptLoader } from "./prompt-loader.js";
-import { QwenClient } from "./qwen-client.js";
+import { OpenRouterClient } from "./openrouter-client.js";
 
 export interface FormPlanResult {
   testCases: FormTestCase[];
@@ -27,7 +27,7 @@ export interface FormPlanResult {
  * deterministic generator rather than failing the page.
  */
 export class AiTestPlanner {
-  private readonly client = new QwenClient();
+  private readonly client = new OpenRouterClient();
   private readonly prompts = new PromptLoader();
 
   /**
@@ -36,6 +36,7 @@ export class AiTestPlanner {
    * crawl concerns inside the planner.
    */
   async plan(context: RunContext, snapshot: PageSnapshot, snapshots: FormSnapshot[]): Promise<FormPlanResult> {
+    const systemPrompt = await this.prompts.load();
     const batches = batchFormSnapshots(snapshots);
 
     const testCases: FormTestCase[] = [];
@@ -64,7 +65,7 @@ export class AiTestPlanner {
 
         try {
           const response = await this.client.createStructuredPlan({
-            systemPrompt: await this.prompts.load(),
+            systemPrompt,
             context: { formCount: batch.length, forms: batch },
             validate: (value) => {
               const result = validateFormTestPlan(value, batch);
@@ -130,7 +131,7 @@ export class AiTestPlanner {
   }
 }
 
-/** Pulls the full provider attempt history off a QwenClient exhaustion error, when present. */
+/** Pulls the full provider attempt history off an OpenRouterClient exhaustion error, when present. */
 function extractLlmAttempts(error: unknown): LlmAttempt[] | undefined {
   if (!(error instanceof AppError)) return undefined;
   const details = error.details;

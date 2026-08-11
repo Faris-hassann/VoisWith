@@ -23,9 +23,17 @@ const envSchema = z.object({
   LOG_LEVEL: z.string().default("info"),
   FRONTEND_ORIGINS: z.string().default("http://localhost:3000,http://localhost:3001,http://localhost:5173"),
   AUTO_OPEN_SWAGGER: booleanFromEnv.default("true"),
-  QWEN_API_KEY: z.string().default(""),
-  QWEN_API_URL: z.string().url().default("https://qwen.snouhy.com/chat"),
-  QWEN_TIMEOUT_MS: numberFromEnv.default("60000"),
+  OPENROUTER_API_KEY: z.string().default(""),
+  OPENROUTER_API_URL: z.string().url().optional(),
+  OPENROUTER_BASE_URL: z.string().url().default("https://openrouter.ai/api/v1"),
+  OPENROUTER_MODEL: z.string().min(1).optional(),
+  OPENROUTER_MODELS: z.string().optional(),
+  OPENROUTER_TIMEOUT_MS: numberFromEnv.optional(),
+  AI_RESPONSE_TIMEOUT_MS: numberFromEnv.optional(),
+  OPENROUTER_HTTP_REFERER: z.string().optional(),
+  OPENROUTER_SITE_URL: z.string().optional(),
+  OPENROUTER_APP_TITLE: z.string().max(100).optional(),
+  OPENROUTER_APP_NAME: z.string().max(100).optional(),
   AI_CALL_PACING_MS: numberFromEnv.default("1500"),
   BROWSER_CHANNEL: z.literal("chrome").default("chrome"),
   BROWSER_HEADLESS: booleanFromEnv.default("false"),
@@ -77,10 +85,14 @@ export const config = {
     .filter(Boolean),
   autoOpenSwagger: parsed.AUTO_OPEN_SWAGGER,
   ai: {
-    provider: "qwen" as const,
-    apiKey: parsed.QWEN_API_KEY,
-    apiUrl: parsed.QWEN_API_URL.replace(/\/$/, ""),
-    timeoutMs: parsed.QWEN_TIMEOUT_MS,
+    provider: "openrouter" as const,
+    apiKey: parsed.OPENROUTER_API_KEY,
+    apiUrl: openRouterChatCompletionsUrl(parsed.OPENROUTER_API_URL ?? parsed.OPENROUTER_BASE_URL),
+    model: openRouterModels(parsed.OPENROUTER_MODEL, parsed.OPENROUTER_MODELS)[0]!,
+    models: openRouterModels(parsed.OPENROUTER_MODEL, parsed.OPENROUTER_MODELS),
+    timeoutMs: parsed.OPENROUTER_TIMEOUT_MS ?? parsed.AI_RESPONSE_TIMEOUT_MS ?? 300_000,
+    httpReferer: parsed.OPENROUTER_HTTP_REFERER || parsed.OPENROUTER_SITE_URL || undefined,
+    appTitle: parsed.OPENROUTER_APP_TITLE || parsed.OPENROUTER_APP_NAME || "VoisWith Website Tester",
     pacingMs: parsed.AI_CALL_PACING_MS,
   },
   browser: {
@@ -121,8 +133,18 @@ export const config = {
   },
 };
 
+function openRouterChatCompletionsUrl(value: string): string {
+  const trimmed = value.replace(/\/$/, "");
+  return trimmed.endsWith("/chat/completions") ? trimmed : `${trimmed}/chat/completions`;
+}
+
+function openRouterModels(model: string | undefined, models: string | undefined): string[] {
+  const configured = model ? [model] : (models ?? "").split(",").map((value) => value.trim()).filter(Boolean);
+  return configured.length > 0 ? configured : ["openai/gpt-4o-mini"];
+}
+
 export function assertAiConfigured(): void {
   if (!config.ai.apiKey) {
-    throw new Error("QWEN_API_KEY must be set to run AI planning.");
+    throw new Error("OPENROUTER_API_KEY must be set to run AI planning.");
   }
 }

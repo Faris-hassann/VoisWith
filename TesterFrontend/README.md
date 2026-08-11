@@ -6,7 +6,7 @@ Part of the [VoisWith repository overview](../README.md).
 
 ## What Runs Now
 
-The frontend does not run Playwright and does not hold Qwen secrets. It builds a backend request, requires the authorization confirmation gate, calls the backend directly or through local Next.js proxy routes, and renders async run state from HTTP polling plus WebSocket events.
+The frontend does not run Playwright and does not hold OpenRouter secrets. It builds a backend request, requires the authorization confirmation gate, calls the backend directly or through local Next.js proxy routes, and renders async run state from HTTP polling plus WebSocket events.
 
 Routes:
 

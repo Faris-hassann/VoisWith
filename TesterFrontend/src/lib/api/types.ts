@@ -199,6 +199,7 @@ export interface RunProgressEvent {
     action: "move" | "click" | "scroll";
   };
   report?: TestingRunResponse;
+  formTestCase?: FormTestCaseState;
 }
 
 export interface AsyncRunSnapshot {
@@ -208,6 +209,7 @@ export interface AsyncRunSnapshot {
   updatedAt: string;
   completedAt?: string;
   events: RunProgressEvent[];
+  formTestCases?: FormTestCaseState[];
   report?: TestingRunResponse;
   error?: unknown;
 }
@@ -263,6 +265,7 @@ export interface PageReport {
   skippedReason?: string;
   /** Plan-only: AI/deterministic form test cases planned but not executed. Never counted in RunSummary.testsExecuted. */
   plannedTestCases?: FormTestCase[];
+  planningSource?: "ai" | "deterministic" | "mixed";
 }
 
 /** The five-value outcome enum an AI or deterministic planner may request. INCONCLUSIVE is result-only, never requestable. */
@@ -276,6 +279,35 @@ export interface FormTestCase {
   inputs: Array<{ elementId: string; value: string }>;
   submit: boolean;
   expectedOutcome: { kind: ExpectedOutcomeKind; elementId?: string };
+}
+
+export type FormTestCaseStateStatus =
+  | "planned"
+  | "running"
+  | "holding"
+  | "submitting"
+  | "passed"
+  | "failed"
+  | "inconclusive";
+
+export interface FormTestCaseState {
+  runId: string;
+  caseId: string;
+  formId: string;
+  pageUrl: string;
+  role?: string;
+  viewport?: string;
+  locale?: string;
+  planningSource: "ai" | "deterministic" | "mixed";
+  testCase: FormTestCase;
+  status: FormTestCaseStateStatus;
+  submit: boolean;
+  selectedButton?: string;
+  holdStartedAt?: string;
+  holdDurationSeconds?: number;
+  holdRemainingSeconds?: number;
+  resultStatus?: TestStatus;
+  resultMessage?: string;
 }
 
 export interface TestCaseResult {
@@ -390,6 +422,7 @@ export interface RunDiagnostics {
   crawl: {
     acceptedUrls: string[];
     skippedUrls: Array<{ url: string; reason: string }>;
+    externalUrls?: Array<{ url: string; sourceUrl?: string; text?: string }>;
     failedUrls: Array<{ url: string; reason: string }>;
     discoveredCandidates: number;
     noInternalLinksPages: string[];
@@ -397,7 +430,7 @@ export interface RunDiagnostics {
   };
   pages: PageDiagnostics[];
   ai: {
-    provider?: "qwen";
+    provider?: "openrouter";
     providerConfigured?: boolean;
     calls: number;
     maxCalls?: number;

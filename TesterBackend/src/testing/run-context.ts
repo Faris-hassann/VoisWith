@@ -19,6 +19,7 @@ export interface RunContext {
   routeFamilies?: Map<string, number>;
   processedForms?: Map<string, string>;
   skippedUrls: Map<string, string>;
+  externalUrls?: Map<string, { sourceUrl?: string; text?: string }>;
   failedUrls: Map<string, string>;
   redirectHistory: Map<string, string[]>;
   pageReports: PageReport[];

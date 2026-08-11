@@ -18,7 +18,7 @@ export class LoginDetector {
         if (name) return element.tagName.toLowerCase() + "[name=\\"" + CSS.escape(name) + "\\"]";
         const testId = element.getAttribute("data-testid") ?? element.getAttribute("data-test");
         if (testId) return "[data-testid=\\"" + CSS.escape(testId) + "\\"],[data-test=\\"" + CSS.escape(testId) + "\\"]";
-        return element.tagName.toLowerCase();
+        return undefined;
       };
       const labelTextFor = (input) => {
         const id = input.getAttribute("id");
@@ -47,12 +47,26 @@ export class LoginDetector {
       const username = inputs
         .filter((input) => input.type !== "password" && input.type !== "hidden" && visibleEditable(input))
         .sort((a, b) => inputScore(b) - inputScore(a))[0];
-      const password = inputs.find((input) => input.type === "password" && visibleEditable(input));
-      const submit = [...document.querySelectorAll("button,input[type='submit'],[role='button']")].find((button) => {
-        const style = getComputedStyle(button);
-        if (button.disabled || button.offsetParent === null || style.visibility === "hidden" || style.display === "none") return false;
-        return /login|log in|sign in|continue|submit/i.test(button.textContent ?? button.getAttribute("value") ?? "");
+      const password = inputs.find((input) => {
+        const text = [input.type, input.name, input.id, input.placeholder, input.getAttribute("autocomplete"), input.getAttribute("aria-label"), labelTextFor(input)].filter(Boolean).join(" ").toLowerCase();
+        return /password|current-password/.test(text) && visibleEditable(input);
       });
+      const passwordForm = password?.closest("form");
+      const submit = [...document.querySelectorAll("button,input[type='submit'],[role='button']")]
+        .filter((button) => !passwordForm || passwordForm.contains(button) || button.getAttribute("form") === passwordForm.id)
+        .map((button, index) => {
+        const style = getComputedStyle(button);
+        const text = (button.textContent ?? button.getAttribute("value") ?? button.getAttribute("aria-label") ?? "").trim();
+        const type = button.getAttribute("type")?.toLowerCase();
+        const unusable = button.disabled || button.offsetParent === null || style.visibility === "hidden" || style.display === "none";
+        const excluded = /show|hide|visibility|eye|google|facebook|github|sso|oauth/i.test(text) || type === "button";
+        const exact = /^(sign in|log in|login|continue)$/i.test(text);
+        const action = /login|log in|sign in|continue|submit/i.test(text);
+        const nativeSubmit = button.tagName.toLowerCase() === "input" || type === "submit" || !type;
+        return { button, index, unusable, excluded, score: (exact ? 30 : 0) + (action ? 10 : 0) + (nativeSubmit ? 5 : 0) };
+      })
+        .filter((candidate) => !candidate.unusable && !candidate.excluded && candidate.score > 0)
+        .sort((a, b) => b.score - a.score || a.index - b.index)[0]?.button;
       return {
         usernameSelector: username ? selectorFor(username) : undefined,
         passwordSelector: password ? selectorFor(password) : undefined,

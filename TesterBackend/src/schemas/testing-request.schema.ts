@@ -140,7 +140,7 @@ const baseTestingRunRequestSchema = z
         allowDestructiveActions: z.boolean().default(false),
         allowPayments: z.boolean().default(false),
         maximumActionsPerPage: z.number().int().min(1).max(200).default(15),
-        maximumRunDurationSeconds: z.number().int().min(10).max(10800).default(300),
+        maximumRunDurationSeconds: z.number().int().min(10).max(10800).default(10800),
       })
       .strict()
       .default({}),

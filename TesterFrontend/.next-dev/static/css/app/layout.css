@@ -838,6 +838,9 @@ video {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.break-words {
+  overflow-wrap: break-word;
+}
 .rounded {
   border-radius: 0.25rem;
 }

@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-process.env.QWEN_API_KEY = "test-key";
-process.env.QWEN_API_URL = "https://qwen.snouhy.com/chat";
+process.env.OPENROUTER_API_KEY = "test-key";
+process.env.OPENROUTER_API_URL = "https://openrouter.test/api/v1/chat/completions";
+process.env.OPENROUTER_MODEL = "openai/gpt-4o-mini";
 process.env.AI_CALL_PACING_MS = "500";
 
 const delaySpy = vi.fn(async () => undefined);
@@ -19,7 +20,7 @@ const originalMaxCalls = config.limits.maxAiCallsPerRun;
 const originalMaxTestCases = config.limits.maxAiTestCasesPerRun;
 
 function emptyPlanResponse(): Response {
-  return new Response(JSON.stringify({ message: '{"testCases":[]}' }), {
+  return new Response(JSON.stringify({ choices: [{ message: { content: '{"testCases":[]}' } }] }), {
     status: 200,
     headers: { "content-type": "application/json" },
   });
@@ -78,12 +79,12 @@ describe("AiTestPlanner batching", () => {
     const [batch] = buildFormSnapshots(snapshot.forms, snapshot.url);
     const twoCaseResponse = new Response(
       JSON.stringify({
-        message: JSON.stringify({
+        choices: [{ message: { content: JSON.stringify({
           testCases: [
             { caseId: "c1", formId: batch!.formId, testType: "FORM_VALIDATION", intent: "a", inputs: [], submit: false, expectedOutcome: { kind: "NO_NAVIGATION" } },
             { caseId: "c2", formId: batch!.formId, testType: "FORM_VALIDATION", intent: "b", inputs: [], submit: false, expectedOutcome: { kind: "NO_NAVIGATION" } },
           ],
-        }),
+        }) } }],
       }),
       { status: 200, headers: { "content-type": "application/json" } },
     );
@@ -99,7 +100,7 @@ describe("AiTestPlanner batching", () => {
     expect(context.aiCalls).toBe(1);
   });
 
-  it("records the provider attempt history and falls back to deterministic cases when a batch exhausts Qwen", async () => {
+  it("records the provider attempt history and falls back to deterministic cases when OpenRouter is unavailable", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => rateLimitedResponse()));
 
     const planner = new AiTestPlanner();

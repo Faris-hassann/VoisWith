@@ -6,7 +6,7 @@ export const openApiDocument = {
     title: "TesterBackend API",
     version: "1.0.0",
     description:
-      "Authorized black-box functional website testing backend powered by Playwright and Qwen.",
+      "Authorized black-box functional website testing backend powered by Playwright and OpenRouter.",
   },
   servers: [
     {
@@ -377,7 +377,7 @@ export const openApiDocument = {
           password: {
             type: "string",
             format: "password",
-            description: "Never logged, stored in reports, or sent to Qwen.",
+            description: "Never logged, stored in reports, or sent to OpenRouter.",
           },
           fieldHints: {
             type: "object",

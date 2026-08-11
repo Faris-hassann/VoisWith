@@ -88,6 +88,7 @@ export interface PageReport {
   skippedReason?: string;
   /** Plan-only this phase (Phase 4 adds execution/assertion) — never counted in RunSummary.testsExecuted. */
   plannedTestCases?: FormTestCase[];
+  planningSource?: "ai" | "deterministic" | "mixed";
 }
 
 export interface TestCaseResult {
@@ -225,6 +226,7 @@ export interface RunDiagnostics {
   crawl: {
     acceptedUrls: string[];
     skippedUrls: Array<{ url: string; reason: string }>;
+    externalUrls?: Array<{ url: string; sourceUrl?: string; text?: string }>;
     failedUrls: Array<{ url: string; reason: string }>;
     discoveredCandidates: number;
     noInternalLinksPages: string[];
@@ -234,7 +236,7 @@ export interface RunDiagnostics {
   };
   pages: PageDiagnostics[];
   ai: {
-    provider?: "qwen";
+    provider?: "openrouter";
     providerConfigured?: boolean;
     calls: number;
     maxCalls: number;

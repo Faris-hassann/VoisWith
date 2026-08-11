@@ -7,7 +7,7 @@ import Swal from "sweetalert2";
 import { RunningTestPanel } from "@/components/testing/RunningTestPanel";
 import { Button } from "@/components/ui/button";
 import { buildTestingRunReportUrl, buildTestingRunWebSocketUrl, controlTestingRun, getTestingRunStatus } from "@/lib/api/testing.api";
-import type { AsyncRunSnapshot, AsyncRunStatus, RunProgressEvent, TestingRunResponse } from "@/lib/api/types";
+import type { AsyncRunSnapshot, AsyncRunStatus, FormTestCaseState, RunProgressEvent, TestingRunResponse } from "@/lib/api/types";
 import { useReportStore } from "@/providers/report-store-provider";
 import { HEARTBEAT_INTERVAL_MS, MISSED_HEARTBEATS_BEFORE_CLOSE, reconnectDelayMs, RUN_POLL_INTERVAL_MS, shouldReconnect } from "@/lib/testing/run-stream-policy";
 
@@ -19,6 +19,7 @@ export default function RunningPage({ params }: { params: Promise<{ runId: strin
   const [connection, setConnection] = useState<ConnectionState>("connecting");
   const [status, setStatus] = useState<AsyncRunStatus>("running");
   const [events, setEvents] = useState<RunProgressEvent[]>([]);
+  const [formTestCases, setFormTestCases] = useState<FormTestCaseState[]>([]);
   const [report, setReport] = useState<TestingRunResponse>();
   const [error, setError] = useState<unknown>();
   const [startedAt, setStartedAt] = useState<string>();
@@ -63,6 +64,7 @@ export default function RunningPage({ params }: { params: Promise<{ runId: strin
       }
       for (const event of snapshot.events) lastSequence = Math.max(lastSequence, event.sequence);
       setEvents((current) => dedupeEvents([...current, ...sanitizedEvents]));
+      setFormTestCases((current) => mergeFormCases(current, snapshot.formTestCases, snapshot.events));
       setError(snapshot.error);
       if (snapshot.report) completeWithReport(snapshot.report, snapshot.status);
       if (["failed", "completed", "stopped"].includes(snapshot.status)) terminalRef.current = true;
@@ -172,6 +174,9 @@ export default function RunningPage({ params }: { params: Promise<{ runId: strin
           if (payload.event.liveCursor) {
             setLiveCursor(payload.event.liveCursor);
           }
+          if (payload.event.formTestCase) {
+            setFormTestCases((current) => mergeFormCases(current, undefined, [payload.event]));
+          }
           if (payload.event.report) completeWithReport(payload.event.report, "completed");
           if (payload.event.type === "run.failed") {
             terminalRef.current = true;
@@ -223,6 +228,7 @@ export default function RunningPage({ params }: { params: Promise<{ runId: strin
       const snapshot = await controlTestingRun(runId, action);
       setStatus(snapshot.status);
       setEvents(snapshot.events.map(stripLiveFrameData));
+      setFormTestCases((current) => mergeFormCases(current, snapshot.formTestCases, snapshot.events));
       setError(snapshot.error);
     } catch (caught) {
       setError(caught);
@@ -242,6 +248,9 @@ export default function RunningPage({ params }: { params: Promise<{ runId: strin
           <div className="flex flex-wrap gap-2">
             <Button asChild>
               <Link href={`/testing/results/${report.runId}`}>View report</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link href={`/testing/test-cases/${report.runId}`}>Test cases</Link>
             </Button>
             <Button asChild variant="outline">
               <a href={buildTestingRunReportUrl(report.runId)} download>
@@ -330,6 +339,29 @@ export default function RunningPage({ params }: { params: Promise<{ runId: strin
 
       <section className="grid gap-5 xl:grid-cols-2">
         <Panel title="Generated tests" empty="No generated tests yet." events={generatedTests} />
+        <section className="rounded-lg border bg-card p-5 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="font-semibold">Implemented test cases</h2>
+            <Button asChild size="sm" variant="outline">
+              <Link href={`/testing/test-cases/${runId}`}>Open</Link>
+            </Button>
+          </div>
+          <div className="mt-3 max-h-80 overflow-auto rounded-md border bg-background">
+            {formTestCases.length === 0 ? (
+              <div className="p-3 text-sm text-muted-foreground">No planned form cases yet.</div>
+            ) : (
+              formTestCases.slice(-12).reverse().map((item) => (
+                <div key={`${item.pageUrl}-${item.caseId}`} className="border-b p-3 text-sm last:border-b-0">
+                  <div className="flex flex-wrap gap-2">
+                    <span className="font-medium">{item.testCase.intent}</span>
+                    <span className="rounded border px-2 py-0.5 text-xs text-muted-foreground">{item.status}</span>
+                  </div>
+                  <p className="mt-1 truncate text-xs text-muted-foreground">{item.pageUrl}</p>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
         <Panel title="Console and network" empty="No console or network issue events yet." events={events.filter((event) => event.type.includes("network") || event.type.includes("console") || event.type === "page.snapshot_collected").slice(-30)} />
       </section>
 
@@ -405,6 +437,19 @@ function dedupeEvents(events: RunProgressEvent[]): RunProgressEvent[] {
   return [...bySequence.values()].sort((a, b) => a.sequence - b.sequence);
 }
 
+function mergeFormCases(current: FormTestCaseState[], snapshotCases?: FormTestCaseState[], events: RunProgressEvent[] = []): FormTestCaseState[] {
+  const byKey = new Map(current.map((item) => [caseKey(item), item]));
+  for (const item of snapshotCases ?? []) byKey.set(caseKey(item), item);
+  for (const event of events) {
+    if (event.formTestCase) byKey.set(caseKey(event.formTestCase), event.formTestCase);
+  }
+  return [...byKey.values()];
+}
+
+function caseKey(item: FormTestCaseState): string {
+  return `${item.pageUrl}:${item.formId}:${item.caseId}:${item.role ?? ""}:${item.viewport ?? ""}:${item.locale ?? ""}`;
+}
+
 function summarizeAiWarning(events: RunProgressEvent[], report?: TestingRunResponse): string | undefined {
   const ai = report?.diagnostics?.ai;
   const latestFailure = ai?.failures.at(-1) ?? latestEventFailure(events);
@@ -412,10 +457,10 @@ function summarizeAiWarning(events: RunProgressEvent[], report?: TestingRunRespo
     return "AI planning is disabled because the backend AI call budget is 0. Deterministic baseline, link, form, and safety tests still run.";
   }
   if (ai && ai.providerConfigured === false) {
-    return "Qwen is not fully configured, so AI planning cannot generate test cases yet. Add QWEN_API_KEY, then restart the backend.";
+    return "OpenRouter is not fully configured, so AI planning cannot generate test cases yet. Add OPENROUTER_API_KEY, then restart the backend.";
   }
   if (events.some((event) => event.type === "ai:configuration-missing")) {
-    return "Qwen is not fully configured, so AI planning may be skipped while deterministic tests continue.";
+    return "OpenRouter is not fully configured, so AI planning may be skipped while deterministic tests continue.";
   }
   if (latestFailure) {
     return describeAiFailure(latestFailure.reason, latestFailure.message);
@@ -476,22 +521,28 @@ function stringify(value: unknown): string {
 
 function describeAiFailure(reason?: string, message?: string): string {
   if (reason === "llm_unavailable" && message?.includes("credential is configured but was rejected")) {
-    return "Qwen is configured, but the provider rejected the current credential. Replace QWEN_API_KEY with a valid key and restart the backend.";
+    return "OpenRouter rejected the current credential. Replace OPENROUTER_API_KEY with a valid key and restart the backend.";
   }
   if (reason === "llm_rate_limited") {
-    return "Qwen rate-limited at least one planning batch. Deterministic planning continued for the affected forms.";
+    return "OpenRouter rate-limited at least one planning batch. Deterministic planning continued for the affected forms.";
   }
   if (reason === "llm_transport_error") {
-    return "Qwen could not be reached or timed out for at least one planning batch. Deterministic planning continued for the affected forms.";
+    if (message?.includes("message_too_long") || message?.includes("message limit")) {
+      return "OpenRouter rejected an oversized planning request. Deterministic planning continued for the affected forms.";
+    }
+    if (/timed out/i.test(message ?? "")) {
+      return "An OpenRouter model did not return within the configured five-minute window. Deterministic planning continued for the affected forms.";
+    }
+    return "OpenRouter could not be reached or timed out for at least one planning batch. Deterministic planning continued for the affected forms.";
   }
   if (reason === "llm_invalid_json") {
-    return "Qwen returned invalid JSON for at least one planning batch. Deterministic planning continued for the affected forms.";
+    return "OpenRouter returned invalid JSON for at least one planning batch. Deterministic planning continued for the affected forms.";
   }
   if (reason === "llm_schema_invalid") {
-    return "Qwen returned a schema-invalid planning response for at least one batch. Deterministic planning continued for the affected forms.";
+    return "OpenRouter returned a schema-invalid planning response for at least one batch. Deterministic planning continued for the affected forms.";
   }
   if (reason === "llm_unavailable") {
-    return "Qwen responded with an unusable provider response for at least one planning batch. Deterministic planning continued for the affected forms.";
+    return "OpenRouter responded with an unusable provider response for at least one planning batch. Deterministic planning continued for the affected forms.";
   }
   return "AI planning failed for at least one page. Deterministic tests continued and the report includes the failure details.";
 }

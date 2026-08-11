@@ -3,7 +3,7 @@ import { buildLinkHealthTests } from "../../src/testing/link-health-checker.js";
 import type { TestingRunRequest } from "../../src/types/testing.js";
 
 describe("buildLinkHealthTests", () => {
-  it("checks same-origin links and skips out-of-scope links", async () => {
+  it("checks same-origin and external links without crawling external pages", async () => {
     const requestedUrls: string[] = [];
     const results = await buildLinkHealthTests({
       targetOrigin: "https://example.com",
@@ -35,7 +35,7 @@ describe("buildLinkHealthTests", () => {
     });
 
     expect(requestedUrls).toEqual(["https://example.com/dashboard"]);
-    expect(results.map((result) => result.status)).toEqual(["PASSED", "SKIPPED"]);
+    expect(results.map((result) => result.status)).toEqual(["PASSED", "FAILED"]);
   });
 });
 

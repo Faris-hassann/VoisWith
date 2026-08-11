@@ -1,4 +1,34 @@
 import type { TestingRunResponse } from "../types/report.js";
+import type { FormTestCase } from "../types/llm-contract.js";
+
+export type FormTestCaseStateStatus =
+  | "planned"
+  | "running"
+  | "holding"
+  | "submitting"
+  | "passed"
+  | "failed"
+  | "inconclusive";
+
+export interface FormTestCaseState {
+  runId: string;
+  caseId: string;
+  formId: string;
+  pageUrl: string;
+  role?: string;
+  viewport?: string;
+  locale?: string;
+  planningSource: "ai" | "deterministic" | "mixed";
+  testCase: FormTestCase;
+  status: FormTestCaseStateStatus;
+  submit: boolean;
+  selectedButton?: string;
+  holdStartedAt?: string;
+  holdDurationSeconds?: number;
+  holdRemainingSeconds?: number;
+  resultStatus?: TestingRunResponse["pages"][number]["tests"][number]["status"];
+  resultMessage?: string;
+}
 
 export type AsyncRunStatus = "queued" | "running" | "paused" | "stopping" | "stopped" | "completed" | "failed";
 export type RunProgressStatus = "started" | "passed" | "failed" | "skipped" | "info" | "blocked";
@@ -28,6 +58,7 @@ export interface RunProgressEvent {
     y: number;
     action: "move" | "click" | "scroll";
   };
+  formTestCase?: FormTestCaseState;
   report?: TestingRunResponse;
 }
 
@@ -44,6 +75,7 @@ export interface AsyncRunSnapshot {
   updatedAt: string;
   completedAt?: string;
   events: RunProgressEvent[];
+  formTestCases?: FormTestCaseState[];
   report?: TestingRunResponse;
   error?: unknown;
 }

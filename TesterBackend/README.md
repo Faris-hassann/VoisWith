@@ -1,6 +1,6 @@
 # TesterBackend
 
-TesterBackend is an Express 5, TypeScript, Playwright, and Qwen-backed AI planning backend for authorized black-box functional testing of websites and web applications.
+TesterBackend is an Express 5, TypeScript, Playwright, and OpenRouter-backed AI planning backend for authorized black-box functional testing of websites and web applications.
 
 Part of the [VoisWith repository overview](../README.md).
 
@@ -38,14 +38,14 @@ validate request and authorization flag
 -> crawl allowed pages with DFS
 -> inspect pages and collect links, forms, console, network, performance, screenshots
 -> run deterministic baseline checks
--> optionally ask Qwen for safe form/workflow test cases
--> validate and policy-check AI actions
--> execute allowed Playwright actions
+-> optionally ask OpenRouter for schema-constrained form test cases
+-> save the validated test-case plan as a run artifact
+-> execute each case sequentially and reload the form between cases
 -> write per-page report artifacts
 -> aggregate final report and diagnostics
 ```
 
-Qwen is optional at runtime. If `MAX_AI_CALLS_PER_RUN=0`, the backend still performs deterministic crawl, inventory, and baseline checks and emits `ai:disabled` / `ai.skipped_budget` events.
+OpenRouter is optional at runtime. If `MAX_AI_CALLS_PER_RUN=0`, the backend still performs deterministic crawl, inventory, and baseline checks and emits `ai:disabled` / `ai.skipped_budget` events.
 
 ## Authorization Gate
 
@@ -321,9 +321,9 @@ Related run-lifecycle values:
 
 Only a `FormSnapshot` — route family and visible field metadata, never a selector, value, hidden field, or full URL — crosses to the model (`src/types/llm-contract.ts`, DESIGN-DECISIONS.md §3). Forms are batched at 3 per request (or ~4k estimated input tokens, whichever hits first) and sent sequentially, one request in flight. Each batch runs the retry ladder `normal → repair prompt → next pinned model → deterministic generator`; a `FormTestCase` response is validated `.strict()` against the batch it was produced from, so an unknown key or an `elementId`/`formId` outside that batch is `llm_schema_invalid`, not silently stripped.
 
-Planned cases are plan-only this phase (execution/assertion is Phase 4): they appear in `pages[].plannedTestCases` and are counted in `diagnostics.pages[].aiPlannedTests`, but never in `summary.testsExecuted` — the report never claims work it did not do.
+Validated cases are saved to `reports/planned-test-cases-*.json` before browser interaction, exposed in `pages[].plannedTestCases`, and executed one by one. The page is reloaded between cases so a submit, save, or send cannot contaminate the next case.
 
-`MAX_AI_CALLS_PER_RUN` (default 25) caps Qwen requests for the run; `MAX_AI_TEST_CASES_PER_RUN` (default 400) separately caps the total planned cases, AI-generated or deterministic-fallback alike. Exhausting either never stops the run — deterministic `FORMS`/`FORM_VALIDATION` checks always complete. Case-budget overflow is reported as `truncated_by_budget` in `coverageLimitations`; call-budget exhaustion gets its own distinct wording. `diagnostics.ai` also tracks `testCasesGenerated`, `testCasesDropped`, and `deterministicFallbacks` for exact accounting.
+`MAX_AI_CALLS_PER_RUN` (default 25) caps OpenRouter requests for the run; `MAX_AI_TEST_CASES_PER_RUN` (default 400) separately caps the total planned cases, AI-generated or deterministic-fallback alike. Exhausting either never stops the run — deterministic `FORMS`/`FORM_VALIDATION` checks always complete. Case-budget overflow is reported as `truncated_by_budget` in `coverageLimitations`; call-budget exhaustion gets its own distinct wording. `diagnostics.ai` also tracks `testCasesGenerated`, `testCasesDropped`, and `deterministicFallbacks` for exact accounting.
 
 ## Source Tree
 
@@ -336,7 +336,7 @@ src/ai/ai-test-planner.ts
 src/ai/form-batcher.ts
 src/ai/form-plan-validator.ts
 src/ai/form-snapshot-builder.ts
-src/ai/qwen-client.ts
+src/ai/openrouter-client.ts
 src/ai/prompt-loader.ts
 src/app.ts
 src/artifacts/artifact-manager.ts
@@ -405,7 +405,7 @@ See [package.json](package.json) for the exact scripts and dependency versions.
 
 ```bash
 npm install
-copy .env.example .env
+# create .env and add the values shown below
 npm run playwright:install:chrome
 npm run dev
 ```
@@ -416,15 +416,16 @@ Then open:
 http://localhost:3000/docs
 ```
 
-Add your Qwen secret manually in `.env`:
+Add your OpenRouter configuration manually in `.env`:
 
 ```env
-QWEN_API_KEY=your_secret_here
-QWEN_API_URL=https://qwen.snouhy.com/chat
-QWEN_TIMEOUT_MS=60000
+OPENROUTER_API_KEY=your_secret_here
+OPENROUTER_API_URL=https://openrouter.ai/api/v1/chat/completions
+OPENROUTER_MODEL=openai/gpt-4o-mini
+OPENROUTER_TIMEOUT_MS=300000
 ```
 
-Qwen AI planning sends the canonical Markdown prompt from `src/prompts/form-test-planner.system.md` plus sanitized `{ formCount, forms }` input in a single `message` payload. If `QWEN_API_KEY` is missing, AI calls are skipped immediately and deterministic planning remains active. If the key is present but rejected, reports and the running UI distinguish that from a missing configuration state.
+OpenRouter AI planning sends the canonical prompt as a system message and sanitized `{ formCount, forms }` input as a user message. It requests strict JSON-schema output and validates every returned ID against the discovered form before saving or executing it. If `OPENROUTER_API_KEY` is missing, deterministic planning remains active.
 
 Do not commit `.env`.
 
@@ -433,9 +434,10 @@ Do not commit `.env`.
 Important values:
 
 ```env
-QWEN_API_KEY=
-QWEN_API_URL=https://qwen.snouhy.com/chat
-QWEN_TIMEOUT_MS=60000
+OPENROUTER_API_KEY=
+OPENROUTER_API_URL=https://openrouter.ai/api/v1/chat/completions
+OPENROUTER_MODEL=openai/gpt-4o-mini
+OPENROUTER_TIMEOUT_MS=300000
 PLAYWRIGHT_HEADLESS=false
 PLAYWRIGHT_CHANNEL=chrome
 AI_CALL_PACING_MS=1500
@@ -458,7 +460,7 @@ npm run dev
 npm run build
 npm run lint
 npm test
-npm run qwen:smoke
+npm run openrouter:smoke
 npm run trueform:system-test
 npm run playwright:install:chrome
 ```

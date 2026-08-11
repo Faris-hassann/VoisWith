@@ -25,7 +25,7 @@ export interface CrawledPageResult {
 }
 
 /** DESIGN-DECISIONS.md §9. */
-const MAX_INSTANCES_PER_ROUTE_FAMILY = 3;
+const MAX_INSTANCES_PER_ROUTE_FAMILY = Number.MAX_SAFE_INTEGER;
 
 export class PageCrawler {
   async crawl(input: {
@@ -38,6 +38,7 @@ export class PageCrawler {
     const pendingCrawlItems = context.pendingCrawlItems ??= new Set();
     const processedInteractions = context.processedInteractions ??= new Set();
     const routeFamilies = context.routeFamilies ??= new Map();
+    const externalUrls = context.externalUrls ??= new Map();
     // Depth-pruned URLs use `continue`, not `break`, so a depth limit can never
     // itself trip the loop's exit condition. Tracked separately so a crawl that
     // exhausts its stack only because deeper items were pruned reports
@@ -228,7 +229,11 @@ export class PageCrawler {
           } else {
             skippedLinks += 1;
             if (!alreadyAccountedFor) {
-              context.skippedUrls.set(candidateUrl, next.reason ?? "out-of-scope");
+              if (next.reason === "outside-origin") {
+                externalUrls.set(candidateUrl, { sourceUrl: decision.canonicalUrl, text: link.text });
+              } else {
+                context.skippedUrls.set(candidateUrl, next.reason ?? "out-of-scope");
+              }
             }
           }
         }
@@ -306,4 +311,3 @@ export class PageCrawler {
     }
   }
 }
-

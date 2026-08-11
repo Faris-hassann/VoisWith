@@ -113,6 +113,7 @@ export class RunOrchestrator {
       // once for the whole run, and localContext inherits this reference.
       processedForms: new Map(),
       skippedUrls: new Map(),
+      externalUrls: new Map(),
       failedUrls: new Map(),
       redirectHistory: new Map(),
       pageReports: [],
@@ -141,6 +142,7 @@ export class RunOrchestrator {
         crawl: {
           acceptedUrls: [],
           skippedUrls: [],
+          externalUrls: [],
           failedUrls: [],
           discoveredCandidates: 0,
           noInternalLinksPages: [],
@@ -148,7 +150,7 @@ export class RunOrchestrator {
         },
         pages: [],
         ai: {
-          provider: "qwen",
+          provider: "openrouter",
           providerConfigured: Boolean(config.ai.apiKey),
           calls: 0,
           maxCalls: config.limits.maxAiCallsPerRun,
@@ -292,6 +294,7 @@ export class RunOrchestrator {
       processedInteractions: new Set(),
       routeFamilies: new Map(),
       skippedUrls: new Map(),
+      externalUrls: new Map(),
       failedUrls: new Map(),
     };
 
@@ -446,15 +449,20 @@ export class RunOrchestrator {
       emit(input, {
         runId: context.runId,
         type: "login.failed",
-        status: "failed",
-        message: serialized.message,
+        status: "skipped",
+        message: `${serialized.message} Continuing public crawl anonymously.`,
         pageUrl: session.page.url(),
         role: targetItem.role.name,
         viewport: targetItem.viewport.name,
         locale: targetItem.locale.name,
         diagnostics: context.diagnostics.login,
       });
-      throw error;
+      localContext.request = {
+        ...localContext.request,
+        credentials: undefined,
+        targetUrl: target.toString(),
+      };
+      await session.page.goto(target.toString(), { waitUntil: "domcontentloaded" }).catch(() => undefined);
     }
 
     let lastRecycledAt = 0;
@@ -519,6 +527,7 @@ export class RunOrchestrator {
 
     for (const url of localContext.visitedUrls) context.visitedUrls.add(url);
     for (const [url, reason] of localContext.skippedUrls) context.skippedUrls.set(`${targetItem.role.name}:${targetItem.viewport.name}:${targetItem.locale.name}:${url}`, reason);
+    for (const [url, details] of localContext.externalUrls ?? []) context.externalUrls?.set(url, details);
     for (const [url, reason] of localContext.failedUrls) context.failedUrls.set(`${targetItem.role.name}:${targetItem.viewport.name}:${targetItem.locale.name}:${url}`, reason);
     context.aiCalls = localContext.aiCalls;
     // The crawler records stoppedReason on the *local* context, so without this
@@ -837,6 +846,59 @@ export class RunOrchestrator {
             }
           : undefined,
       });
+
+      // Persist the validated plan before touching the page. If a browser
+      // interaction or navigation fails later, the exact generated cases are
+      // still available and auditable in the run artifacts.
+      const planArtifact = await input.artifacts.writeJson(
+        "reports",
+        `planned-test-cases-${crypto.randomUUID().slice(0, 8)}.json`,
+        {
+          runId: context.runId,
+          pageUrl: snapshot.url,
+          source: planResult.source,
+          generatedAt: new Date().toISOString(),
+          testCases: planResult.testCases,
+        },
+      );
+      pageEvidence.push({ ...planArtifact, description: "Validated form test cases saved before sequential execution." });
+      emit(input, {
+        runId: context.runId,
+        type: "ai.plan_saved",
+        status: "passed",
+        message: `Saved ${planResult.testCases.length} planned form test case(s) before execution.`,
+        pageUrl: snapshot.url,
+        role: context.roleName,
+        viewport: context.viewportName,
+        locale: context.localeName,
+        counts: { plannedTests: planResult.testCases.length },
+        diagnostics: { artifactPath: planArtifact.path },
+      });
+      for (const testCase of planResult.testCases) {
+        emit(input, {
+          runId: context.runId,
+          type: "test_case.planned",
+          status: "info",
+          message: `Planned form test case: ${testCase.intent}.`,
+          pageUrl: snapshot.url,
+          role: context.roleName,
+          viewport: context.viewportName,
+          locale: context.localeName,
+          formTestCase: {
+            runId: context.runId,
+            caseId: testCase.caseId,
+            formId: testCase.formId,
+            pageUrl: snapshot.url,
+            role: context.roleName,
+            viewport: context.viewportName,
+            locale: context.localeName,
+            planningSource: normalizePlanningSource(planResult.source),
+            testCase,
+            status: "planned",
+            submit: testCase.submit,
+          },
+        });
+      }
     } catch (error) {
       // planner.plan() degrades to the deterministic generator internally on
       // any LLM failure — this catch only fires for a genuinely unexpected
@@ -897,6 +959,19 @@ export class RunOrchestrator {
         role: context.roleName,
         viewport: context.viewportName,
         locale: context.localeName,
+        formTestCase: {
+          runId: context.runId,
+          caseId: testCase.caseId,
+          formId: testCase.formId,
+          pageUrl: snapshot.url,
+          role: context.roleName,
+          viewport: context.viewportName,
+          locale: context.localeName,
+          planningSource: normalizePlanningSource(planResult.source),
+          testCase,
+          status: "running",
+          submit: testCase.submit,
+        },
       });
       const result = await executeFormTestCase({
         page: session.page,
@@ -906,6 +981,16 @@ export class RunOrchestrator {
         allowFormSubmission: context.request.execution.allowFormSubmission,
         screenshotOnFailure: (page, name, description) => input.evidenceCollector.screenshotOnFailure(page, name, description),
         runId: context.runId,
+        pageUrl: snapshot.url,
+        role: context.roleName,
+        viewport: context.viewportName,
+        locale: context.localeName,
+        planningSource: normalizePlanningSource(planResult.source),
+        onEvent: input.events,
+        control: context.control,
+        extendDeadlineMs: (milliseconds) => {
+          context.deadlineMs += milliseconds;
+        },
       });
       executedResults.push(result);
       emit(input, {
@@ -917,6 +1002,22 @@ export class RunOrchestrator {
         role: context.roleName,
         viewport: context.viewportName,
         locale: context.localeName,
+        formTestCase: {
+          runId: context.runId,
+          caseId: testCase.caseId,
+          formId: testCase.formId,
+          pageUrl: snapshot.url,
+          role: context.roleName,
+          viewport: context.viewportName,
+          locale: context.localeName,
+          planningSource: normalizePlanningSource(planResult.source),
+          testCase,
+          status: result.status === "PASSED" ? "passed" : result.status === "INCONCLUSIVE" ? "inconclusive" : "failed",
+          submit: testCase.submit,
+          selectedButton: result.reproductionSteps.find((step) => step.startsWith("Click "))?.replace(/^Click /, ""),
+          resultStatus: result.status,
+          resultMessage: result.actualResult,
+        },
       });
       // Reload unconditionally between cases. A URL comparison is not enough:
       // a form posting to its own path leaves the URL identical while
@@ -942,6 +1043,7 @@ export class RunOrchestrator {
       performanceObservations: snapshot.performance,
       evidence: pageEvidence,
       plannedTestCases: planResult.testCases.length > 0 ? planResult.testCases : undefined,
+      planningSource: normalizePlanningSource(planResult.source),
     };
     this.recordPageDiagnostics(context, pageReport, snapshot, baselineResults.length, planResult.testCases.length, navigationMs);
     await this.writePageReportArtifact(input.artifacts, context, pageReport, input.events);
@@ -1235,6 +1337,10 @@ function summarizePageStatus(results: TestCaseResult[]): PageReport["status"] {
   return "PASSED";
 }
 
+function normalizePlanningSource(source: FormPlanResult["source"]): "ai" | "deterministic" | "mixed" {
+  return source === "none" ? "deterministic" : source;
+}
+
 function emit(input: { onEvent?: RunEventSink; events?: RunEventSink }, event: RunProgressEventInput): void {
   const sink = input.onEvent ?? input.events;
   if (sink) sink(event);
@@ -1264,7 +1370,7 @@ function emitAiDiagnostics(input: { onEvent?: RunEventSink; events?: RunEventSin
       runId: context.runId,
       type: "ai:configuration-missing",
       status: "skipped",
-      message: "Qwen is not fully configured, so AI planning may be skipped or fail while deterministic tests continue.",
+      message: "OpenRouter is not fully configured, so AI planning may be skipped while deterministic tests continue.",
       diagnostics,
     });
     return;
@@ -1475,7 +1581,7 @@ function blockedFormResult(formId: string, elementId: string, matchedSignal: str
   };
 }
 
-/** Pulls the full provider attempt history off a QwenClient exhaustion error, when present. */
+/** Pulls the full provider attempt history off an OpenRouterClient exhaustion error, when present. */
 function extractLlmAttempts(error: unknown): LlmAttempt[] | undefined {
   if (!(error instanceof AppError)) return undefined;
   const details = error.details;

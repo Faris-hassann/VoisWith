@@ -54,17 +54,6 @@ async function checkLink(input: LinkHealthInput, link: LinkSnapshot, index: numb
   }
 
   const url = new URL(targetUrl);
-  if (input.request.crawl.sameOriginOnly && url.origin !== input.targetOrigin) {
-    return linkResult({
-      id: `link-health-${index + 1}`,
-      name: linkLabel,
-      status: "SKIPPED",
-      expected: "In-scope links are reachable.",
-      actual: `Skipped external link while same-origin testing is enabled: ${targetUrl}`,
-      href: targetUrl,
-    });
-  }
-
   try {
     await assertSafeTargetUrl(targetUrl, config.security);
     const response = await input.page.context().request.get(targetUrl, {

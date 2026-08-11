@@ -9,10 +9,15 @@ interface AttemptResult {
   value?: unknown;
   reason?: LlmFailureReason;
   message?: string;
+  retryable?: boolean;
 }
 
 const NON_JSON_CONTENT_TYPE = "Qwen response was not JSON.";
 const AUTH_REJECTED = "Qwen credential is configured but was rejected by the provider.";
+/** The hosted /chat endpoint rejects message strings longer than 2,000 characters. */
+export const QWEN_MAX_MESSAGE_CHARS = 2000;
+/** Leave room for the short correction instruction used by the repair attempt. */
+export const QWEN_PRIMARY_MESSAGE_CHARS = 1940;
 
 export interface StructuredPlanResult {
   value: unknown;
@@ -37,11 +42,20 @@ export class QwenClient {
     }
 
     const attempts: LlmAttempt[] = [];
-    const first = await this.attempt(this.composeMessage(input.systemPrompt, input.context), input.validate);
+    const primaryMessage = this.composeMessage(input.systemPrompt, input.context);
+    let first = await this.attempt(primaryMessage, input.validate);
     if (first.ok) {
       return { value: first.value, provider: "qwen", model: "qwen", recoveredAttempts: [] };
     }
     attempts.push({ model: "qwen", reason: first.reason!, message: first.message ?? "unknown error" });
+
+    if (first.retryable) {
+      first = await this.attempt(primaryMessage, input.validate);
+      if (first.ok) {
+        return { value: first.value, provider: "qwen", model: "qwen", recoveredAttempts: attempts };
+      }
+      attempts.push({ model: "qwen", reason: first.reason!, message: first.message ?? "unknown error" });
+    }
 
     const repairable =
       first.reason === LLM_FAILURE_REASONS.LLM_INVALID_JSON || first.reason === LLM_FAILURE_REASONS.LLM_SCHEMA_INVALID;
@@ -64,17 +78,26 @@ export class QwenClient {
   }
 
   private composeMessage(systemPrompt: string, context: unknown): string {
-    return `${systemPrompt}\n\nRUNTIME INPUT JSON\n${JSON.stringify(context, null, 2)}`;
+    return `${systemPrompt}\nINPUT_JSON\n${JSON.stringify(context)}`;
   }
 
   private composeRepairMessage(systemPrompt: string, context: unknown, failure: string): string {
-    return `${this.composeMessage(systemPrompt, context)}\n\nYour previous response was invalid.\nFailure: ${failure}\nReturn only valid JSON matching the required schema exactly.`;
+    const failureKind = failure.includes("schema validation") ? "schema" : "JSON";
+    return `${this.composeMessage(systemPrompt, context)}\nPrevious output had invalid ${failureKind}. Return corrected JSON only.`;
   }
 
   private async attempt(
     message: string,
     validate?: (value: unknown) => { ok: true } | { ok: false; message: string },
   ): Promise<AttemptResult> {
+    if (message.length > QWEN_MAX_MESSAGE_CHARS) {
+      return {
+        ok: false,
+        reason: LLM_FAILURE_REASONS.LLM_TRANSPORT_ERROR,
+        message: `Qwen request exceeds the provider's ${QWEN_MAX_MESSAGE_CHARS}-character message limit (${message.length} characters).`,
+      };
+    }
+
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(new Error("Qwen request timed out.")), config.ai.timeoutMs);
 
@@ -89,6 +112,7 @@ export class QwenClient {
           body: JSON.stringify({ message }),
           signal: controller.signal,
         });
+        const rawBody = await response.text();
         if (response.status === 401 || response.status === 403) {
           return {
             ok: false,
@@ -104,10 +128,12 @@ export class QwenClient {
           };
         }
         if (!response.ok) {
+          const providerError = extractProviderError(rawBody);
           return {
             ok: false,
             reason: LLM_FAILURE_REASONS.LLM_TRANSPORT_ERROR,
-            message: `Qwen responded ${response.status}.`,
+            message: `Qwen responded ${response.status}${providerError ? `: ${providerError}` : ""}.`,
+            retryable: response.status >= 500,
           };
         }
 
@@ -120,7 +146,6 @@ export class QwenClient {
           };
         }
 
-        const rawBody = await response.text();
         let envelope: unknown;
         try {
           envelope = JSON.parse(rawBody);
@@ -156,10 +181,21 @@ export class QwenClient {
         ok: false,
         reason: LLM_FAILURE_REASONS.LLM_TRANSPORT_ERROR,
         message: error instanceof Error ? error.message : String(error),
+        retryable: true,
       };
     } finally {
       clearTimeout(timer);
     }
+  }
+}
+
+function extractProviderError(rawBody: string): string | undefined {
+  try {
+    const parsed = JSON.parse(rawBody) as { error?: unknown; message?: unknown };
+    const value = typeof parsed.error === "string" ? parsed.error : typeof parsed.message === "string" ? parsed.message : undefined;
+    return value?.slice(0, 200).replace(/[\r\n]+/g, " ");
+  } catch {
+    return undefined;
   }
 }
 
@@ -173,11 +209,12 @@ function extractStructuredValue(input: unknown): { ok: true; value: unknown } | 
 
     if (typeof value === "string") {
       const trimmed = value.trim();
-      if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      const jsonText = extractJsonText(trimmed);
+      if (jsonText) {
         try {
-          candidates.push(JSON.parse(trimmed));
+          candidates.push(JSON.parse(jsonText));
         } catch {
-          candidates.push(trimmed);
+          candidates.push(jsonText);
         }
       }
       return;
@@ -210,4 +247,13 @@ function extractStructuredValue(input: unknown): { ok: true; value: unknown } | 
     return { ok: false, message: "Qwen response contained multiple competing structured payloads." };
   }
   return { ok: false, message: "Qwen response did not include a parseable { testCases: [...] } payload." };
+}
+
+function extractJsonText(value: string): string | undefined {
+  if (value.startsWith("{") || value.startsWith("[")) return value;
+  const fenced = value.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.trim();
+  if (fenced?.startsWith("{") || fenced?.startsWith("[")) return fenced;
+  const objectStart = value.indexOf("{");
+  const objectEnd = value.lastIndexOf("}");
+  return objectStart >= 0 && objectEnd > objectStart ? value.slice(objectStart, objectEnd + 1) : undefined;
 }

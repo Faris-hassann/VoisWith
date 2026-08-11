@@ -29,7 +29,7 @@ export function DiagnosticsPanel({ report }: { report: TestingRunResponse }) {
           {onlyOnePage ? <p>Only the starting page was accepted for crawl.</p> : null}
           {onlyOneTest && firstFailedTest ? <p className="mt-1">Only one test was recorded: {firstFailedTest.name}. Error: {firstFailedTest.error ?? firstFailedTest.actualResult ?? "No error detail returned."}</p> : null}
           {diagnostics.ai.disabled ? <p className="mt-1">AI planning was disabled because the backend AI call budget was 0.</p> : null}
-          {providerConfigured === false ? <p className="mt-1">Qwen is not configured, so AI test generation is being skipped and deterministic planning is used instead.</p> : null}
+          {providerConfigured === false ? <p className="mt-1">OpenRouter is not configured, so AI test generation is being skipped and deterministic planning is used instead.</p> : null}
           {diagnostics.ai.failures.length > 0 ? <p className="mt-1">{describeAiFailure(latestAiFailure?.reason, latestAiFailure?.message)}</p> : null}
         </div>
       ) : null}
@@ -49,6 +49,7 @@ export function DiagnosticsPanel({ report }: { report: TestingRunResponse }) {
           <CardContent className="space-y-2 text-sm">
             <Row label="Accepted URLs" value={`${diagnostics.crawl.acceptedUrls.length}`} />
             <Row label="Skipped URLs" value={`${diagnostics.crawl.skippedUrls.length}`} />
+            <Row label="External URLs" value={`${diagnostics.crawl.externalUrls?.length ?? 0}`} />
             <Row label="Failed URLs" value={`${diagnostics.crawl.failedUrls.length}`} />
             <Row label="Candidates" value={`${diagnostics.crawl.discoveredCandidates}`} />
           </CardContent>
@@ -59,7 +60,7 @@ export function DiagnosticsPanel({ report }: { report: TestingRunResponse }) {
             <Row label="Budget" value={`${diagnostics.ai.maxCalls ?? "Unknown"}`} />
             <Row label="Enabled" value={diagnostics.ai.disabled ? "No" : "Yes"} />
             <Row label="Provider" value={diagnostics.ai.provider ?? "legacy"} />
-            <Row label="Qwen key" value={providerConfigured === false ? "Missing" : latestAiFailure?.reason === "llm_unavailable" && latestAiFailure.message?.includes("credential is configured but was rejected") ? "Rejected" : "Configured"} />
+            <Row label="OpenRouter key" value={providerConfigured === false ? "Missing" : latestAiFailure?.reason === "llm_unavailable" && latestAiFailure.message?.includes("credential is configured but was rejected") ? "Rejected" : "Configured"} />
             <Row label="Calls" value={`${diagnostics.ai.calls}`} />
             <Row label="Successes" value={`${diagnostics.ai.successes}`} />
             <Row label="Failures" value={`${diagnostics.ai.failures.length}`} />
@@ -103,12 +104,12 @@ export function DiagnosticsPanel({ report }: { report: TestingRunResponse }) {
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>Skipped and failed crawl decisions</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Skipped, external, and failed crawl decisions</CardTitle></CardHeader>
         <CardContent className="space-y-3 text-sm">
-          {[...diagnostics.crawl.skippedUrls.slice(0, 25), ...diagnostics.crawl.failedUrls.slice(0, 25)].length === 0 ? (
-            <p className="text-muted-foreground">No skipped or failed crawl decisions were recorded.</p>
+          {[...diagnostics.crawl.skippedUrls.slice(0, 25), ...(diagnostics.crawl.externalUrls ?? []).slice(0, 25).map((item) => ({ url: item.url, reason: "external-link-observed" })), ...diagnostics.crawl.failedUrls.slice(0, 25)].length === 0 ? (
+            <p className="text-muted-foreground">No skipped, external, or failed crawl decisions were recorded.</p>
           ) : (
-            [...diagnostics.crawl.skippedUrls.slice(0, 25), ...diagnostics.crawl.failedUrls.slice(0, 25)].map((item) => (
+            [...diagnostics.crawl.skippedUrls.slice(0, 25), ...(diagnostics.crawl.externalUrls ?? []).slice(0, 25).map((item) => ({ url: item.url, reason: item.sourceUrl ? `external-link-observed from ${item.sourceUrl}` : "external-link-observed" })), ...diagnostics.crawl.failedUrls.slice(0, 25)].map((item) => (
               <div key={`${item.url}-${item.reason}`} className="rounded border p-2">
                 <div className="font-mono text-xs">{item.url}</div>
                 <div className="mt-1 text-muted-foreground">{item.reason}</div>
@@ -123,21 +124,27 @@ export function DiagnosticsPanel({ report }: { report: TestingRunResponse }) {
 
 function describeAiFailure(reason?: string, message?: string): string {
   if (reason === "llm_unavailable" && message?.includes("credential is configured but was rejected")) {
-    return "Qwen is configured, but the provider rejected the current credential. Replace QWEN_API_KEY and restart the backend before expecting AI-generated cases.";
+    return "OpenRouter rejected the current credential. Replace OPENROUTER_API_KEY and restart the backend before expecting AI-generated cases.";
   }
   if (reason === "llm_rate_limited") {
-    return "Qwen rate-limited at least one planning batch. Deterministic planning covered the affected forms.";
+    return "OpenRouter rate-limited at least one planning batch. Deterministic planning covered the affected forms.";
   }
   if (reason === "llm_transport_error") {
-    return "Qwen timed out or could not be reached for at least one planning batch. Deterministic planning covered the affected forms.";
+    if (message?.includes("message_too_long") || message?.includes("message limit")) {
+      return "OpenRouter rejected an oversized planning request. Deterministic planning covered the affected forms.";
+    }
+    if (/timed out/i.test(message ?? "")) {
+      return "An OpenRouter model did not return within the configured five-minute window. Deterministic planning covered the affected forms.";
+    }
+    return "OpenRouter timed out or could not be reached for at least one planning batch. Deterministic planning covered the affected forms.";
   }
   if (reason === "llm_invalid_json") {
-    return "Qwen returned invalid JSON for at least one planning batch. Deterministic planning covered the affected forms.";
+    return "OpenRouter returned invalid JSON for at least one planning batch. Deterministic planning covered the affected forms.";
   }
   if (reason === "llm_schema_invalid") {
-    return "Qwen returned a schema-invalid planning payload for at least one batch. Deterministic planning covered the affected forms.";
+    return "OpenRouter returned a schema-invalid planning payload for at least one batch. Deterministic planning covered the affected forms.";
   }
-  return "AI planning failed on at least one page. Check the Qwen credential, response shape, timeout, or provider availability in backend logs.";
+  return "AI planning failed on at least one page. Check the OpenRouter credential, model, response shape, timeout, or provider availability in backend logs.";
 }
 
 function Row({ label, value }: { label: string; value: string }) {

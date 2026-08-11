@@ -9,7 +9,7 @@ const backendRoot = path.resolve(__dirname, "..");
 loadDotenv({ path: path.join(backendRoot, ".env"), override: false });
 
 async function main() {
-  const apiKey = process.env.QWEN_API_KEY ?? "";
+  const apiKey = process.env.QWEN_API_KEY;
   const apiUrl = (process.env.QWEN_API_URL ?? "https://qwen.snouhy.com/chat").replace(/\/$/, "");
   const timeoutMs = Number(process.env.QWEN_TIMEOUT_MS ?? "60000");
   const promptPath = path.resolve(backendRoot, process.env.PROMPT_FILE_PATH ?? "src/prompts/form-test-planner.system.md");
@@ -23,7 +23,7 @@ async function main() {
   const timer = globalThis.setTimeout(() => controller.abort(new Error("Qwen smoke request timed out.")), timeoutMs);
 
   try {
-    const message = `${prompt}\n\nRUNTIME INPUT JSON\n${JSON.stringify({
+    const message = `${prompt}\nINPUT_JSON\n${JSON.stringify({
       formCount: 1,
       forms: [
         {
@@ -54,7 +54,7 @@ async function main() {
           submitLabel: "Send",
         },
       ],
-    }, null, 2)}`;
+    })}`;
 
     const response = await fetch(apiUrl, {
       method: "POST",
@@ -101,7 +101,11 @@ function extractStructuredValue(input) {
   for (const value of Object.values(input)) {
     if (typeof value === "string") {
       try {
-        const parsed = JSON.parse(value);
+        const fenced = value.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.trim();
+        const objectStart = value.indexOf("{");
+        const objectEnd = value.lastIndexOf("}");
+        const jsonText = fenced ?? (objectStart >= 0 && objectEnd > objectStart ? value.slice(objectStart, objectEnd + 1) : value);
+        const parsed = JSON.parse(jsonText);
         if (parsed && typeof parsed === "object" && Array.isArray(parsed.testCases)) return parsed;
       } catch {
         continue;

@@ -74,7 +74,7 @@ export class ElementInventoryBuilder {
           // with no submit control for the executor to activate.
           if (type === "submit") return "submit";
           if (!type && element.form) return "submit";
-          return /submit|save|continue|send/i.test(text) ? "submit" : "button";
+          return /submit|save|send|continue|next|apply|confirm|done|create|update|register|sign up|log in/i.test(text) ? "submit" : "button";
         }
         if (tag === "textarea") return "textarea";
         if (tag === "select") return "select";
@@ -89,6 +89,12 @@ export class ElementInventoryBuilder {
           if (type === "file") return "file";
           if (type === "search") return "search";
           return "input";
+        }
+        if (role === "button") {
+          const label = (element.getAttribute("aria-label") ?? "") + " " + (element.textContent ?? "");
+          return /submit|save|send|continue|next|apply|confirm|done|create|update|register|sign up|log in/i.test(label)
+            ? "submit"
+            : "button";
         }
         return "other";
       };
@@ -145,7 +151,7 @@ export class ElementInventoryBuilder {
           formOwnerElementId:
             tagName === "form"
               ? undefined
-              : keyFor(element.form),
+              : keyFor(element.form ?? element.closest("form")),
           testId: element.getAttribute("data-testid") ?? element.getAttribute("data-test") ?? undefined,
           css: selectorFor(element),
         };

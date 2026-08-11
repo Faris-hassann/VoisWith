@@ -128,30 +128,35 @@ export class AuthenticationHandler {
       ]);
       await page.waitForTimeout(1000);
 
-      const successSignals = await page.evaluate(() => {
-        const text = document.body?.innerText?.toLowerCase() ?? "";
-        const hasPassword = Boolean(document.querySelector("input[type='password']"));
-        return {
-          loginFormGone: !hasPassword,
-          hasAccountSignal: /dashboard|account|profile|logout|log out|sign out|admin|client|agent/.test(text),
-          hasAuthError: /invalid|incorrect|failed|try again|wrong|error/.test(text),
-        };
-      });
+      let collected = await collectLoginSignals(page, beforeUrl);
+      if (
+        submit &&
+        !collected.signals.hasAuthError &&
+        !collected.signals.urlChanged &&
+        !collected.signals.loginFormGone &&
+        !collected.signals.hasAccountSignal &&
+        !collected.signals.cookiesPresent
+      ) {
+        await password.locator.press("Enter");
+        diagnostics.attempts.push("Pressed Enter on password field once because the submit click produced no observable login response.");
+        await Promise.allSettled([
+          page.waitForLoadState("domcontentloaded", { timeout: 10000 }),
+          page.waitForLoadState("networkidle", { timeout: 10000 }),
+          page.waitForURL((url) => url.toString() !== beforeUrl, { timeout: 10000 }),
+        ]);
+        await page.waitForTimeout(1000);
+        collected = await collectLoginSignals(page, beforeUrl);
+      }
 
-      const cookies = await page.context().cookies();
       diagnostics.finalUrl = page.url();
-      diagnostics.successSignals = {
-        ...successSignals,
-        cookiesPresent: cookies.length > 0,
-        urlChanged: page.url() !== beforeUrl,
-      };
+      diagnostics.successSignals = collected.signals;
 
       const success =
-        !successSignals.hasAuthError &&
+        !collected.signals.hasAuthError &&
         [
           diagnostics.successSignals.urlChanged,
-          successSignals.loginFormGone,
-          successSignals.hasAccountSignal,
+          collected.signals.loginFormGone,
+          collected.signals.hasAccountSignal,
           diagnostics.successSignals.cookiesPresent,
         ].filter(Boolean).length >= 2;
 
@@ -213,15 +218,18 @@ export function submitCandidates(credentials: Credentials, detection: { submitSe
   return orderedSelectors([
     credentials.fieldHints?.submitSelector,
     detection.submitSelector,
-    "button[type='submit']",
-    "input[type='submit']",
+    "button:has-text('Sign in')",
     "button:has-text('Login')",
     "button:has-text('Log in')",
-    "button:has-text('Sign in')",
     "button:has-text('Continue')",
+    "input[type='submit'][value*='Sign in' i]",
+    "input[type='submit'][value*='Login' i]",
+    "input[type='submit'][value*='Log in' i]",
+    "input[type='submit'][value*='Continue' i]",
+    "button[type='submit']",
+    "input[type='submit']",
     "[role='button']:has-text('Login')",
     "[role='button']:has-text('Sign in')",
-    "form button",
   ]);
 }
 
@@ -230,6 +238,40 @@ export function orderedSelectors(values: Array<string | undefined>): string[] {
     .filter((value): value is string => Boolean(value?.trim()))
     .flatMap((value) => value.split(",").map((item) => item.trim()).filter(Boolean));
   return [...new Set(selectors)];
+}
+
+async function collectLoginSignals(page: Page, beforeUrl: string): Promise<{
+  signals: NonNullable<LoginAttemptDiagnostics["successSignals"]>;
+}> {
+  const successSignals = await page.evaluate(() => {
+    const text = document.body?.innerText?.toLowerCase() ?? "";
+    const passwordLike = [...document.querySelectorAll("input")].some((input) => {
+      const label = input.id ? document.querySelector("label[for='" + CSS.escape(input.id) + "']")?.textContent ?? "" : "";
+      const descriptor = [
+        input.type,
+        input.name,
+        input.id,
+        input.placeholder,
+        input.getAttribute("autocomplete"),
+        input.getAttribute("aria-label"),
+        label,
+      ].filter(Boolean).join(" ").toLowerCase();
+      return /password|current-password/.test(descriptor) && !input.disabled && input.offsetParent !== null;
+    });
+    return {
+      loginFormGone: !passwordLike,
+      hasAccountSignal: /dashboard|account|profile|logout|log out|sign out|admin|client|agent/.test(text),
+      hasAuthError: /invalid|incorrect|failed|try again|wrong|error/.test(text),
+    };
+  });
+  const cookies = await page.context().cookies();
+  return {
+    signals: {
+      ...successSignals,
+      cookiesPresent: cookies.length > 0,
+      urlChanged: page.url() !== beforeUrl,
+    },
+  };
 }
 
 async function firstUsableLocator(

@@ -54,7 +54,8 @@ describe("PageCrawler", () => {
     expect(context.visitedUrls.has("https://example.com/contact")).toBe(true);
     expect(context.pendingUrls.has("https://example.com/about")).toBe(false);
     expect(context.pendingUrls.has("https://example.com/contact")).toBe(false);
-    expect(context.skippedUrls.get("https://other.example/")).toBe("outside-origin");
+    expect(context.skippedUrls.has("https://other.example/")).toBe(false);
+    expect(context.externalUrls?.get("https://other.example/")).toEqual({ sourceUrl: "https://example.com/", text: "External" });
   });
 });
 
@@ -93,6 +94,7 @@ function contextFor(input: { maxDepth: number; maxPages: number; sameOriginOnly:
     visitedUrls: new Set(),
     pendingUrls: new Set(),
     skippedUrls: new Map(),
+    externalUrls: new Map(),
     failedUrls: new Map(),
     redirectHistory: new Map(),
     pageReports: [],

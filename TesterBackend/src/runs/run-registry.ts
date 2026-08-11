@@ -4,7 +4,7 @@ import type { TestingRunRequest } from "../types/testing.js";
 import type { TestingRunResponse } from "../types/report.js";
 import { redactSecrets } from "../security/secret-redaction.js";
 import { serializeError } from "../errors/serialize-error.js";
-import type { AsyncRunSnapshot, AsyncRunStatus, RunProgressEvent, RunProgressEventInput } from "./run-events.js";
+import type { AsyncRunSnapshot, AsyncRunStatus, FormTestCaseState, RunProgressEvent, RunProgressEventInput } from "./run-events.js";
 import type { RunHistoryStore } from "./run-history-store.js";
 
 type RunListener = (event: RunProgressEvent) => void;
@@ -19,6 +19,7 @@ interface RunRecord {
   events: RunProgressEvent[];
   latestFrame?: RunProgressEvent;
   latestCursor?: RunProgressEvent;
+  formTestCases: Map<string, FormTestCaseState>;
   listeners: Set<RunListener>;
   report?: TestingRunResponse;
   error?: unknown;
@@ -45,6 +46,7 @@ export class RunRegistry {
       updatedAt: now,
       sequence: 0,
       events: [],
+      formTestCases: new Map(),
       listeners: new Set(),
       paused: false,
       stopped: false,
@@ -166,6 +168,9 @@ export class RunRegistry {
     } else {
       record.events.push(event);
     }
+    if (event.formTestCase) {
+      record.formTestCases.set(caseStateKey(event.formTestCase), event.formTestCase);
+    }
     if (record.events.length > MAX_BUFFERED_EVENTS) {
       record.events.splice(0, record.events.length - MAX_BUFFERED_EVENTS);
     }
@@ -235,9 +240,36 @@ export class RunRegistry {
       updatedAt: record.updatedAt,
       completedAt: record.completedAt,
       events: this.listSnapshotEvents(record),
+      formTestCases: this.snapshotFormTestCases(record),
       report: record.report,
       error: record.error,
     };
+  }
+
+  private snapshotFormTestCases(record: RunRecord): FormTestCaseState[] | undefined {
+    if (record.formTestCases.size > 0) return [...record.formTestCases.values()];
+    if (!record.report) return undefined;
+    const cases = record.report.pages.flatMap((page) =>
+      (page.plannedTestCases ?? []).map((testCase) => {
+        const result = page.tests.find((test) => test.id === testCase.caseId);
+        return {
+          runId: record.runId,
+          caseId: testCase.caseId,
+          formId: testCase.formId,
+          pageUrl: page.url,
+          role: page.role,
+          viewport: page.viewport,
+          locale: page.locale,
+          planningSource: page.planningSource ?? "mixed",
+          testCase,
+          status: statusFromReport(result?.status),
+          submit: testCase.submit,
+          resultStatus: result?.status,
+          resultMessage: result?.actualResult,
+        };
+      }),
+    );
+    return cases.length > 0 ? cases : undefined;
   }
 
   private listSnapshotEvents(record: RunRecord, lastSequence?: number): RunProgressEvent[] {
@@ -273,4 +305,15 @@ export class RunRegistry {
       await new Promise<void>((resolve) => record.pauseWaiters.add(resolve));
     }
   }
+}
+
+function caseStateKey(state: FormTestCaseState): string {
+  return `${state.pageUrl}:${state.formId}:${state.caseId}:${state.role ?? ""}:${state.viewport ?? ""}:${state.locale ?? ""}`;
+}
+
+function statusFromReport(status: TestingRunResponse["pages"][number]["tests"][number]["status"] | undefined): FormTestCaseState["status"] {
+  if (status === "PASSED") return "passed";
+  if (status === "FAILED" || status === "ERROR") return "failed";
+  if (status === "INCONCLUSIVE" || status === "SKIPPED" || status === "BLOCKED_BY_POLICY") return "inconclusive";
+  return "planned";
 }

@@ -1,7 +1,7 @@
 {
   "name": "testerbackend",
   "version": "1.0.0",
-  "description": "Authorized black-box website testing backend powered by Playwright and Qwen.",
+  "description": "Authorized black-box website testing backend powered by Playwright and OpenRouter.",
   "type": "module",
   "main": "dist/src/server.js",
   "scripts": {
@@ -17,7 +17,7 @@
     "acceptance:deterministic": "npm run build && node scripts/run-fixture-acceptance.mjs",
     "acceptance:live": "npm run build && node scripts/run-fixture-acceptance.mjs --live-ai",
     "acceptance:phase5-adversarial": "npm run build && node scripts/run-phase5-adversarial.mjs",
-    "qwen:smoke": "node scripts/qwen-smoke.mjs",
+    "openrouter:smoke": "node scripts/openrouter-smoke.mjs",
     "fixture": "node tests/fixtures/test-site/server.mjs",
     "playwright:install:chrome": "playwright install chrome"
   },

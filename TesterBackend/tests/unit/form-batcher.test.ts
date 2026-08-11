@@ -36,6 +36,13 @@ describe("batchFormSnapshots", () => {
   it("returns no batches for an empty input", () => {
     expect(batchFormSnapshots([])).toEqual([]);
   });
+
+  it("splits batches to fit a provider context character budget", () => {
+    const snapshots = [form("f1", 100), form("f2", 100)];
+    const oneFormChars = JSON.stringify({ formCount: 1, forms: [snapshots[0]] }).length;
+
+    expect(batchFormSnapshots(snapshots, oneFormChars)).toHaveLength(2);
+  });
 });
 
 function form(id: string, labelPadding = 0): FormSnapshot {

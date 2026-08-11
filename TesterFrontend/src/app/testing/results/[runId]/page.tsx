@@ -48,6 +48,9 @@ export default function ResultsPage({ params }: { params: Promise<{ runId: strin
         <h1 className="text-2xl font-semibold tracking-tight">Test Report</h1>
         <p className="mt-1 text-sm text-muted-foreground">Sanitized backend report for run {report.runId}.</p>
       </div>
+      <div className="flex flex-wrap gap-2">
+        <Button asChild variant="outline"><Link href={`/testing/test-cases/${report.runId}`}>Implemented test cases</Link></Button>
+      </div>
       <ResultsDashboard report={report} />
     </div>
   );

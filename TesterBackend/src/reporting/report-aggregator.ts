@@ -17,6 +17,7 @@ export class ReportAggregator {
     context.diagnostics.ai.calls = context.aiCalls ?? 0;
     context.diagnostics.crawl.acceptedUrls = [...context.visitedUrls];
     context.diagnostics.crawl.skippedUrls = [...context.skippedUrls.entries()].map(([url, reason]) => ({ url, reason }));
+    context.diagnostics.crawl.externalUrls = [...(context.externalUrls ?? new Map()).entries()].map(([url, details]) => ({ url, ...details }));
     context.diagnostics.crawl.failedUrls = [...context.failedUrls.entries()].map(([url, reason]) => ({ url, reason }));
     const pages = context.pageReports;
     const tests = pages.flatMap((page) => page.tests);
@@ -48,6 +49,14 @@ export class ReportAggregator {
     const coverageLimitations: CoverageLimitation[] = context.request.testTypes.map((testType) => {
       const availability = getTestTypeAvailability(testType);
       if (availability === "implemented") {
+        if (testType === "AUTHENTICATION" && context.diagnostics.login.status === "FAILED") {
+          return {
+            testType,
+            availability,
+            executed: true,
+            reason: "Authentication was attempted and failed. The run continued against public pages anonymously; protected coverage is inconclusive.",
+          };
+        }
         if (AI_ASSISTED_TYPES.has(testType)) {
           if (context.diagnostics.ai.disabled) {
             return {
