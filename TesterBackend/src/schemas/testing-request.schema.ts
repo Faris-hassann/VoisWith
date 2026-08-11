@@ -101,8 +101,8 @@ const baseTestingRunRequestSchema = z
     crawl: z
       .object({
         strategy: z.literal("DFS").default("DFS"),
-        maxDepth: z.number().int().min(0).max(10_000).optional(),
-        maxPages: z.number().int().min(1).max(1_000_000).optional(),
+        maxDepth: z.number().int().min(0).max(7).optional(),
+        maxPages: z.number().int().min(1).max(500).optional(),
         sameOriginOnly: z.boolean().default(true),
         includePatterns: patternArraySchema,
         excludePatterns: patternArraySchema.default(["/logout", "/delete", "/remove", "/payment"]),
@@ -140,7 +140,7 @@ const baseTestingRunRequestSchema = z
         allowDestructiveActions: z.boolean().default(false),
         allowPayments: z.boolean().default(false),
         maximumActionsPerPage: z.number().int().min(1).max(200).default(15),
-        maximumRunDurationSeconds: z.number().int().min(10).max(7200).default(300),
+        maximumRunDurationSeconds: z.number().int().min(10).max(10800).default(300),
       })
       .strict()
       .default({}),
@@ -206,7 +206,7 @@ function normalizeNewRequestShape(raw: unknown): unknown {
       allowDestructiveActions: Boolean(input.allowDestructiveActions),
       allowPayments: false,
       maximumActionsPerPage: 15,
-      maximumRunDurationSeconds: 1800,
+      maximumRunDurationSeconds: 10800,
       ...(isRecord(input.execution) ? input.execution : {}),
     },
   };

@@ -1,4 +1,6 @@
 import { createServer } from "node:http";
+import console from "node:console";
+import { URL } from "node:url";
 
 /**
  * The acceptance fixture (DESIGN-DECISIONS.md §11): 6 pages, a login, and 4

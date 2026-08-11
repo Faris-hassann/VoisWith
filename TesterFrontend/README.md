@@ -170,6 +170,7 @@ The running page handles these WebSocket wrapper messages:
 run.snapshot
 run.event
 run.not_found
+stream.ping
 ```
 
 The backend currently emits these progress event types inside `run.event.event.type`:
@@ -178,13 +179,17 @@ The backend currently emits these progress event types inside `run.event.event.t
 ai.skipped_budget
 ai.planning_failed
 ai.planning_passed
-ai.planning_started
+ai.batch_failed
+ai.batch_started
 ai:configuration-missing
 ai:disabled
 ai:enabled
 ai:skipped-no-forms
 browser.launched
+browser.recycled
+form:blocked_privileged
 form:discovered
+form:duplicate_skipped
 form:ready-for-ai
 form:scanning
 live-view:frame
@@ -215,6 +220,8 @@ test_case.started
 ```
 
 `live-view:frame` events carry a base64 JPEG in `event.liveFrame.data`.
+
+The client reconnects non-1000 closes with `?lastSequence=N` using capped exponential backoff while polling the disk-backed async endpoint every 10 seconds. It answers `stream.ping` with `stream.pong`, declares the socket dead after two missed 30-second heartbeats, and never reconnects after close code 1000. History and result routes read the backend retention store; browser local storage is only a cache.
 
 ## Stop States
 

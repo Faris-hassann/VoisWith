@@ -80,13 +80,13 @@ describe("privileged form classifier", () => {
     expect(classifyForm(formFor({ fields: [] }))).toMatchObject({ block: "soft", matchedSignal: "no_visible_fields" });
   });
 
-  it("ignores hidden fields and hidden submit controls", () => {
+  it("fails closed on hidden privileged fields", () => {
     // A hidden privileged field must not be what decides the verdict — the
     // snapshot never sends hidden fields to the model either.
     const result = classifyForm(
       formFor({ fields: [...threeValidatedFields(), field("element_9", { name: "api_key", hidden: true })] }),
     );
-    expect(result).toEqual({ decision: "allowed" });
+    expect(result).toMatchObject({ block: "hard", matchedSignal: "field:api_key" });
   });
 });
 

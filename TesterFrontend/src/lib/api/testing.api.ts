@@ -2,7 +2,7 @@ import { publicEnv } from "../environment/public-env";
 import { mockCompletedReport } from "../testing/mock-reports";
 import { endpoints } from "./endpoints";
 import { apiRequest } from "./client";
-import type { AsyncRunSnapshot, AsyncRunStartResponse, TestingRunRequest, TestingRunResponse } from "./types";
+import type { AsyncRunSnapshot, AsyncRunStartResponse, RunHistoryResponse, TestingRunRequest, TestingRunResponse } from "./types";
 
 export async function runWebsiteTest(
   payload: TestingRunRequest,
@@ -51,6 +51,12 @@ export async function getTestingRunStatus(runId: string): Promise<AsyncRunSnapsh
   return apiRequest<AsyncRunSnapshot>(`${endpointBase}/${encodeURIComponent(runId)}`, { method: "GET" }, { timeoutMs: 10000 });
 }
 
+export async function listTestingRuns(): Promise<RunHistoryResponse> {
+  if (publicEnv.mockMode) return { runs: [] };
+  const endpoint = publicEnv.apiMode === "proxy" ? endpoints.proxyTestingRuns : endpoints.testingRuns;
+  return apiRequest<RunHistoryResponse>(endpoint, { method: "GET" }, { timeoutMs: 10000 });
+}
+
 export async function controlTestingRun(runId: string, action: "pause" | "resume" | "stop"): Promise<AsyncRunSnapshot> {
   const endpointBase = publicEnv.apiMode === "proxy" ? endpoints.proxyTestingRuns : endpoints.testingRuns;
   return apiRequest<AsyncRunSnapshot>(
@@ -65,11 +71,11 @@ export function buildTestingRunReportUrl(runId: string): string {
   return `${endpointBase}/${encodeURIComponent(runId)}/report.json`;
 }
 
-export function buildTestingRunWebSocketUrl(runId: string): string {
+export function buildTestingRunWebSocketUrl(runId: string, lastSequence?: number): string {
   const base = new URL(publicEnv.apiBaseUrl);
   base.protocol = base.protocol === "https:" ? "wss:" : "ws:";
   base.pathname = `${publicEnv.testRunsEndpoint}/${encodeURIComponent(runId)}/stream`;
-  base.search = "";
+  base.search = lastSequence === undefined ? "" : `?lastSequence=${lastSequence}`;
   base.hash = "";
   return base.toString();
 }

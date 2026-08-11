@@ -94,7 +94,12 @@ export class AiTestPlanner {
       }
 
       if (!batchCases) {
-        batchCases = generateDeterministicPlan(batch, context.runId, context.request.execution.allowFormSubmission);
+        batchCases = generateDeterministicPlan(
+          batch,
+          context.runId,
+          context.request.execution.allowFormSubmission,
+          new URL(context.targetOrigin).hostname,
+        );
         context.diagnostics.ai.deterministicFallbacks += 1;
         batchesFallenBack += 1;
         usedDeterministic = true;

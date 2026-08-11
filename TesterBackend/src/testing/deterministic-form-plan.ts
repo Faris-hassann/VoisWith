@@ -1,6 +1,7 @@
 import { MAX_GENERATED_VALUE_LENGTH } from "../types/llm-contract.js";
 import type { FormFieldSnapshot, FormSnapshot, FormTestCase } from "../types/llm-contract.js";
 import { FormDataGenerator } from "./form-data-generator.js";
+import { inferFieldIntent } from "./field-intent.js";
 
 /** Matches the validator's per-form cap so a form never overflows even before validation. */
 const MAX_CASES_PER_FORM = 12;
@@ -14,8 +15,9 @@ export function generateDeterministicPlan(
   snapshots: FormSnapshot[],
   runId: string,
   allowFormSubmission: boolean,
+  targetHost = "example",
 ): FormTestCase[] {
-  const generator = new FormDataGenerator(runId);
+  const generator = new FormDataGenerator(runId, targetHost);
   return snapshots.flatMap((snapshot) => generateFormCases(snapshot, generator, allowFormSubmission));
 }
 
@@ -51,7 +53,10 @@ function generateFormCases(
       formId: snapshot.formId,
       testType: "FORM_VALIDATION",
       intent: `Invalid value in "${field.label ?? field.name ?? field.elementId}" is rejected.`,
-      inputs: [{ elementId: field.elementId, value: clamp(generator.value(strategy)) }],
+      inputs: fillableFields.map((candidate) => ({
+        elementId: candidate.elementId,
+        value: clamp(generator.value(candidate.elementId === field.elementId ? strategy : validStrategy(candidate))),
+      })),
       submit: allowFormSubmission,
       expectedOutcome: allowFormSubmission
         ? { kind: "FIELD_ERROR", elementId: field.elementId }
@@ -82,21 +87,28 @@ function isFillable(field: FormFieldSnapshot): boolean {
 }
 
 function invalidStrategy(field: FormFieldSnapshot): string | undefined {
-  const type = field.type?.toLowerCase();
-  if (type === "email") return "INVALID_EMAIL";
-  if (type === "tel") return "INVALID_PHONE";
+  const intent = inferFieldIntent(field);
+  if (intent === "email") return "INVALID_EMAIL";
+  if (intent === "phone") return "INVALID_PHONE";
   if (typeof field.maxLength === "number") return "TOO_LONG";
   if (typeof field.minLength === "number" && field.minLength > 0) return "TOO_SHORT";
   return undefined;
 }
 
 function validStrategy(field: FormFieldSnapshot): string | undefined {
-  const type = field.type?.toLowerCase();
-  if (type === "email") return "VALID_EMAIL";
-  if (type === "tel") return "VALID_PHONE";
-  if (type === "password") return "VALID_PASSWORD";
-  if (type === "date") return "VALID_DATE";
-  if (type === "number") return "VALID_NUMBER";
+  const intent = inferFieldIntent(field);
+  if (intent === "email") return "VALID_EMAIL";
+  if (intent === "phone") return "VALID_PHONE";
+  if (intent === "postal") return "VALID_POSTAL_CODE";
+  if (intent === "first_name") return "VALID_FIRST_NAME";
+  if (intent === "last_name") return "VALID_LAST_NAME";
+  if (intent === "full_name") return "VALID_FULL_NAME";
+  if (intent === "company") return "VALID_COMPANY";
+  if (intent === "address") return "VALID_ADDRESS";
+  if (intent === "description") return "VALID_DESCRIPTION";
+  if (intent === "password") return "VALID_PASSWORD";
+  if (intent === "date") return "VALID_DATE";
+  if (intent === "number") return "VALID_NUMBER";
   return undefined;
 }
 

@@ -56,4 +56,28 @@ describe("generateDeterministicPlan", () => {
 
     expect(first).toEqual(second);
   });
+
+  it("infers email intent from metadata when type=text", () => {
+    const semantic: FormSnapshot = {
+      ...snapshot,
+      fields: [{ elementId: "element_9", kind: "input", type: "text", label: "Work Email", required: false, disabled: false }],
+    };
+    const testCases = generateDeterministicPlan([semantic], "run_semantic", true, "target.example");
+
+    expect(testCases.some((testCase) =>
+      testCase.inputs.some((input) => input.elementId === "element_9" && input.value === "not-an-email") &&
+      testCase.expectedOutcome.kind === "FIELD_ERROR" && testCase.expectedOutcome.elementId === "element_9",
+    )).toBe(true);
+    expect(testCases.flatMap((testCase) => testCase.inputs).map((input) => input.value)).toContain(
+      "qa+run_semantic@target.example.test",
+    );
+  });
+
+  it("uses canonical greppable test values", () => {
+    const values = generateDeterministicPlan([snapshot], "run_marker", true, "example.com")
+      .flatMap((testCase) => testCase.inputs)
+      .map((input) => input.value);
+    expect(values.some((value) => value.includes("ZZTEST-run_marker"))).toBe(true);
+    expect(values).toContain("qa+run_marker@example.com.test");
+  });
 });

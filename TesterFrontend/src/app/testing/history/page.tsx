@@ -4,23 +4,39 @@ import Link from "next/link";
 import { formatDistanceStrict } from "date-fns";
 import { FileText } from "lucide-react";
 import type { ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { useReportStore } from "@/providers/report-store-provider";
+import { listTestingRuns } from "@/lib/api/testing.api";
+import type { RunHistoryItem } from "@/lib/api/types";
 
 export default function HistoryPage() {
-  const { reports } = useReportStore();
-  const savedReports = Object.values(reports).sort(
-    (a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime(),
-  );
+  const [savedReports, setSavedReports] = useState<RunHistoryItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<unknown>();
+
+  useEffect(() => {
+    let cancelled = false;
+    void listTestingRuns()
+      .then(({ runs }) => { if (!cancelled) setSavedReports(runs); })
+      .catch((caught) => { if (!cancelled) setError(caught); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (loading) return <div className="text-sm text-muted-foreground">Loading retained reports…</div>;
+
+  if (error) {
+    return <EmptyState title="History unavailable" description="The backend could not load retained reports." />;
+  }
 
   if (savedReports.length === 0) {
     return (
       <EmptyState
         title="No saved reports"
-        description="Completed reports saved in this browser will appear here."
+        description="Completed backend reports retained for 14 days will appear here."
       />
     );
   }
@@ -29,7 +45,7 @@ export default function HistoryPage() {
     <div className="space-y-5">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Report History</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Reports saved locally in this browser.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Disk-backed reports retained by the backend for 14 days.</p>
       </div>
 
       <div className="grid gap-3">
@@ -55,7 +71,7 @@ export default function HistoryPage() {
                   <Info label="Findings" value={<StatusBadge value={report.findingsStatus} />} />
                   <Info label="Completed" value={new Date(report.completedAt).toLocaleString()} />
                   <Info label="Duration" value={duration} />
-                  <Info label="Issues" value={`${report.issues.length}`} />
+                  <Info label="Issues" value={`${report.issueCount}`} />
                 </div>
               </CardContent>
             </Card>

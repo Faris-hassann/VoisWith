@@ -20,6 +20,7 @@ export class BrowserManager {
       viewport?: TestingRunRequest["browser"]["viewport"];
       locale?: string;
       direction?: LocaleDirection;
+      storageState?: Awaited<ReturnType<BrowserContext["storageState"]>>;
     },
   ): Promise<BrowserSession> {
     try {
@@ -33,10 +34,12 @@ export class BrowserManager {
         viewport: options?.viewport ?? request.browser.viewport,
         locale: options?.locale,
         acceptDownloads: true,
+        storageState: options?.storageState,
       });
       context.setDefaultNavigationTimeout(config.browser.pageNavigationTimeoutMs);
       context.setDefaultTimeout(config.browser.actionTimeoutMs);
       const page = await context.newPage();
+      await context.tracing.start({ screenshots: true, snapshots: true, sources: false });
       await installVisibleCursor(page);
       if (options?.direction === "rtl") {
         await page.addInitScript(() => {
@@ -55,7 +58,10 @@ export class BrowserManager {
     }
   }
 
-  async close(session?: Partial<BrowserSession>): Promise<void> {
+  async close(session?: Partial<BrowserSession>, retainTracePath?: string): Promise<void> {
+    if (session?.context) {
+      await session.context.tracing.stop(retainTracePath ? { path: retainTracePath } : undefined).catch(() => undefined);
+    }
     await Promise.allSettled([
       session?.context?.close(),
       session?.browser?.close(),

@@ -17,6 +17,7 @@ export function mockCompletedReport(request: TestingRunRequest): TestingRunRespo
       pagesDiscovered: 3,
       pagesTested: 2,
       pagesSkipped: 1,
+      pagesNotReached: 0,
       testsExecuted: 5,
       passedTests: 2,
       failedTests: 1,

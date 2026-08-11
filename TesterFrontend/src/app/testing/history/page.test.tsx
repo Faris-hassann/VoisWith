@@ -1,37 +1,34 @@
 import { render, screen } from "@testing-library/react";
-import { useEffect } from "react";
-import { describe, expect, it, beforeEach } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mockCompletedReport } from "../../../lib/testing/mock-reports";
-import type { TestingRunRequest, TestingRunResponse } from "../../../lib/api/types";
-import { ReportStoreProvider, useReportStore } from "../../../providers/report-store-provider";
+import type { TestingRunRequest } from "../../../lib/api/types";
 import HistoryPage from "./page";
 
 describe("HistoryPage", () => {
-  beforeEach(() => {
-    window.localStorage.clear();
-  });
+  afterEach(() => vi.unstubAllGlobals());
 
-  it("renders saved reports with result links", async () => {
+  it("renders disk-backed run summaries with result links", async () => {
     const report = mockCompletedReport(request());
-    render(
-      <ReportStoreProvider>
-        <SaveReport report={report} />
-        <HistoryPage />
-      </ReportStoreProvider>,
-    );
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ runs: [{
+      runId: report.runId,
+      targetOrigin: report.targetOrigin,
+      runStatus: report.runStatus,
+      findingsStatus: report.findingsStatus,
+      status: report.status,
+      stoppedReason: report.stoppedReason,
+      startedAt: report.startedAt,
+      completedAt: report.completedAt,
+      summary: report.summary,
+      issueCount: report.issues.length,
+      artifactsBytes: report.summary.artifactsBytes,
+    }] }), { status: 200, headers: { "content-type": "application/json" } })));
+
+    render(<HistoryPage />);
 
     expect(await screen.findByText(report.targetOrigin)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "View report" })).toHaveAttribute("href", `/testing/results/${report.runId}`);
   });
 });
-
-function SaveReport({ report }: { report: TestingRunResponse }) {
-  const { saveReport } = useReportStore();
-  useEffect(() => {
-    saveReport(report);
-  }, [report, saveReport]);
-  return null;
-}
 
 function request(): TestingRunRequest {
   return {

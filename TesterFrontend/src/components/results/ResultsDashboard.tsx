@@ -52,6 +52,11 @@ export function ResultsDashboard({ report }: { report: TestingRunResponse }) {
           <Info label="Safe mode" value="Backend policy enforced" />
         </CardContent>
       </Card>
+      {report.summary.artifactsBytes > 1024 ** 3 ? (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          This run retained more than 1 GB of artifacts. Review screenshots and traces before the 14-day retention sweep.
+        </div>
+      ) : null}
       <TestSummaryCards summary={report.summary} />
       <Tabs.Root defaultValue="Overview" className="space-y-4">
         <Tabs.List className="flex gap-2 overflow-x-auto rounded-lg border bg-card p-2">

@@ -1,7 +1,7 @@
 # TesterBackend / TesterFrontend — Settled Design Decisions
 
 Output of 8 grilling rounds, 49 questions. Every decision below is settled.
-Nothing here is implemented yet. This document is the contract to verify before Phase 1 starts.
+This document remains the canonical contract; implementation progress is recorded in §14.
 
 **This file is canonical.** Implementation plans, code comments, and tests reference sections here rather than restating enums, limits, formulas, regexes, budgets, or mappings. If a value appears in two places, this one wins. Commit it to the repo — it is not a chat artifact.
 
@@ -48,7 +48,7 @@ Every **selected** type gets a `coverageLimitations` entry — `{ testType, avai
 
 ```json
 {
-  "formId": "sha1(routeFamily + '::' + fieldSignature)",
+  "formId": "sha1(fieldSignature)",
   "routeFamily": "/services/:id",
   "method": "POST",
   "submitLabel": "Request Service",
@@ -209,14 +209,18 @@ After submit, wait up to **5s** for network idle or DOM mutation, then:
 
 ## 7. Form dedup
 
+**Amendment 2 (post-Phase-4, resolves a self-contradiction found during acceptance).** The original formula included `routeFamily`, which defeats the dedup this section's own prose promises: a footer form appearing on `/about` and `/pricing` hashed to two different `formId`s because `routeFamily` differs per page, so `form:duplicate_skipped` never fired for genuinely repeated components. `routeFamily` is dropped from `formId` below. It remains in use elsewhere (§9 crawl-instance identity) — only the form-level formula changes.
+
 ```
 fieldSignature = sha1(sorted(field.name || field.label || elementRole + ":" + type).join("|"))
-formId         = sha1(routeFamily + "::" + fieldSignature)
+formId         = sha1(fieldSignature)
 ```
 
 `fieldSignature` deliberately excludes `elementId` (regenerates per page) and all values.
 
 A `formId` already in `processedForms` is skipped: `decision: "duplicate_of:<firstPageUrl>"`. **One form, tested once, on the first page it appears** — even though the route-family rule still permits visiting 3 instances of a route.
+
+**Known limitation, accepted deliberately:** two structurally-identical-but-semantically-distinct forms (e.g. a "Contact Us" and a "Request a Quote" form that happen to declare the same field set) will be deduped as one. This is auditable, not silent — it surfaces as a `duplicate_of` entry naming the first page, so a human reviewing the report can see it happened. Judged an acceptable trade against the alternative (routeFamily-scoped dedup, which silently under-deduplicates far more often — the actual bug this amendment fixes).
 
 ---
 
@@ -295,11 +299,10 @@ TrueForm staging is then a **manual** demo run whose only criterion is that it c
 | Phase | Contents | Status |
 | --- | --- | --- |
 | **1. Contracts** | `FormSnapshot`, `TestCase`, `expectedOutcome` enum, `stoppedReason`, split `runStatus`/`findingsStatus`, `coverageLimitations` population | ✅ Complete |
-| **2. Safety** | `writeActionsAcknowledged` gate, captcha skip, consent logging, **deterministic data generator** | ✅ Complete |
-| **2b. Safety (deferred)** | privileged-form classifier, `CREATE_ACCOUNT`/`MODIFY_SETTINGS` blocked categories | ✅ Complete in Phase 4 — was marked complete in Phase 2 but never built; see §14 |
+| **2. Safety** | privileged-form classifier, `CREATE_ACCOUNT`/`MODIFY_SETTINGS` blocked categories, `writeActionsAcknowledged` gate, captcha skip, consent logging, **deterministic data generator** | ✅ Complete |
 | **3. LLM path** | 3-form batching, model chain, typed failures, output caps, deterministic fallback | ✅ Complete — see §14 |
-| **4. Assertions** | six evaluation rules, mechanical severity table, form dedup | ⏭ Next — has a blocker, see §14 |
-| **5. Persistence** | manifest durability, disk-backed history, `GET /runs`, retention sweep, `artifactsBytes`, stream recovery | Not started |
+| **4. Assertions** | six evaluation rules, mechanical severity table, form dedup | ✅ Complete — see §14 |
+| **5. Persistence** | manifest durability, disk-backed history, `GET /runs`, retention sweep, `artifactsBytes`, stream recovery | ✅ Complete — see §14 |
 | **6. Live view** | shadow-root cursor overlay, `live-view:cursor` | Not started |
 
 Nothing starts before Phase 1 — the schemas are load-bearing for the validator, policy engine, executor, report, and UI simultaneously. Phase 6 is the demo feature and the one most tempting to build first; it animates a broken pipeline if 1–4 aren't green.
@@ -357,7 +360,7 @@ OPENROUTER_MODELS=nvidia/nemotron-nano-9b-v2:free,poolside/laguna-s-2.1:free,poo
 
 The catalogue rotates, so re-run `npm run openrouter:models` before any demo and update this line if a slug has been delisted. **Latency note measured on these three:** a single planning call takes **~55-75s** on the free tier. Budget `maximumRunDurationSeconds` accordingly — a 120s budget is not enough for more than one page, which is exactly what broke the Phase 3 fixture run.
 
-### Phase 4 — Blocker, root cause (this entry previously recorded it wrongly)
+### Phase 4 — Historical blocker/root cause (superseded by the closure entry below)
 **Corrected.** The earlier version of this entry blamed a false positive in state-fingerprint/route dedup and pointed at `state-fingerprint-service.ts` / `url-canonicalizer.ts`. That was wrong, and it was wrong because the `duplicate-or-visited` skip *label* was taken at face value without reading the crawler's own event log. Both files are innocent; dedup was never involved.
 
 The crawler's event log for that run ends:
@@ -390,10 +393,31 @@ Lesson worth keeping: a skip *label* is not a root cause. The crawler already em
 
 Also fixed: the live-view cursor overlay called `document.head.appendChild` at document-start before `<head>` existed, throwing into the page console on every navigation — **102 console errors that the CONSOLE_ERRORS check then reported as target defects.** Same "tool failure leaking into issues" class as the Phase 2 bug. Now guarded; the fixture run reports 0.
 
-**Acceptance status — honest:** no single run has met §11 in full.
+**Historical acceptance status:** at this point no single run had met §11 in full. Superseded by the Phase 4 closure entry below.
 - With AI live (runs 3 and 4): all 7 pages reached including `/contact`, `runStatus: COMPLETED`, `findingsStatus: ISSUES_FOUND`, `stoppedReason: converged`, **zero inconclusive**, and all four seeded defects detected — invalid email accepted (HIGH), submit did nothing (HIGH), missing validation attributes (MEDIUM), clean control passing.
 - The final run, after removing fixture noise, hit **429 on all three models** (five consecutive runs exhausted the shared free-tier ceiling) and degraded to the deterministic generator. It stayed COMPLETED/converged with zero inconclusive, but the deterministic fallback caught only 2 of 4 seeded defects: it emits `INVALID_EMAIL` only for fields already typed `type=email`, so it cannot catch the seeded `type=text` email field. **That is a real coverage limit of the deterministic rung, not a flake.**
 
-**Two open items, deliberately not silently patched:**
-- **§7 contradicts itself.** The formula `formId = sha1(routeFamily + "::" + fieldSignature)` includes the route family, but the prose promises "one form, tested once" and cites a footer form recurring *across pages*. Those cannot both hold: the identical footer form on `/about` and `/pricing` hashes to `7726e4c2…` and `bd8d3a51…`, so dedup never fires and `form:duplicate_skipped` was never emitted in any run. The formula is implemented verbatim as instructed; **the contradiction needs a decision** — either drop `routeFamily` from `formId` (cross-page dedup works, per-route forms collapse) or amend the prose.
-- **Deterministic generator coverage.** It should derive invalid values from the field's *label/name* semantics, not just its declared `type`, or it will keep missing exactly the defects that matter most when the LLM is unavailable.
+**Those two items are now resolved:** Amendment 2 drops `routeFamily` from `formId`, and the deterministic planner infers bounded field intent from name/label/placeholder metadata.
+
+### Phase 4 — Complete
+
+Cross-page form identity now hashes only the field signature; the LLM-facing `routeFamily` is path/query shape only. The deterministic planner recognizes email/phone/postal and a bounded set of ordinary field semantics, fills non-target required fields during invalid-input cases, and emits canonical greppable data (`ZZTEST-<runId>`, target-host `.test` email, reserved 555 phone). A contract audit also found the previously-unspecified classifier correction: hidden privilege/password fields were being ignored even though §4 fails closed. They are now hard-block signals while remaining excluded from LLM snapshots.
+
+The §11 fixture passed twice on 2026-08-11:
+
+- `npm run acceptance:deterministic`: 7 pages, exactly the seeded invalid-email HIGH, submit-did-nothing HIGH, and missing-validation MEDIUM findings; clean login; zero inconclusive; `COMPLETED / ISSUES_FOUND / converged`; duplicate footer event observed.
+- `npm run acceptance:live`: same acceptance result, 5 schema-valid AI batches, 28 generated cases, zero deterministic fallbacks. The live gate requires `diagnostics.ai.successes >= 1`, so a fully degraded run cannot masquerade as primary-path verification.
+
+Live catalogue and verified chain:
+
+```
+OPENROUTER_MODELS=nvidia/nemotron-nano-9b-v2:free,poolside/laguna-s-2.1:free,poolside/laguna-xs-2.1:free
+```
+
+The explicit live acceptance command uses a 90-second response timeout because the default 30 seconds is below observed free-tier latency; normal runtime configuration is unchanged.
+
+### Phase 5 — Complete
+
+Runs now atomically checkpoint a redacted, versioned manifest and collision-free per-page report after every page, write a stable final report, recover unterminated manifests as `ERRORED / error`, and remain queryable from disk after restart or registry eviction. History is newest-first through `GET /api/v1/testing/runs`; retention defaults to 14 days; artifact totals include the retained run directory and warn above 1 GB. Routine screenshots are viewport JPEG q70, failure evidence may be full-page, traces retain only when a matrix target has findings, and contexts recycle with `storageState` every 50 pages.
+
+The stream retains 2,000 lightweight events and terminal buffers for 10 minutes, replays after `?lastSequence=N`, uses application heartbeats, follows `run.completed → run.report_ready → 2s → 1000/run_complete`, and falls back to 10-second polling during capped exponential reconnects. Disk-backed run snapshots prevent `run.not_found` for retained history. Backend/frontend contracts, OpenAPI, and both README event tables were updated in the same implementation.

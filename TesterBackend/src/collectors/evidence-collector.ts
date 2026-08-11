@@ -11,7 +11,7 @@ export class EvidenceCollector {
     description: string,
   ): Promise<EvidenceReference[]> {
     try {
-      return [await this.artifacts.screenshot(page, name, description)];
+      return [await this.artifacts.screenshot(page, name, description, true)];
     } catch {
       return [];
     }

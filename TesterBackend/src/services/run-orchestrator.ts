@@ -38,6 +38,7 @@ import { PlaywrightActionExecutor } from "../actions/playwright-action-executor.
 import { AssertionEngine } from "../assertions/assertion-engine.js";
 import { buildMatrixTargets, type MatrixExecutionTarget } from "../testing/run-matrix.js";
 import type { RunEventSink, RunProgressEventInput } from "../runs/run-events.js";
+import { RunHistoryStore } from "../runs/run-history-store.js";
 
 let activeRuns = 0;
 
@@ -59,6 +60,8 @@ export class RunOrchestrator {
   private readonly policy = new ActionPolicyEngine();
   private readonly aggregator = new ReportAggregator();
 
+  constructor(private readonly history = new RunHistoryStore()) {}
+
   async run(request: TestingRunRequest, options: RunOrchestratorOptions = {}): Promise<TestingRunResponse> {
     if (activeRuns >= config.limits.maxConcurrentRuns) {
       throw new AppError({
@@ -74,6 +77,7 @@ export class RunOrchestrator {
     const target = await assertSafeTargetUrl(request.targetUrl, config.security);
     const artifacts = new ArtifactManager(config.artifacts.root, runId);
     await artifacts.initialize();
+    await this.history.initializeRun(runId, request, target.origin, startedAt);
 
     const context: RunContext = {
       runId,
@@ -180,6 +184,7 @@ export class RunOrchestrator {
       };
 
       for (const targetItem of targets) {
+        const pagesBeforeTarget = context.pageReports.length;
         session = await this.runMatrixTarget({
           context,
           target,
@@ -187,26 +192,20 @@ export class RunOrchestrator {
           artifacts,
           events: options.onEvent,
         });
-        await this.browserManager.close(session);
+        const retainTrace = context.pageReports.slice(pagesBeforeTarget).some((page) => page.status === "FAILED" || page.status === "ERROR");
+        const tracePath = retainTrace
+          ? `${artifacts.dir("traces")}/${traceFileName(targetItem.role.name, targetItem.viewport.name, targetItem.locale.name)}`
+          : undefined;
+        await this.browserManager.close(session, tracePath);
         session = undefined;
       }
 
       this.recordAuthorizationDiagnostics(context);
 
       const report = this.aggregator.aggregate(context, new Date().toISOString());
+      await this.history.finalize(report);
+      await this.history.sweep();
       logger.info({ runId, runStatus: report.runStatus, findingsStatus: report.findingsStatus, summary: report.summary }, "Test run completed");
-      emit(options, {
-        runId,
-        type: "run.report_ready",
-        status: report.runStatus === "ERRORED" ? "failed" : "passed",
-        message: `Final report is ready with runStatus ${report.runStatus} and findingsStatus ${report.findingsStatus}.`,
-        counts: {
-          pagesTested: report.summary.pagesTested,
-          testsExecuted: report.summary.testsExecuted,
-          issues: report.issues.length,
-        },
-        stoppedReason: report.stoppedReason,
-      });
       return report;
     } catch (error) {
       const serialized = serializeError(error);
@@ -221,7 +220,6 @@ export class RunOrchestrator {
       if (!context.diagnostics.browser.launched) {
         context.diagnostics.browser.error = serialized.message;
       }
-      if (error instanceof AppError && error.fatal) throw error;
       context.pageReports.push({
         url: request.targetUrl,
         canonicalUrl: target.toString(),
@@ -238,12 +236,15 @@ export class RunOrchestrator {
         skippedReason: serialized.message,
       });
       const report = this.aggregator.aggregate(context, new Date().toISOString());
-      return {
+      const erroredReport: TestingRunResponse = {
         ...report,
         runStatus: "ERRORED",
         status: "ERROR",
         stoppedReason: "error",
       };
+      await this.history.finalize(erroredReport);
+      await this.history.sweep();
+      return erroredReport;
     } finally {
       if (context.request.credentials) {
         context.request.credentials.username = "";
@@ -314,7 +315,7 @@ export class RunOrchestrator {
       locale: targetItem.locale.name,
     });
 
-    const session = await this.browserManager.launch(localRequest, artifacts.downloadsDir, {
+    let session = await this.browserManager.launch(localRequest, artifacts.downloadsDir, {
       viewport: localRequest.browser.viewport,
       locale: targetItem.locale.locale,
       direction: targetItem.locale.direction,
@@ -444,9 +445,38 @@ export class RunOrchestrator {
       throw error;
     }
 
+    let lastRecycledAt = 0;
     await this.crawler.crawl({
       context: localContext,
       testPage: async (url) => {
+        const pagesCompleted = localContext.visitedUrls.size;
+        if (pagesCompleted > 0 && pagesCompleted % 50 === 0 && pagesCompleted !== lastRecycledAt) {
+          const storageState = await session.context.storageState();
+          const retainTrace = context.pageReports.some((page) => page.status === "FAILED" || page.status === "ERROR");
+          const tracePath = retainTrace
+            ? `${artifacts.dir("traces")}/${traceFileName(targetItem.role.name, targetItem.viewport.name, `${targetItem.locale.name}-${pagesCompleted}`)}`
+            : undefined;
+          await this.browserManager.close(session, tracePath);
+          session = await this.browserManager.launch(localRequest, artifacts.downloadsDir, {
+            viewport: localRequest.browser.viewport,
+            locale: targetItem.locale.locale,
+            direction: targetItem.locale.direction,
+            storageState,
+          });
+          consoleCollector.attach(session.page);
+          networkCollector.attach(session.page);
+          lastRecycledAt = pagesCompleted;
+          emit(input, {
+            runId: context.runId,
+            type: "browser.recycled",
+            status: "info",
+            message: `Browser context recycled after ${pagesCompleted} pages.`,
+            role: targetItem.role.name,
+            viewport: targetItem.viewport.name,
+            locale: targetItem.locale.name,
+            counts: { pagesCompleted },
+          });
+        }
         const result = await this.testPage({
           context: localContext,
           session,
@@ -596,52 +626,6 @@ export class RunOrchestrator {
       snapshot,
     });
     await prepareFormsForAiPlanning(input, session.page, snapshot);
-
-    if (context.openRouterCalls >= config.limits.maxOpenRouterCallsPerRun) {
-      emit(input, {
-        runId: context.runId,
-        type: "ai.skipped_budget",
-        status: "skipped",
-        message: `Maximum AI calls per run reached: ${config.limits.maxOpenRouterCallsPerRun}.`,
-        pageUrl: snapshot.url,
-        role: context.roleName,
-        viewport: context.viewportName,
-        locale: context.localeName,
-      });
-      const aiBudgetResult: TestCaseResult = {
-        id: "ai-call-budget",
-        name: "AI planning budget",
-        type: "SMOKE",
-        status: "SKIPPED",
-        steps: [],
-        assertions: [],
-        actualResult: `Maximum AI calls per run reached: ${config.limits.maxOpenRouterCallsPerRun}`,
-        evidence: [],
-        reproductionSteps: [`Open ${snapshot.url}`, "Inspect discovered form inputs", "Skip AI planning because budget is exhausted"],
-        severity: "INFORMATIONAL",
-        confidence: 1,
-      };
-      const testResults = [...baselineResults, ...linkHealthResults, aiBudgetResult];
-      const pageReport: PageReport = {
-        url: snapshot.url,
-        canonicalUrl: snapshot.canonicalUrl,
-        stateFingerprint: snapshot.stateFingerprint,
-        role: context.roleName,
-        viewport: context.viewportName,
-        locale: context.localeName,
-        direction: context.direction,
-        status: summarizePageStatus(testResults),
-        tests: testResults,
-        consoleErrors: snapshot.consoleErrors,
-        failedNetworkRequests: snapshot.failedRequests,
-        performanceObservations: snapshot.performance,
-        evidence: pageEvidence,
-        skippedReason: "Maximum AI calls per run reached after baseline inspection.",
-      };
-      this.recordPageDiagnostics(context, pageReport, snapshot, baselineResults.length, 0, navigationMs);
-      await this.writePageReportArtifact(input.artifacts, context, pageReport, input.events);
-      return { report: pageReport, snapshot };
-    }
 
     const visibleForms = snapshot.forms.filter((form) =>
       [...form.fields, ...form.submitControls].some((element) => !element.hidden),
@@ -981,11 +965,12 @@ export class RunOrchestrator {
   ): Promise<void> {
     try {
       const runId = context.runId;
-      const slug = pageReport.canonicalUrl
-        .replace(/^https?:\/\//, "")
-        .replace(/[^a-zA-Z0-9._-]/g, "_")
-        .slice(0, 100);
-      const evidence = await artifacts.writeJson("reports", `${runId}-${slug || "page"}.json`, pageReport);
+      const pageNumber = context.pageReports.length + 1;
+      const evidence = await artifacts.writeJson(
+        "reports",
+        `page-${String(pageNumber).padStart(6, "0")}-${crypto.randomUUID().slice(0, 8)}.json`,
+        pageReport,
+      );
       pageReport.evidence.push({
         ...evidence,
         description: "Per-page report generated immediately after page testing.",
@@ -994,6 +979,7 @@ export class RunOrchestrator {
       if (pageDiagnostic) {
         pageDiagnostic.reportArtifactPath = evidence.path;
       }
+      await this.history.checkpointPage(runId, evidence.path, [...context.pageReports, pageReport]);
       logger.info(
         {
           runId,
@@ -1023,6 +1009,13 @@ export class RunOrchestrator {
         { err: redactSecrets(error), runId: context.runId, url: pageReport.url },
         "Failed to write per-page report artifact",
       );
+      throw new AppError({
+        code: ERROR_CODES.REPORT_GENERATION_FAILURE,
+        message: `Failed to persist the per-page report for ${pageReport.url}.`,
+        statusCode: 500,
+        details: serializeError(error),
+        fatal: true,
+      });
     }
   }
 
@@ -1352,8 +1345,12 @@ function unique(values: string[]): string[] {
   return [...new Set(values)];
 }
 
+function traceFileName(...parts: string[]): string {
+  return `${parts.join("-").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 160)}.zip`;
+}
+
 function clampOptionalLimit(requested: number | undefined, emergencyLimit: number): number | undefined {
-  if (requested === undefined) return undefined;
+  if (requested === undefined) return emergencyLimit;
   return Math.min(requested, emergencyLimit);
 }
 

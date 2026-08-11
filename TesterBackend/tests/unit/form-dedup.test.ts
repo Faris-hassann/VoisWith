@@ -8,7 +8,7 @@ import type { ElementInventoryItem, InspectedForm } from "../../src/types/testin
 /**
  * DESIGN-DECISIONS.md §7 — exact formulas, not approximations:
  *   fieldSignature = sha1(sorted(name || label || role + ":" + type).join("|"))
- *   formId         = sha1(routeFamily + "::" + fieldSignature)
+ *   formId         = sha1(fieldSignature)
  * `fieldSignature` excludes elementId (regenerates per page) and all values.
  */
 describe("§7 formId derivation", () => {
@@ -26,7 +26,7 @@ describe("§7 formId derivation", () => {
     // `":" + type` suffix binds to the fallback arm only, so a named field
     // contributes its bare name.
     const fieldSignature = sha1(["email", "message"].sort().join("|"));
-    const expected = sha1(`https://example.com/contact::${fieldSignature}`);
+    const expected = sha1(fieldSignature);
     expect(snapshot?.formId).toBe(expected);
   });
 
@@ -37,7 +37,7 @@ describe("§7 formId derivation", () => {
     );
 
     const fieldSignature = sha1("textbox:search");
-    expect(snapshot?.formId).toBe(sha1(`https://example.com/contact::${fieldSignature}`));
+    expect(snapshot?.formId).toBe(sha1(fieldSignature));
   });
 
   it("treats a renamed field as a different form, since the name is the signature", () => {
@@ -71,10 +71,10 @@ describe("§7 formId derivation", () => {
     expect(base[0]?.formId).toBe(shifted[0]?.formId);
   });
 
-  it("keys on route family, so the same form on a different route is a different id", () => {
+  it("dedupes the same field signature across different routes", () => {
     const contact = buildFormSnapshots([inspectedForm([field("element_2", { name: "email" })])], "https://example.com/contact");
     const support = buildFormSnapshots([inspectedForm([field("element_2", { name: "email" })])], "https://example.com/support");
-    expect(contact[0]?.formId).not.toBe(support[0]?.formId);
+    expect(contact[0]?.formId).toBe(support[0]?.formId);
   });
 
   it("collapses ids within a route family, so /orders/1 and /orders/2 share a formId", () => {

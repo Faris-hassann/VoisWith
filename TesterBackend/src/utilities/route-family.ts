@@ -3,9 +3,9 @@
  *
  * Strips ignored query params, replaces numeric and UUID path segments with
  * `:id`, and retains the origin. Two URLs that differ only by a record id or a
- * tracking param belong to the same family, which is what both the crawl's
- * 3-instances-per-family budget and §7's `formId` are keyed on — so this must
- * have exactly one implementation. Three copies previously disagreed about
+ * tracking param belong to the same family, which is what the crawl's
+ * 3-instances-per-family budget is keyed on. Form identity is deliberately
+ * route-independent (§7). Three copies previously disagreed about
  * whether the origin and the query string were part of the family.
  */
 

@@ -50,6 +50,7 @@ export interface FormClassificationContext {
 
 export function classifyForm(form: InspectedForm, context: FormClassificationContext = {}): FormClassification {
   const visibleFields = form.fields.filter((field) => !field.hidden);
+  const allFields = form.fields;
   const submitLabels = form.submitControls
     .filter((control) => !control.hidden)
     .map((control) => `${control.text ?? ""} ${control.accessibleName ?? ""}`.trim())
@@ -70,13 +71,14 @@ export function classifyForm(form: InspectedForm, context: FormClassificationCon
     if (match) return blocked("hard", `submit_label:${match[0].toLowerCase()}`);
   }
 
-  for (const field of visibleFields) {
+  // Hidden inputs remain safety signals even though they never cross the LLM boundary.
+  for (const field of allFields) {
     const descriptor = `${field.name ?? ""} ${field.label ?? ""} ${field.accessibleName ?? ""}`;
     const match = PRIVILEGED_FIELD.exec(descriptor);
     if (match) return blocked("hard", `field:${match[0].toLowerCase()}`);
   }
 
-  const hasPassword = visibleFields.some((field) => field.type?.toLowerCase() === "password");
+  const hasPassword = allFields.some((field) => field.type?.toLowerCase() === "password");
   if (hasPassword && !isLoginPage(form, context)) {
     // A password box somewhere other than the login is a credential change or
     // an account creation — §4 blocks both outright.

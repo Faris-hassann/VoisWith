@@ -156,8 +156,8 @@ describe("LLM test plan validation", () => {
       "a value over the length cap",
       plan({ inputs: [{ elementId: "element_2", value: "x".repeat(MAX_GENERATED_VALUE_LENGTH + 1) }] }),
     ],
-    ["a missing testType", (() => { const { testType: _testType, ...rest } = plan().testCases[0] as Record<string, unknown>; return { testCases: [rest] }; })()],
-    ["a missing submit flag", (() => { const { submit: _submit, ...rest } = plan().testCases[0] as Record<string, unknown>; return { testCases: [rest] }; })()],
+    ["a missing testType", (() => { const rest = { ...plan().testCases[0] } as Record<string, unknown>; delete rest.testType; return { testCases: [rest] }; })()],
+    ["a missing submit flag", (() => { const rest = { ...plan().testCases[0] } as Record<string, unknown>; delete rest.submit; return { testCases: [rest] }; })()],
   ])("rejects %s as llm_schema_invalid", (_label, payload) => {
     const result = validateFormTestPlan(payload, [snapshot()]);
     expect(result.ok).toBe(false);

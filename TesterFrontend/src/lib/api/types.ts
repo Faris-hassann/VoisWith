@@ -207,10 +207,29 @@ export interface AsyncRunSnapshot {
   error?: unknown;
 }
 
+export interface RunHistoryItem {
+  runId: string;
+  targetOrigin: string;
+  runStatus: RunStatus;
+  findingsStatus: FindingsStatus;
+  status: LegacyStatus;
+  stoppedReason?: StoppedReason;
+  startedAt: string;
+  completedAt: string;
+  summary: RunSummary;
+  issueCount: number;
+  artifactsBytes: number;
+}
+
+export interface RunHistoryResponse {
+  runs: RunHistoryItem[];
+}
+
 export interface RunSummary {
   pagesDiscovered: number;
   pagesTested: number;
   pagesSkipped: number;
+  pagesNotReached: number;
   testsExecuted: number;
   passedTests: number;
   failedTests: number;

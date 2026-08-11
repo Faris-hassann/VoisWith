@@ -36,9 +36,8 @@ export function buildFormSnapshotsWithForms(
   pageUrl: string,
   ignoredQueryParameters: string[] = [],
 ): BuiltFormSnapshot[] {
-  // formId is keyed on the route family, so it must be computed with the same
-  // ignore list the crawler uses — otherwise the same form on ?utm_source=a and
-  // ?utm_source=b would produce two different formIds and be tested twice.
+  // The crawl keeps its origin-aware family; only the path/query shape crosses
+  // the LLM boundary, and §7 form identity is route-independent.
   const family = routeFamily(pageUrl, ignoredQueryParameters);
   const built: BuiltFormSnapshot[] = [];
 
@@ -51,10 +50,10 @@ export function buildFormSnapshotsWithForms(
     const fieldSig = fieldSignature(visibleFields);
 
     const snapshot: FormSnapshot = {
-      formId: sha1(`${family}::${fieldSig}`),
+      formId: sha1(fieldSig),
       elementId: form.elementId,
       method: form.method,
-      routeFamily: family,
+      routeFamily: routeShape(family),
       apparentPurpose: form.apparentPurpose,
       fields,
       submitLabel,
@@ -116,6 +115,15 @@ function fieldSignature(fields: ElementInventoryItem[]): string {
 
 function sha1(value: string): string {
   return crypto.createHash("sha1").update(value).digest("hex");
+}
+
+function routeShape(family: string): string {
+  try {
+    const parsed = new URL(family);
+    return `${parsed.pathname}${parsed.search}`;
+  } catch {
+    return family.startsWith("/") ? family : "/";
+  }
 }
 
 function numberValue(value: string | number | boolean | undefined): number | undefined {

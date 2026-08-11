@@ -26,7 +26,7 @@ describe("RunRegistry", () => {
     const snapshot = registry.get(started.runId);
     expect(snapshot?.report?.runId).toBe(started.runId);
     expect(snapshot?.events.map((event) => event.type)).toContain("page.snapshot_collected");
-    expect(snapshot?.events.at(-1)?.type).toBe("run.completed");
+    expect(snapshot?.events.slice(-2).map((event) => event.type)).toEqual(["run.completed", "run.report_ready"]);
   });
 
   it("notifies subscribers with sequenced live events", async () => {
@@ -50,6 +50,30 @@ describe("RunRegistry", () => {
 
     expect(seen.some((event) => event.endsWith(":ai.planning_started"))).toBe(true);
     expect(seen.some((event) => event.endsWith(":run.completed"))).toBe(true);
+  });
+
+  it("retains a lightweight 2000-event replay window after a sequence", async () => {
+    let resolveRun!: (report: TestingRunResponse) => void;
+    const registry = new RunRegistry({
+      run: async (_request: TestingRunRequest, options?: { runId?: string }) =>
+        new Promise<TestingRunResponse>((resolve) => { resolveRun = () => resolve(reportFor(options?.runId ?? "missing")); }),
+    } as never);
+    const started = registry.start(requestFor());
+    for (let index = 0; index < 2_100; index += 1) {
+      registry.append(started.runId, { runId: started.runId, type: `event.${index}`, status: "info", message: "buffered" });
+    }
+    registry.append(started.runId, {
+      runId: started.runId,
+      type: "live-view:frame",
+      status: "info",
+      message: "frame",
+      liveFrame: { mimeType: "image/jpeg", data: "abc" },
+    });
+
+    expect(registry.get(started.runId)?.events.filter((event) => !event.liveFrame)).toHaveLength(2_000);
+    expect(registry.eventsAfter(started.runId, 2_095)?.every((event) => event.sequence > 2_095)).toBe(true);
+    resolveRun(reportFor(started.runId));
+    await eventually(() => registry.isTerminal(started.runId));
   });
 });
 

@@ -24,6 +24,8 @@ WS   /api/v1/testing/runs/:runId/stream
 
 `POST /api/v1/testing/run` is synchronous and returns the completed JSON report. `POST /api/v1/testing/runs` starts an async run, returns a run ID immediately, and streams progress over WebSocket.
 
+`GET /api/v1/testing/runs` returns `{ runs: RunHistoryItem[] }` newest-first from the 14-day disk-backed retention window. `GET /api/v1/testing/runs/:runId` and `/report.json` fall back to the persisted manifest/report after restart or registry eviction.
+
 The runtime pipeline is:
 
 ```text
@@ -224,6 +226,7 @@ The WebSocket sends JSON messages with these wrapper types:
 run.snapshot
 run.event
 run.not_found
+stream.ping
 ```
 
 `run.event.event.type` can currently be:
@@ -239,6 +242,7 @@ ai:disabled
 ai:enabled
 ai:skipped-no-forms
 browser.launched
+browser.recycled
 form:blocked_privileged
 form:discovered
 form:duplicate_skipped
@@ -272,6 +276,10 @@ test_case.started
 ```
 
 Each progress event includes `runId`, `sequence`, `type`, `status`, `timestamp`, and `message`, with optional `pageUrl`, `role`, `viewport`, `locale`, `counts`, `diagnostics`, `issue`, `liveFrame`, or `report`.
+
+Reconnect with `?lastSequence=N` to replay buffered events after `N`; the lightweight ring retains about 2,000 events and terminal buffers remain for 10 minutes. The terminal order is `run.completed` → `run.report_ready` → a two-second grace period → close code `1000` (`run_complete`). `stream.ping` is an application heartbeat every 30 seconds and clients answer with `stream.pong`. A run is `run.not_found` only when absent from the live registry, retained terminal buffer, and disk history.
+
+Every run atomically checkpoints `artifacts/<runId>/manifest.json` after each completed page. Startup recovers unterminated manifests as `ERRORED` / `error`, preserving completed page reports. `ARTIFACT_RETENTION_DAYS` defaults to 14; screenshots are JPEG quality 70 and artifact totals warn above 1 GB.
 
 Two events carry a structured `diagnostics` payload worth naming:
 

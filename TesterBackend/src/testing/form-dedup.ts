@@ -18,7 +18,7 @@ export interface FormDedupResult {
 /**
  * DESIGN-DECISIONS.md §7: one form, tested once, on the first page it appears.
  *
- * `formId` already encodes `routeFamily + "::" + fieldSignature` and excludes
+ * `formId` already encodes the route-independent field signature and excludes
  * `elementId` and all values, so the same form recurring in a footer across
  * pages resolves to the same id and is skipped after its first sighting — even
  * though the route-family rule still permits visiting 3 instances of a route.

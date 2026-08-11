@@ -5,6 +5,7 @@ import type { TestingRunResponse } from "../types/report.js";
 import { redactSecrets } from "../security/secret-redaction.js";
 import { serializeError } from "../errors/serialize-error.js";
 import type { AsyncRunSnapshot, AsyncRunStatus, RunProgressEvent, RunProgressEventInput } from "./run-events.js";
+import type { RunHistoryStore } from "./run-history-store.js";
 
 type RunListener = (event: RunProgressEvent) => void;
 
@@ -16,6 +17,7 @@ interface RunRecord {
   completedAt?: string;
   sequence: number;
   events: RunProgressEvent[];
+  latestFrame?: RunProgressEvent;
   listeners: Set<RunListener>;
   report?: TestingRunResponse;
   error?: unknown;
@@ -24,13 +26,13 @@ interface RunRecord {
   pauseWaiters: Set<() => void>;
 }
 
-const MAX_BUFFERED_EVENTS = 500;
-const CLEANUP_AFTER_MS = 60 * 60 * 1000;
+const MAX_BUFFERED_EVENTS = 2_000;
+const CLEANUP_AFTER_MS = 10 * 60 * 1000;
 
 export class RunRegistry {
   private readonly runs = new Map<string, RunRecord>();
 
-  constructor(private readonly orchestrator: RunOrchestrator) {}
+  constructor(private readonly orchestrator: RunOrchestrator, private readonly history?: RunHistoryStore) {}
 
   start(request: TestingRunRequest): AsyncRunSnapshot {
     const runId = crypto.randomUUID();
@@ -80,6 +82,16 @@ export class RunRegistry {
     if (!record) return () => undefined;
     record.listeners.add(listener);
     return () => record.listeners.delete(listener);
+  }
+
+  eventsAfter(runId: string, lastSequence: number): RunProgressEvent[] | undefined {
+    const record = this.runs.get(runId);
+    return record ? record.events.filter((event) => event.sequence > lastSequence) : undefined;
+  }
+
+  isTerminal(runId: string): boolean {
+    const status = this.runs.get(runId)?.status;
+    return status === "completed" || status === "failed" || status === "stopped";
   }
 
   pause(runId: string): AsyncRunSnapshot | undefined {
@@ -140,7 +152,12 @@ export class RunRegistry {
       timestamp: input.timestamp ?? new Date().toISOString(),
     } as RunProgressEvent;
     record.updatedAt = event.timestamp;
-    record.events.push(event);
+    this.history?.noteSequence(runId, event.sequence);
+    if (event.liveFrame) {
+      record.latestFrame = event;
+    } else {
+      record.events.push(event);
+    }
     if (record.events.length > MAX_BUFFERED_EVENTS) {
       record.events.splice(0, record.events.length - MAX_BUFFERED_EVENTS);
     }
@@ -148,7 +165,7 @@ export class RunRegistry {
     return event;
   }
 
-  private complete(runId: string, report: TestingRunResponse): void {
+  private async complete(runId: string, report: TestingRunResponse): Promise<void> {
     const record = this.runs.get(runId);
     if (!record) return;
     record.status = record.stopped ? "stopped" : "completed";
@@ -168,6 +185,19 @@ export class RunRegistry {
       stoppedReason: report.stoppedReason,
       report,
     });
+    this.append(runId, {
+      runId,
+      type: "run.report_ready",
+      status: report.runStatus === "ERRORED" ? "failed" : "passed",
+      message: `Final report is ready with runStatus ${report.runStatus} and findingsStatus ${report.findingsStatus}.`,
+      counts: {
+        pagesTested: report.summary.pagesTested,
+        testsExecuted: report.summary.testsExecuted,
+        issues: report.issues.length,
+      },
+      stoppedReason: report.stoppedReason,
+    });
+    await this.history?.persistSequence(runId).catch(() => undefined);
     this.scheduleCleanup(runId);
   }
 
@@ -196,7 +226,7 @@ export class RunRegistry {
       startedAt: record.startedAt,
       updatedAt: record.updatedAt,
       completedAt: record.completedAt,
-      events: [...record.events],
+      events: [...record.events, ...(record.latestFrame ? [record.latestFrame] : [])].sort((a, b) => a.sequence - b.sequence),
       report: record.report,
       error: record.error,
     };
@@ -205,7 +235,7 @@ export class RunRegistry {
   private scheduleCleanup(runId: string): void {
     setTimeout(() => {
       const record = this.runs.get(runId);
-      if (record?.status === "completed" || record?.status === "failed") {
+      if (record?.status === "completed" || record?.status === "failed" || record?.status === "stopped") {
         this.runs.delete(runId);
       }
     }, CLEANUP_AFTER_MS).unref();

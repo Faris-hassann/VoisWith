@@ -30,6 +30,8 @@ describe("buildFormSnapshots", () => {
     expect(JSON.stringify(snapshot)).not.toContain("locator");
     expect((snapshot as unknown as { action?: string }).action).toBeUndefined();
     expect((snapshot as unknown as { value?: string }).value).toBeUndefined();
+    expect(snapshot?.routeFamily).toBe("/contact");
+    expect(JSON.stringify(snapshot)).not.toContain("https://example.com");
   });
 
   it("excludes hidden fields entirely", () => {

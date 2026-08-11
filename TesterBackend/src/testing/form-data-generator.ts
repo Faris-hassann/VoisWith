@@ -1,12 +1,15 @@
 import { faker } from "@faker-js/faker";
 
 export class FormDataGenerator {
-  constructor(private readonly runId: string) {
+  private readonly targetHost: string;
+
+  constructor(private readonly runId: string, targetHost = "example") {
     faker.seed(hashSeed(runId));
+    this.targetHost = sanitizeHost(targetHost);
   }
 
   value(strategy?: string): string {
-    const marker = `AUTOTEST-${this.runId}`;
+    const marker = `ZZTEST-${this.runId}`;
     switch (strategy) {
       case "VALID_FIRST_NAME":
         return `${faker.person.firstName()} ${marker}`;
@@ -15,9 +18,9 @@ export class FormDataGenerator {
       case "VALID_FULL_NAME":
         return `${faker.person.fullName()} ${marker}`;
       case "VALID_EMAIL":
-        return `autotest+${this.runId}@example.test`;
+        return `qa+${this.runId}@${this.targetHost}.test`;
       case "VALID_PHONE":
-        return "+15550101010";
+        return "+1-555-0101";
       case "VALID_PASSWORD":
         return `Aa1!${marker}`;
       case "VALID_DATE":
@@ -32,6 +35,8 @@ export class FormDataGenerator {
         return "42.50";
       case "VALID_ADDRESS":
         return `123 Test Street ${marker}`;
+      case "VALID_POSTAL_CODE":
+        return "02139";
       case "VALID_COMPANY":
         return `Test Company ${marker}`;
       case "VALID_DESCRIPTION":
@@ -60,6 +65,11 @@ export class FormDataGenerator {
         return `Safe automated test data ${marker}`;
     }
   }
+}
+
+function sanitizeHost(value: string): string {
+  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9.-]/g, "-").replace(/^-+|-+$/g, "");
+  return normalized || "example";
 }
 
 function hashSeed(value: string): number {

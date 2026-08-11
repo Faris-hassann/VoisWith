@@ -132,6 +132,18 @@ export const openApiDocument = {
       },
     },
     "/api/v1/testing/runs": {
+      get: {
+        tags: ["Testing"],
+        summary: "List retained testing runs",
+        operationId: "listWebsiteTestingRuns",
+        responses: {
+          "200": {
+            description: "Newest-first summaries for the retained history window",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/RunHistoryResponse" } } },
+          },
+          "500": { $ref: "#/components/responses/ServerError" },
+        },
+      },
       post: {
         tags: ["Testing"],
         summary: "Start async website testing run",
@@ -222,7 +234,7 @@ export const openApiDocument = {
         required: ["runId", "status", "startedAt", "streamUrl"],
         properties: {
           runId: { type: "string" },
-          status: { type: "string", enum: ["queued", "running", "completed", "failed"] },
+          status: { type: "string", enum: ["queued", "running", "paused", "stopping", "stopped", "completed", "failed"] },
           startedAt: { type: "string", format: "date-time" },
           streamUrl: { type: "string", example: "/api/v1/testing/runs/{runId}/stream" },
         },
@@ -232,7 +244,7 @@ export const openApiDocument = {
         required: ["runId", "status", "startedAt", "updatedAt", "events"],
         properties: {
           runId: { type: "string" },
-          status: { type: "string", enum: ["queued", "running", "completed", "failed"] },
+          status: { type: "string", enum: ["queued", "running", "paused", "stopping", "stopped", "completed", "failed"] },
           startedAt: { type: "string", format: "date-time" },
           updatedAt: { type: "string", format: "date-time" },
           completedAt: { type: "string", format: "date-time" },
@@ -259,6 +271,30 @@ export const openApiDocument = {
           diagnostics: {},
           issue: {},
           report: { $ref: "#/components/schemas/TestingRunResponse" },
+        },
+      },
+      RunHistoryResponse: {
+        type: "object",
+        additionalProperties: false,
+        required: ["runs"],
+        properties: { runs: { type: "array", items: { $ref: "#/components/schemas/RunHistoryItem" } } },
+      },
+      RunHistoryItem: {
+        type: "object",
+        additionalProperties: false,
+        required: ["runId", "targetOrigin", "runStatus", "findingsStatus", "status", "startedAt", "completedAt", "summary", "issueCount", "artifactsBytes"],
+        properties: {
+          runId: { type: "string" },
+          targetOrigin: { type: "string" },
+          runStatus: { type: "string", enum: ["COMPLETED", "STOPPED", "ERRORED"] },
+          findingsStatus: { type: "string", enum: ["PASSED", "ISSUES_FOUND", "INCONCLUSIVE"] },
+          status: { type: "string", enum: ["PASSED", "FAILED", "PARTIAL", "ERROR", "INCONCLUSIVE"], deprecated: true },
+          stoppedReason: { type: "string", enum: ["converged", "page_budget", "depth_budget", "time_budget", "user_stopped", "error"] },
+          startedAt: { type: "string", format: "date-time" },
+          completedAt: { type: "string", format: "date-time" },
+          summary: { $ref: "#/components/schemas/RunSummary" },
+          issueCount: { type: "integer", minimum: 0 },
+          artifactsBytes: { type: "integer", minimum: 0 },
         },
       },
       TestingRunRequest: {
@@ -343,8 +379,8 @@ export const openApiDocument = {
         additionalProperties: false,
         properties: {
           strategy: { type: "string", enum: ["DFS"], default: "DFS" },
-          maxDepth: { type: "integer", minimum: 0, maximum: 20, default: 5 },
-          maxPages: { type: "integer", minimum: 1, maximum: 1000, default: 5 },
+          maxDepth: { type: "integer", minimum: 0, maximum: 7, default: 7 },
+          maxPages: { type: "integer", minimum: 1, maximum: 500, default: 500 },
           sameOriginOnly: { type: "boolean", default: true },
           includePatterns: { type: "array", items: { type: "string" }, default: [] },
           excludePatterns: {
@@ -388,7 +424,7 @@ export const openApiDocument = {
           maximumRunDurationSeconds: {
             type: "integer",
             minimum: 10,
-            maximum: 7200,
+            maximum: 10800,
             default: 300,
           },
         },
@@ -475,6 +511,7 @@ export const openApiDocument = {
           "pagesDiscovered",
           "pagesTested",
           "pagesSkipped",
+          "pagesNotReached",
           "testsExecuted",
           "passedTests",
           "failedTests",
@@ -489,6 +526,7 @@ export const openApiDocument = {
           pagesDiscovered: { type: "integer", minimum: 0 },
           pagesTested: { type: "integer", minimum: 0 },
           pagesSkipped: { type: "integer", minimum: 0 },
+          pagesNotReached: { type: "integer", minimum: 0 },
           testsExecuted: { type: "integer", minimum: 0 },
           passedTests: { type: "integer", minimum: 0 },
           failedTests: { type: "integer", minimum: 0 },

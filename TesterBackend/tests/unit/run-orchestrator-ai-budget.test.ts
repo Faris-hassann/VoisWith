@@ -4,7 +4,7 @@ import type { RunContext } from "../../src/testing/run-context.js";
 import type { PageSnapshot, TestingRunRequest } from "../../src/types/testing.js";
 
 describe("RunOrchestrator AI budget behavior", () => {
-  it("still inspects the page and returns baseline tests plus snapshot links when AI budget is exhausted", async () => {
+  it("still inspects a formless page and returns baseline tests plus snapshot links when AI budget is exhausted", async () => {
     const orchestrator = new RunOrchestrator();
     const snapshot = snapshotFor("https://example.com/dashboard");
     let plannerCalled = false;
@@ -40,7 +40,7 @@ describe("RunOrchestrator AI budget behavior", () => {
     expect(plannerCalled).toBe(false);
     expect(result.snapshot.links).toHaveLength(1);
     expect(result.report.tests.some((test) => test.id === "baseline-smoke")).toBe(true);
-    expect(result.report.tests.some((test) => test.id === "ai-call-budget" && test.status === "SKIPPED")).toBe(true);
+    expect(result.report.tests.some((test) => test.id === "ai-form-submission-scope" && test.status === "SKIPPED")).toBe(true);
   });
 });
 

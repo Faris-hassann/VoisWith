@@ -40,6 +40,20 @@ export interface TestingRunResponse {
   diagnostics?: RunDiagnostics;
 }
 
+export interface RunHistoryItem {
+  runId: string;
+  targetOrigin: string;
+  runStatus: RunStatus;
+  findingsStatus: FindingsStatus;
+  status: LegacyStatus;
+  stoppedReason?: StoppedReason;
+  startedAt: string;
+  completedAt: string;
+  summary: RunSummary;
+  issueCount: number;
+  artifactsBytes: number;
+}
+
 export interface RunSummary {
   pagesDiscovered: number;
   pagesTested: number;

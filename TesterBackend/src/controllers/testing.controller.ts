@@ -3,9 +3,12 @@ import { testingRunRequestSchema } from "../schemas/testing-request.schema.js";
 import { RunOrchestrator } from "../services/run-orchestrator.js";
 import { RunRegistry } from "../runs/run-registry.js";
 import type { TestingRunRequest } from "../types/testing.js";
+import { config } from "../config/env.js";
+import { RunHistoryStore } from "../runs/run-history-store.js";
 
-const orchestrator = new RunOrchestrator();
-export const runRegistry = new RunRegistry(orchestrator);
+export const runHistoryStore = new RunHistoryStore(config.artifacts.root, config.artifacts.retentionDays);
+const orchestrator = new RunOrchestrator(runHistoryStore);
+export const runRegistry = new RunRegistry(orchestrator, runHistoryStore);
 
 export async function runTestingController(req: Request, res: Response): Promise<void> {
   const request = testingRunRequestSchema.parse(req.body) as TestingRunRequest;
@@ -31,12 +34,16 @@ export async function getTestingRunController(req: Request, res: Response): Prom
     res.status(400).json({ error: { code: "RUN_ID_REQUIRED", message: "Run ID is required." } });
     return;
   }
-  const snapshot = runRegistry.get(runId);
+  const snapshot = runRegistry.get(runId) ?? await runHistoryStore.getSnapshot(runId);
   if (!snapshot) {
     res.status(404).json({ error: { code: "RUN_NOT_FOUND", message: "Run not found." } });
     return;
   }
   res.status(200).json(snapshot);
+}
+
+export async function listTestingRunsController(_req: Request, res: Response): Promise<void> {
+  res.status(200).json({ runs: await runHistoryStore.list() });
 }
 
 export async function pauseTestingRunController(req: Request, res: Response): Promise<void> {
@@ -55,7 +62,7 @@ export async function stopTestingRunController(req: Request, res: Response): Pro
 }
 
 export async function downloadTestingRunReportController(req: Request, res: Response): Promise<void> {
-  const snapshot = getSnapshot(req, res);
+  const snapshot = await getSnapshot(req, res);
   if (!snapshot) return;
   if (!snapshot.report) {
     res.status(404).json({ error: { code: "REPORT_NOT_READY", message: "Report is not ready." } });
@@ -78,10 +85,10 @@ function mutateRun(req: Request, res: Response, action: "pause" | "resume" | "st
   return snapshot;
 }
 
-function getSnapshot(req: Request, res: Response) {
+async function getSnapshot(req: Request, res: Response) {
   const runId = runIdFromRequest(req, res);
   if (!runId) return undefined;
-  const snapshot = runRegistry.get(runId);
+  const snapshot = runRegistry.get(runId) ?? await runHistoryStore.getSnapshot(runId);
   if (!snapshot) {
     res.status(404).json({ error: { code: "RUN_NOT_FOUND", message: "Run not found." } });
     return undefined;

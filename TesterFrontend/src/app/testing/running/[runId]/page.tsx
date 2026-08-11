@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { buildTestingRunReportUrl, buildTestingRunWebSocketUrl, controlTestingRun, getTestingRunStatus } from "@/lib/api/testing.api";
 import type { AsyncRunSnapshot, AsyncRunStatus, RunProgressEvent, TestingRunResponse } from "@/lib/api/types";
 import { useReportStore } from "@/providers/report-store-provider";
+import { HEARTBEAT_INTERVAL_MS, MISSED_HEARTBEATS_BEFORE_CLOSE, reconnectDelayMs, RUN_POLL_INTERVAL_MS, shouldReconnect } from "@/lib/testing/run-stream-policy";
 
 type ConnectionState = "connecting" | "connected" | "polling" | "closed";
 
@@ -34,7 +35,17 @@ export default function RunningPage({ params }: { params: Promise<{ runId: strin
   useEffect(() => {
     let ws: WebSocket | undefined;
     let pollTimer: ReturnType<typeof setInterval> | undefined;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+    let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+    let reconnectAttempt = 0;
+    let lastSequence = 0;
+    let missedHeartbeats = 0;
     let cancelled = false;
+
+    const stopPolling = () => {
+      if (pollTimer) clearInterval(pollTimer);
+      pollTimer = undefined;
+    };
 
     const applySnapshot = (snapshot: AsyncRunSnapshot) => {
       setStartedAt(snapshot.startedAt);
@@ -44,10 +55,11 @@ export default function RunningPage({ params }: { params: Promise<{ runId: strin
       if (latestFrameEvent?.liveFrame) {
         setLiveFrame(`data:${latestFrameEvent.liveFrame.mimeType};base64,${latestFrameEvent.liveFrame.data}`);
       }
-      setEvents(sanitizedEvents);
+      for (const event of snapshot.events) lastSequence = Math.max(lastSequence, event.sequence);
+      setEvents((current) => dedupeEvents([...current, ...sanitizedEvents]));
       setError(snapshot.error);
       if (snapshot.report) completeWithReport(snapshot.report, snapshot.status);
-      if (snapshot.status === "failed") terminalRef.current = true;
+      if (["failed", "completed", "stopped"].includes(snapshot.status)) terminalRef.current = true;
     };
 
     const poll = async () => {
@@ -70,11 +82,12 @@ export default function RunningPage({ params }: { params: Promise<{ runId: strin
         showConfirmButton: false,
       });
       void poll();
-      pollTimer = setInterval(poll, 5000);
+      pollTimer = setInterval(poll, RUN_POLL_INTERVAL_MS);
     };
 
     const completeWithReport = (finalReport: TestingRunResponse, finalStatus: AsyncRunStatus = "completed") => {
       terminalRef.current = true;
+      stopPolling();
       setReport(finalReport);
       setStatus(finalStatus);
       saveReport(finalReport);
@@ -93,20 +106,59 @@ export default function RunningPage({ params }: { params: Promise<{ runId: strin
       }
     };
 
-    try {
-      void poll();
-      ws = new WebSocket(buildTestingRunWebSocketUrl(runId));
+    const scheduleReconnect = () => {
+      if (cancelled || terminalRef.current || reconnectTimer) return;
+      const delay = reconnectDelayMs(reconnectAttempt);
+      reconnectAttempt += 1;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = undefined;
+        connect();
+      }, delay);
+    };
+
+    const connect = () => {
+      if (cancelled || terminalRef.current) return;
+      setConnection("connecting");
+      try {
+        ws = new WebSocket(buildTestingRunWebSocketUrl(runId, lastSequence));
+      } catch (caught) {
+        setError(caught);
+        startPolling();
+        scheduleReconnect();
+        return;
+      }
       ws.addEventListener("open", () => {
-        if (!cancelled) setConnection("connected");
+        if (cancelled) return;
+        reconnectAttempt = 0;
+        missedHeartbeats = 0;
+        stopPolling();
+        setConnection("connected");
+        if (heartbeatTimer) clearInterval(heartbeatTimer);
+        heartbeatTimer = setInterval(() => {
+          missedHeartbeats += 1;
+          if (missedHeartbeats >= MISSED_HEARTBEATS_BEFORE_CLOSE && ws?.readyState === WebSocket.OPEN) ws.close(4000, "heartbeat_timeout");
+        }, HEARTBEAT_INTERVAL_MS);
       });
       ws.addEventListener("message", (message) => {
         const payload = JSON.parse(message.data as string) as unknown;
         if (cancelled) return;
+        if (isHeartbeatMessage(payload)) {
+          missedHeartbeats = 0;
+          ws?.send(JSON.stringify({ type: "stream.pong", timestamp: payload.timestamp }));
+          return;
+        }
+        if (isRunNotFoundMessage(payload)) {
+          terminalRef.current = true;
+          setStatus("failed");
+          setError(payload.message);
+          return;
+        }
         if (isSnapshotMessage(payload)) {
           applySnapshot(payload.snapshot);
           return;
         }
         if (isEventMessage(payload)) {
+          lastSequence = Math.max(lastSequence, payload.event.sequence);
           setEvents((current) => dedupeEvents([...current, stripLiveFrameData(payload.event)]));
           if (payload.event.liveFrame) {
             setLiveFrame(`data:${payload.event.liveFrame.mimeType};base64,${payload.event.liveFrame.data}`);
@@ -119,22 +171,34 @@ export default function RunningPage({ params }: { params: Promise<{ runId: strin
           }
         }
       });
-      ws.addEventListener("close", () => {
-        if (!cancelled && !terminalRef.current) startPolling();
-        if (!cancelled && terminalRef.current) setConnection("closed");
+      ws.addEventListener("close", (event) => {
+        if (heartbeatTimer) clearInterval(heartbeatTimer);
+        heartbeatTimer = undefined;
+        if (cancelled) return;
+        if (!shouldReconnect(event.code, terminalRef.current)) {
+          setConnection("closed");
+          return;
+        }
+        startPolling();
+        scheduleReconnect();
       });
       ws.addEventListener("error", () => {
-        if (!cancelled && !terminalRef.current) startPolling();
+        if (!cancelled && !terminalRef.current) {
+          startPolling();
+          scheduleReconnect();
+        }
       });
-    } catch (caught) {
-      setError(caught);
-      startPolling();
-    }
+    };
+
+    void poll();
+    connect();
 
     return () => {
       cancelled = true;
-      ws?.close();
-      if (pollTimer) clearInterval(pollTimer);
+      ws?.close(1000, "component_unmounted");
+      stopPolling();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
     };
   }, [runId, saveReport]);
 
@@ -415,4 +479,12 @@ function isSnapshotMessage(payload: unknown): payload is { type: "run.snapshot";
 
 function isEventMessage(payload: unknown): payload is { type: "run.event"; event: RunProgressEvent } {
   return Boolean(payload && typeof payload === "object" && "type" in payload && payload.type === "run.event" && "event" in payload);
+}
+
+function isHeartbeatMessage(payload: unknown): payload is { type: "stream.ping"; timestamp: string } {
+  return Boolean(payload && typeof payload === "object" && "type" in payload && payload.type === "stream.ping" && "timestamp" in payload);
+}
+
+function isRunNotFoundMessage(payload: unknown): payload is { type: "run.not_found"; message: string } {
+  return Boolean(payload && typeof payload === "object" && "type" in payload && payload.type === "run.not_found" && "message" in payload);
 }

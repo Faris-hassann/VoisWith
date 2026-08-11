@@ -26,6 +26,7 @@ export const runSummarySchema = z
     pagesDiscovered: z.number().int().nonnegative(),
     pagesTested: z.number().int().nonnegative(),
     pagesSkipped: z.number().int().nonnegative(),
+    pagesNotReached: z.number().int().nonnegative(),
     testsExecuted: z.number().int().nonnegative(),
     passedTests: z.number().int().nonnegative(),
     failedTests: z.number().int().nonnegative(),
