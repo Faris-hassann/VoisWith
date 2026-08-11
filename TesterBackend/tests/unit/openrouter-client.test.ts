@@ -4,7 +4,7 @@ process.env.QWEN_API_KEY = "test-key";
 process.env.QWEN_API_URL = "https://qwen.snouhy.com/chat";
 process.env.QWEN_TIMEOUT_MS = "60000";
 
-const { OpenRouterClient } = await import("../../src/ai/openrouter-client.js");
+const { QwenClient } = await import("../../src/ai/qwen-client.js");
 const { AppError } = await import("../../src/errors/app-error.js");
 const { LLM_FAILURE_REASONS } = await import("../../src/errors/error-codes.js");
 
@@ -12,7 +12,7 @@ function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
 
-describe("Qwen-backed OpenRouterClient compatibility", () => {
+describe("QwenClient", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -21,14 +21,14 @@ describe("Qwen-backed OpenRouterClient compatibility", () => {
     const fetchMock = vi.fn(async () => jsonResponse(429, { error: "rate_limited" }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const error = await capture(() => new OpenRouterClient().createStructuredPlan({ systemPrompt: "sys", context: {} }));
+    const error = await capture(() => new QwenClient().createStructuredPlan({ systemPrompt: "sys", context: {} }));
     expect(error?.llmFailureReason).toBe(LLM_FAILURE_REASONS.LLM_RATE_LIMITED);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("classifies 401 as llm_unavailable", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(401, { error: "unauthorized" })));
-    const error = await capture(() => new OpenRouterClient().createStructuredPlan({ systemPrompt: "sys", context: {} }));
+    const error = await capture(() => new QwenClient().createStructuredPlan({ systemPrompt: "sys", context: {} }));
     expect(error?.llmFailureReason).toBe(LLM_FAILURE_REASONS.LLM_UNAVAILABLE);
   });
 
@@ -36,7 +36,7 @@ describe("Qwen-backed OpenRouterClient compatibility", () => {
     vi.stubGlobal("fetch", vi.fn(async () => {
       throw new TypeError("fetch failed");
     }));
-    const error = await capture(() => new OpenRouterClient().createStructuredPlan({ systemPrompt: "sys", context: {} }));
+    const error = await capture(() => new QwenClient().createStructuredPlan({ systemPrompt: "sys", context: {} }));
     expect(error?.llmFailureReason).toBe(LLM_FAILURE_REASONS.LLM_TRANSPORT_ERROR);
   });
 
@@ -44,7 +44,7 @@ describe("Qwen-backed OpenRouterClient compatibility", () => {
     const fetchMock = vi.fn(async () => jsonResponse(200, { message: "not json" }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const error = await capture(() => new OpenRouterClient().createStructuredPlan({ systemPrompt: "sys", context: {} }));
+    const error = await capture(() => new QwenClient().createStructuredPlan({ systemPrompt: "sys", context: {} }));
     expect(error?.llmFailureReason).toBe(LLM_FAILURE_REASONS.LLM_INVALID_JSON);
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
@@ -58,7 +58,7 @@ describe("Qwen-backed OpenRouterClient compatibility", () => {
     const fetchMock = vi.fn(async () => jsonResponse(200, { message: '{"testCases":[]}' }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await new OpenRouterClient().createStructuredPlan({ systemPrompt: "sys", context: {} });
+    const result = await new QwenClient().createStructuredPlan({ systemPrompt: "sys", context: {} });
     expect(result.value).toEqual({ testCases: [] });
     expect(result.provider).toBe("qwen");
     expect(result.model).toBe("qwen");
@@ -76,7 +76,7 @@ describe("Qwen-backed OpenRouterClient compatibility", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await new OpenRouterClient().createStructuredPlan({ systemPrompt: "sys", context: {} });
+    const result = await new QwenClient().createStructuredPlan({ systemPrompt: "sys", context: {} });
     expect(result.recoveredAttempts).toEqual([
       { model: "qwen", reason: LLM_FAILURE_REASONS.LLM_INVALID_JSON, message: expect.any(String) },
     ]);
@@ -86,7 +86,7 @@ describe("Qwen-backed OpenRouterClient compatibility", () => {
   it("preserves both attempts when repair also fails", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(200, { message: "not json" })));
 
-    const error = await capture(() => new OpenRouterClient().createStructuredPlan({ systemPrompt: "sys", context: {} }));
+    const error = await capture(() => new QwenClient().createStructuredPlan({ systemPrompt: "sys", context: {} }));
     const details = error?.details as { attempts: Array<{ model: string; reason: string }> } | undefined;
     expect(details?.attempts).toHaveLength(2);
     expect(details?.attempts.every((attempt) => attempt.model === "qwen")).toBe(true);

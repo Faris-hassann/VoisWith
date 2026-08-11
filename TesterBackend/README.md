@@ -91,7 +91,7 @@ Test types fall into four tiers. The 12 implemented-and-default types are the on
 | `SMOKE` | Implemented (default) | Verifies the page loads and can be inspected. |
 | `PAGE_DISCOVERY` | Implemented (default) | Inventories same-origin links for DFS discovery. |
 | `NAVIGATION` | Implemented (default) | Checks observed same-origin navigation candidates. |
-| `LINKS` | Implemented (default) | Inventories links and reports failed network requests; link health checks run from observed links. |
+| `LINKS` | Implemented (default) | Inventories links; reachability failures come from the dedicated link health checker. |
 | `FORMS` | Implemented (default) | Inventories forms deterministically; visible forms can be sent to AI for safe action planning. |
 | `FORM_VALIDATION` | Implemented (default) | Checks visible validation attributes; deeper cases depend on AI-planned safe actions. |
 | `AUTHENTICATION` | Implemented (default) | Attempts configured login and records skipped, passed, failed, or human-required diagnostics. |
@@ -322,7 +322,7 @@ Only a `FormSnapshot` — route family and visible field metadata, never a selec
 
 Planned cases are plan-only this phase (execution/assertion is Phase 4): they appear in `pages[].plannedTestCases` and are counted in `diagnostics.pages[].aiPlannedTests`, but never in `summary.testsExecuted` — the report never claims work it did not do.
 
-`MAX_AI_CALLS_PER_RUN` (default 25) caps OpenRouter requests for the run; `MAX_AI_TEST_CASES_PER_RUN` (default 400) separately caps the total planned cases, AI-generated or deterministic-fallback alike. Exhausting either never stops the run — deterministic `FORMS`/`FORM_VALIDATION` checks always complete. Case-budget overflow is reported as `truncated_by_budget` in `coverageLimitations`; call-budget exhaustion gets its own distinct wording. `diagnostics.ai` also tracks `testCasesGenerated`, `testCasesDropped`, and `deterministicFallbacks` for exact accounting.
+`MAX_AI_CALLS_PER_RUN` (default 25) caps Qwen requests for the run; `MAX_AI_TEST_CASES_PER_RUN` (default 400) separately caps the total planned cases, AI-generated or deterministic-fallback alike. Exhausting either never stops the run — deterministic `FORMS`/`FORM_VALIDATION` checks always complete. Case-budget overflow is reported as `truncated_by_budget` in `coverageLimitations`; call-budget exhaustion gets its own distinct wording. `diagnostics.ai` also tracks `testCasesGenerated`, `testCasesDropped`, and `deterministicFallbacks` for exact accounting.
 
 ## Source Tree
 
@@ -335,7 +335,7 @@ src/ai/ai-test-planner.ts
 src/ai/form-batcher.ts
 src/ai/form-plan-validator.ts
 src/ai/form-snapshot-builder.ts
-src/ai/openrouter-client.ts
+src/ai/qwen-client.ts
 src/ai/prompt-loader.ts
 src/app.ts
 src/artifacts/artifact-manager.ts
@@ -416,14 +416,15 @@ Then open:
 http://localhost:3000/docs
 ```
 
-Add your OpenRouter secret manually in `.env`:
+Add your Qwen secret manually in `.env`:
 
 ```env
-OPENROUTER_API_KEY=your_secret_here
-OPENROUTER_MODELS=vendor/model-a:free,vendor/model-b:free,vendor/model-c:free
+QWEN_API_KEY=your_secret_here
+QWEN_API_URL=https://qwen.snouhy.com/chat
+QWEN_TIMEOUT_MS=60000
 ```
 
-`OPENROUTER_MODELS` takes exactly 3 pinned OpenRouter free-model slugs (`vendor/model-name:free`), tried in order per DESIGN-DECISIONS.md §5. Run `npm run openrouter:models` to list what OpenRouter currently has in its free tier — the catalogue rotates, so do not reuse ids from an old `.env` or a chat transcript. The backend refuses to boot if fewer than 3 are set, any fail the format check, or a live check at startup finds one no longer listed.
+Qwen AI planning sends the canonical Markdown prompt from `src/prompts/form-test-planner.system.md` plus sanitized `{ formCount, forms }` input in a single `message` payload. If `QWEN_API_KEY` is missing, AI calls are skipped immediately and deterministic planning remains active.
 
 Do not commit `.env`.
 
@@ -432,8 +433,9 @@ Do not commit `.env`.
 Important values:
 
 ```env
-OPENROUTER_API_KEY=
-OPENROUTER_MODELS=
+QWEN_API_KEY=
+QWEN_API_URL=https://qwen.snouhy.com/chat
+QWEN_TIMEOUT_MS=60000
 PLAYWRIGHT_HEADLESS=false
 PLAYWRIGHT_CHANNEL=chrome
 AI_RESPONSE_TIMEOUT_MS=30000
@@ -447,7 +449,7 @@ LIVE_VIEW_ENABLED=true
 LIVE_VIEW_FRAME_INTERVAL_MS=1500
 ```
 
-Legacy `BROWSER_*`, `OPENROUTER_TIMEOUT_MS`, and `PAGE_NAVIGATION_TIMEOUT_MS` variables still work.
+Legacy `BROWSER_*` and `PAGE_NAVIGATION_TIMEOUT_MS` variables still work.
 
 ## Scripts
 

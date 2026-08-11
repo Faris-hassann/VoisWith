@@ -410,10 +410,10 @@ function summarizeAiWarning(events: RunProgressEvent[], report?: TestingRunRespo
   if (ai?.disabled || events.some((event) => event.type === "ai:disabled")) {
     return "AI planning is disabled because the backend AI call budget is 0. Deterministic baseline, link, form, and safety tests still run.";
   }
-  const providerConfigured = ai?.providerConfigured ?? ai?.openRouterConfigured;
+  const providerConfigured = ai?.providerConfigured;
   if (
     ai &&
-    (providerConfigured === false || ai.modelConfigured === false)
+    providerConfigured === false
   ) {
     return "Qwen is not fully configured, so AI planning cannot generate test cases yet. Add QWEN_API_KEY, then restart the backend.";
   }

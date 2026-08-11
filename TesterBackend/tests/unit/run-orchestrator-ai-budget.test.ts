@@ -77,7 +77,7 @@ function contextFor(): RunContext {
     previousTestResults: [],
     knownWorkflows: [],
     generatedEntities: [],
-    openRouterCalls: 999,
+    aiCalls: 999,
     deadlineMs: Date.now() + 60_000,
     artifactRoot: "",
     diagnostics: {
@@ -88,7 +88,7 @@ function contextFor(): RunContext {
       login: { status: "SKIPPED", message: "No credentials supplied." },
       crawl: { acceptedUrls: [], skippedUrls: [], failedUrls: [], discoveredCandidates: 0, noInternalLinksPages: [], events: [] },
       pages: [],
-      ai: { calls: 999, maxCalls: 999, disabled: false, openRouterConfigured: true, modelConfigured: true, successes: 0, failures: [], validationFailures: [], recoveredAttempts: [], maxTestCases: 400, testCasesGenerated: 0, testCasesDropped: 0, deterministicFallbacks: 0 },
+      ai: { calls: 999, maxCalls: 999, disabled: false, providerConfigured: true, successes: 0, failures: [], validationFailures: [], recoveredAttempts: [], maxTestCases: 400, testCasesGenerated: 0, testCasesDropped: 0, deterministicFallbacks: 0 },
     },
   };
 }

@@ -47,7 +47,8 @@ export function ResultsDashboard({ report }: { report: TestingRunResponse }) {
         <CardContent className="grid gap-3 p-4 md:grid-cols-5">
           <Info label="Run ID" value={report.runId} mono />
           <Info label="Target origin" value={report.targetOrigin} mono />
-          <Info label="Status" value={<StatusBadge value={report.status} />} />
+          <Info label="Run" value={<StatusBadge value={report.runStatus} />} />
+          <Info label="Findings" value={<StatusBadge value={report.findingsStatus} />} />
           <Info label="Duration" value={duration} />
           <Info label="Safe mode" value="Backend policy enforced" />
         </CardContent>
@@ -95,6 +96,10 @@ function Notice({ text }: { text: string }) {
 const issueColumns: ColumnDef<Issue>[] = [
   { header: "Severity", cell: ({ row }) => <StatusBadge value={row.original.severity} /> },
   { header: "Title", accessorKey: "title" },
+  { header: "Occurrences", cell: ({ row }) => row.original.occurrenceCount ?? 1 },
+  { header: "Failed tests", cell: ({ row }) => row.original.failedTestCount ?? 1 },
+  { header: "Pages", cell: ({ row }) => row.original.affectedPages?.length ?? (row.original.pageUrl ? 1 : 0) },
+  { header: "Related types", cell: ({ row }) => row.original.relatedTestTypes?.join(", ") ?? "—" },
   { header: "Page", accessorKey: "pageUrl" },
   { header: "Confidence", accessorKey: "confidence" },
 ];

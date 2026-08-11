@@ -51,12 +51,7 @@ const parsed = parseEnv();
 
 function parseEnv() {
   try {
-    return envSchema.parse({
-      ...process.env,
-      QWEN_API_KEY: process.env.QWEN_API_KEY ?? process.env.OPENROUTER_API_KEY ?? "",
-      QWEN_API_URL: process.env.QWEN_API_URL ?? process.env.OPENROUTER_BASE_URL ?? "https://qwen.snouhy.com/chat",
-      QWEN_TIMEOUT_MS: process.env.QWEN_TIMEOUT_MS ?? process.env.AI_RESPONSE_TIMEOUT_MS ?? process.env.OPENROUTER_TIMEOUT_MS ?? "60000",
-    });
+    return envSchema.parse(process.env);
   } catch (error) {
     if (error instanceof z.ZodError) {
       const messages = error.issues.map((issue) => `  - ${issue.path.join(".")}: ${issue.message}`).join("\n");
@@ -81,13 +76,6 @@ export const config = {
     timeoutMs: parsed.QWEN_TIMEOUT_MS,
     pacingMs: parsed.AI_CALL_PACING_MS,
   },
-  openRouter: {
-    apiKey: parsed.QWEN_API_KEY,
-    models: parsed.QWEN_API_KEY ? ["qwen"] : [],
-    baseUrl: parsed.QWEN_API_URL.replace(/\/$/, ""),
-    timeoutMs: parsed.QWEN_TIMEOUT_MS,
-    pacingMs: parsed.AI_CALL_PACING_MS,
-  },
   browser: {
     channel: parsed.PLAYWRIGHT_CHANNEL ?? parsed.BROWSER_CHANNEL,
     headless: parsed.PLAYWRIGHT_HEADLESS ?? parsed.BROWSER_HEADLESS,
@@ -102,7 +90,6 @@ export const config = {
     maxActionsPerPage: parsed.MAX_ACTIONS_PER_PAGE,
     maxRunDurationSeconds: parsed.MAX_RUN_DURATION_SECONDS,
     maxAiCallsPerRun: parsed.MAX_AI_CALLS_PER_RUN,
-    maxOpenRouterCallsPerRun: parsed.MAX_AI_CALLS_PER_RUN,
     maxAiTestCasesPerRun: parsed.MAX_AI_TEST_CASES_PER_RUN,
   },
   security: {

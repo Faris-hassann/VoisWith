@@ -58,11 +58,11 @@ export function buildPageBaselineTests(input: BaselineInput): TestCaseResult[] {
     tests.push(
       baselineResult({
         id: "baseline-links",
-        name: "Link inventory and failed request check",
+        name: "Link inventory",
         type: "LINKS",
-        status: input.snapshot.failedRequests.length === 0 ? "PASSED" : "FAILED",
-        expected: "No failed network requests are observed while loading the page.",
-        actual: `${input.snapshot.links.length} links inventoried, ${input.snapshot.failedRequests.length} failed requests observed.`,
+        status: input.snapshot.links.length > 0 ? "PASSED" : "INCONCLUSIVE",
+        expected: "Links are inventoried for separate reachability checks.",
+        actual: `${input.snapshot.links.length} links inventoried. Reachability is evaluated by the link health checker.`,
       }),
     );
   }

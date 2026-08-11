@@ -32,20 +32,20 @@ describe("ReportAggregator AI failure handling", () => {
       failedNetworkRequests: [],
       performanceObservations: [],
       evidence: [],
-      skippedReason: "AI test-case planning failed (llm_unavailable): OpenRouter responded 404.",
+      skippedReason: "AI test-case planning failed (llm_unavailable): Qwen rejected the configured credential.",
     };
 
     const context = contextFor({ testTypes: ["SMOKE", "FORMS"], pages: [page] });
     context.diagnostics.ai.failures.push({
       pageUrl: page.url,
-      message: "OpenRouter responded 404 for model vendor/model:free.",
+      message: "Qwen rejected the configured credential (401).",
       reason: "llm_unavailable",
     });
 
     const report = new ReportAggregator().aggregate(context, new Date().toISOString());
 
     expect(report.issues).toHaveLength(0);
-    expect(report.issues.some((issue) => issue.description.includes("OpenRouter"))).toBe(false);
+    expect(report.issues.some((issue) => issue.description.includes("Qwen"))).toBe(false);
 
     const formsRow = report.coverageLimitations.find((row) => row.testType === "FORMS");
     expect(formsRow?.executed).toBe(true);
@@ -109,7 +109,7 @@ function contextFor(input: { testTypes: RunContext["request"]["testTypes"]; page
     previousTestResults: [],
     knownWorkflows: [],
     generatedEntities: [],
-    openRouterCalls: 1,
+    aiCalls: 1,
     stoppedReason: "converged",
     deadlineMs: Date.now() + 60_000,
     artifactRoot: "",
@@ -121,7 +121,7 @@ function contextFor(input: { testTypes: RunContext["request"]["testTypes"]; page
       login: { status: "SKIPPED", message: "No credentials supplied." },
       crawl: { acceptedUrls: [], skippedUrls: [], failedUrls: [], discoveredCandidates: 0, noInternalLinksPages: [], events: [] },
       pages: [],
-      ai: { calls: 1, maxCalls: 25, disabled: false, openRouterConfigured: true, modelConfigured: true, successes: 0, failures: [], validationFailures: [], recoveredAttempts: [], maxTestCases: 400, testCasesGenerated: 0, testCasesDropped: 0, deterministicFallbacks: 0 },
+      ai: { calls: 1, maxCalls: 25, disabled: false, providerConfigured: true, successes: 0, failures: [], validationFailures: [], recoveredAttempts: [], maxTestCases: 400, testCasesGenerated: 0, testCasesDropped: 0, deterministicFallbacks: 0 },
     },
   };
 }

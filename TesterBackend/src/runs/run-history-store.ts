@@ -18,6 +18,7 @@ import type {
 } from "../types/report.js";
 import type { TestingRunRequest } from "../types/testing.js";
 import type { AsyncRunSnapshot } from "./run-events.js";
+import { buildIssuesFromPages } from "../reporting/issue-builder.js";
 
 const MANIFEST_VERSION = 1 as const;
 const FINAL_REPORT_PATH = "reports/report.json";
@@ -290,16 +291,7 @@ async function directorySize(root: string): Promise<number> {
 function summarizePages(pages: PageReport[]): { summary: RunSummary; issues: Issue[] } {
   const tests = pages.flatMap((page) => page.tests);
   const failed = tests.filter((test) => test.status === "FAILED" || test.status === "ERROR");
-  const issues = failed.map((test, index): Issue => ({
-    id: `issue_${index + 1}`,
-    severity: test.severity ?? "MEDIUM",
-    title: test.name,
-    description: test.error ?? test.actualResult ?? "Test failed.",
-    pageUrl: pages.find((page) => page.tests.includes(test))?.url,
-    testName: test.name,
-    evidence: test.evidence,
-    confidence: test.confidence ?? 0.7,
-  }));
+  const issues = buildIssuesFromPages(pages);
   const summary: RunSummary = {
     pagesDiscovered: pages.length,
     pagesTested: pages.filter((page) => page.status !== "SKIPPED").length,

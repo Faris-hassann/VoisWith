@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 process.env.QWEN_API_KEY = "test-key";
 process.env.QWEN_API_URL = "https://qwen.snouhy.com/chat";
 
-const { OpenRouterClient } = await import("../../src/ai/openrouter-client.js");
+const { QwenClient } = await import("../../src/ai/qwen-client.js");
 const { AppError } = await import("../../src/errors/app-error.js");
 const { LLM_FAILURE_REASONS } = await import("../../src/errors/error-codes.js");
 
@@ -27,7 +27,7 @@ describe("Qwen schema validation", () => {
 
     let error: InstanceType<typeof AppError> | undefined;
     try {
-      await new OpenRouterClient().createStructuredPlan({ systemPrompt: "sys", context: {}, validate });
+      await new QwenClient().createStructuredPlan({ systemPrompt: "sys", context: {}, validate });
     } catch (thrown) {
       error = thrown instanceof AppError ? thrown : undefined;
     }
@@ -55,7 +55,7 @@ describe("Qwen schema validation", () => {
       return record.unknownKey === undefined ? { ok: true as const } : { ok: false as const, message: "unknown key: unknownKey" };
     };
 
-    const result = await new OpenRouterClient().createStructuredPlan({ systemPrompt: "sys", context: {}, validate });
+    const result = await new QwenClient().createStructuredPlan({ systemPrompt: "sys", context: {}, validate });
     expect(result.value).toEqual({ testCases: [] });
     expect(result.recoveredAttempts).toEqual([
       { model: "qwen", reason: LLM_FAILURE_REASONS.LLM_SCHEMA_INVALID, message: expect.any(String) },

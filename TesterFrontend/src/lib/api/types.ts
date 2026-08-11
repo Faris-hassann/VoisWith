@@ -316,6 +316,11 @@ export interface Issue {
   severity: IssueSeverity;
   title: string;
   description: string;
+  fingerprint?: string;
+  occurrenceCount?: number;
+  failedTestCount?: number;
+  affectedPages?: string[];
+  relatedTestTypes?: TestingType[];
   pageUrl?: string;
   role?: string;
   viewport?: string;
@@ -397,10 +402,6 @@ export interface RunDiagnostics {
     calls: number;
     maxCalls?: number;
     disabled?: boolean;
-    openRouterConfigured?: boolean;
-    modelConfigured?: boolean;
-    /** The pinned model slugs, tried in order. Undefined when AI is not configured. */
-    models?: string[];
     successes: number;
     failures: Array<{ pageUrl?: string; message: string; reason?: string; attempts?: Array<{ model: string; reason: string; message: string }> }>;
     validationFailures: Array<{ pageUrl?: string; message: string; reason?: string; attempts?: Array<{ model: string; reason: string; message: string }> }>;

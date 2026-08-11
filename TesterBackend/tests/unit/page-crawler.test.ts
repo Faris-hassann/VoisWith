@@ -100,7 +100,7 @@ function contextFor(input: { maxDepth: number; maxPages: number; sameOriginOnly:
     previousTestResults: [],
     knownWorkflows: [],
     generatedEntities: [],
-    openRouterCalls: 0,
+    aiCalls: 0,
     deadlineMs: Date.now() + 60_000,
     artifactRoot: "",
     diagnostics: {
@@ -118,7 +118,7 @@ function contextFor(input: { maxDepth: number; maxPages: number; sameOriginOnly:
         events: [],
       },
       pages: [],
-      ai: { calls: 0, maxCalls: 50, disabled: false, openRouterConfigured: true, modelConfigured: true, successes: 0, failures: [], validationFailures: [], recoveredAttempts: [], maxTestCases: 400, testCasesGenerated: 0, testCasesDropped: 0, deterministicFallbacks: 0 },
+      ai: { calls: 0, maxCalls: 50, disabled: false, providerConfigured: true, successes: 0, failures: [], validationFailures: [], recoveredAttempts: [], maxTestCases: 400, testCasesGenerated: 0, testCasesDropped: 0, deterministicFallbacks: 0 },
     },
   };
 }

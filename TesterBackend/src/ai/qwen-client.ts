@@ -11,6 +11,8 @@ interface AttemptResult {
   message?: string;
 }
 
+const NON_JSON_CONTENT_TYPE = "Qwen response was not JSON.";
+
 export interface StructuredPlanResult {
   value: unknown;
   provider: "qwen";
@@ -75,17 +77,78 @@ export class QwenClient {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(new Error("Qwen request timed out.")), config.ai.timeoutMs);
 
-    let response: Response;
     try {
-      response = await fetch(config.ai.apiUrl, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${config.ai.apiKey}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ message }),
-        signal: controller.signal,
-      });
+      return await withTimeout((async () => {
+        const response = await fetch(config.ai.apiUrl, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${config.ai.apiKey}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ message }),
+          signal: controller.signal,
+        });
+        if (response.status === 401 || response.status === 403) {
+          return {
+            ok: false,
+            reason: LLM_FAILURE_REASONS.LLM_UNAVAILABLE,
+            message: `Qwen rejected the configured credential (${response.status}).`,
+          };
+        }
+        if (response.status === 429) {
+          return {
+            ok: false,
+            reason: LLM_FAILURE_REASONS.LLM_RATE_LIMITED,
+            message: "Qwen responded 429.",
+          };
+        }
+        if (!response.ok) {
+          return {
+            ok: false,
+            reason: LLM_FAILURE_REASONS.LLM_TRANSPORT_ERROR,
+            message: `Qwen responded ${response.status}.`,
+          };
+        }
+
+        const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+        if (!contentType.includes("application/json")) {
+          return {
+            ok: false,
+            reason: LLM_FAILURE_REASONS.LLM_UNAVAILABLE,
+            message: NON_JSON_CONTENT_TYPE,
+          };
+        }
+
+        const rawBody = await response.text();
+        let envelope: unknown;
+        try {
+          envelope = JSON.parse(rawBody);
+        } catch (error) {
+          return {
+            ok: false,
+            reason: LLM_FAILURE_REASONS.LLM_INVALID_JSON,
+            message: `Qwen response body was not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+          };
+        }
+
+        const extracted = extractStructuredValue(envelope);
+        if (!extracted.ok) {
+          return { ok: false, reason: LLM_FAILURE_REASONS.LLM_INVALID_JSON, message: extracted.message };
+        }
+
+        if (validate) {
+          const result = validate(extracted.value);
+          if (!result.ok) {
+            return {
+              ok: false,
+              reason: LLM_FAILURE_REASONS.LLM_SCHEMA_INVALID,
+              message: `Qwen response failed schema validation: ${result.message}`,
+            };
+          }
+        }
+
+        return { ok: true, value: extracted.value };
+      })(), config.ai.timeoutMs, "Qwen request timed out.");
     } catch (error) {
       clearTimeout(timer);
       return {
@@ -93,72 +156,9 @@ export class QwenClient {
         reason: LLM_FAILURE_REASONS.LLM_TRANSPORT_ERROR,
         message: error instanceof Error ? error.message : String(error),
       };
+    } finally {
+      clearTimeout(timer);
     }
-    clearTimeout(timer);
-
-    if (response.status === 401 || response.status === 403 || response.status === 400 || response.status === 404) {
-      return {
-        ok: false,
-        reason: LLM_FAILURE_REASONS.LLM_UNAVAILABLE,
-        message: response.status === 401 || response.status === 403
-          ? `Qwen rejected the configured credential (${response.status}).`
-          : `Qwen responded ${response.status}.`,
-      };
-    }
-    if (response.status === 429) {
-      return {
-        ok: false,
-        reason: LLM_FAILURE_REASONS.LLM_RATE_LIMITED,
-        message: "Qwen responded 429.",
-      };
-    }
-    if (!response.ok) {
-      return {
-        ok: false,
-        reason: LLM_FAILURE_REASONS.LLM_TRANSPORT_ERROR,
-        message: `Qwen responded ${response.status}.`,
-      };
-    }
-
-    let rawBody = "";
-    try {
-      rawBody = await withTimeout(response.text(), config.ai.timeoutMs, "Qwen response body timed out.");
-    } catch (error) {
-      return {
-        ok: false,
-        reason: LLM_FAILURE_REASONS.LLM_TRANSPORT_ERROR,
-        message: error instanceof Error ? error.message : String(error),
-      };
-    }
-
-    let envelope: unknown;
-    try {
-      envelope = JSON.parse(rawBody);
-    } catch (error) {
-      return {
-        ok: false,
-        reason: LLM_FAILURE_REASONS.LLM_INVALID_JSON,
-        message: `Qwen response body was not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
-      };
-    }
-
-    const extracted = extractStructuredValue(envelope);
-    if (!extracted.ok) {
-      return { ok: false, reason: LLM_FAILURE_REASONS.LLM_INVALID_JSON, message: extracted.message };
-    }
-
-    if (validate) {
-      const result = validate(extracted.value);
-      if (!result.ok) {
-        return {
-          ok: false,
-          reason: LLM_FAILURE_REASONS.LLM_SCHEMA_INVALID,
-          message: `Qwen response failed schema validation: ${result.message}`,
-        };
-      }
-    }
-
-    return { ok: true, value: extracted.value };
   }
 }
 

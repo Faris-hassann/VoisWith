@@ -123,6 +123,11 @@ export interface Issue {
   severity: IssueSeverity;
   title: string;
   description: string;
+  fingerprint?: string;
+  occurrenceCount?: number;
+  failedTestCount?: number;
+  affectedPages?: string[];
+  relatedTestTypes?: TestingType[];
   pageUrl?: string;
   role?: string;
   viewport?: string;
@@ -249,9 +254,6 @@ export interface RunDiagnostics {
     testCasesDropped: number;
     /** Number of batches that exhausted the 3-model chain and fell through to the deterministic generator. */
     deterministicFallbacks: number;
-    openRouterConfigured?: boolean;
-    modelConfigured?: boolean;
-    models?: string[];
   };
 }
 

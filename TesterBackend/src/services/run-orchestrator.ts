@@ -150,8 +150,6 @@ export class RunOrchestrator {
         ai: {
           provider: "qwen",
           providerConfigured: Boolean(config.ai.apiKey),
-          openRouterConfigured: Boolean(config.ai.apiKey),
-          modelConfigured: Boolean(config.ai.apiKey),
           calls: 0,
           maxCalls: config.limits.maxAiCallsPerRun,
           disabled: config.limits.maxAiCallsPerRun <= 0,
@@ -1430,7 +1428,7 @@ function blockedFormResult(formId: string, elementId: string, matchedSignal: str
   };
 }
 
-/** Pulls the full per-model attempt history off an OpenRouterClient exhaustion error, when present. */
+/** Pulls the full provider attempt history off a QwenClient exhaustion error, when present. */
 function extractLlmAttempts(error: unknown): LlmAttempt[] | undefined {
   if (!(error instanceof AppError)) return undefined;
   const details = error.details;

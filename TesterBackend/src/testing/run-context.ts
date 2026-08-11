@@ -27,7 +27,6 @@ export interface RunContext {
   knownWorkflows: string[];
   generatedEntities: string[];
   aiCalls?: number;
-  openRouterCalls?: number;
   deadlineMs: number;
   artifactRoot: string;
   stoppedReason?: StoppedReason;

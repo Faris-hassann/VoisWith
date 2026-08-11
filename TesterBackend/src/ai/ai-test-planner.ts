@@ -48,7 +48,7 @@ export class AiTestPlanner {
     for (const batch of batches) {
       if (budgetExhausted()) continue;
 
-      const currentAiCalls = context.aiCalls ?? context.openRouterCalls ?? 0;
+      const currentAiCalls = context.aiCalls ?? 0;
       const withinCallBudget = currentAiCalls < config.limits.maxAiCallsPerRun;
       let batchCases: FormTestCase[] | undefined;
 

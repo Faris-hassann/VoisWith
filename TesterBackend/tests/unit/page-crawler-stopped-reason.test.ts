@@ -108,7 +108,7 @@ function contextFor(overrides: { maxDepth?: number; maxPages?: number }): RunCon
     previousTestResults: [],
     knownWorkflows: [],
     generatedEntities: [],
-    openRouterCalls: 0,
+    aiCalls: 0,
     deadlineMs: Date.now() + 60_000,
     artifactRoot: "",
     diagnostics: {
@@ -119,7 +119,7 @@ function contextFor(overrides: { maxDepth?: number; maxPages?: number }): RunCon
       login: { status: "SKIPPED", message: "No credentials supplied." },
       crawl: { acceptedUrls: [], skippedUrls: [], failedUrls: [], discoveredCandidates: 0, noInternalLinksPages: [], events: [] },
       pages: [],
-      ai: { calls: 0, maxCalls: 25, disabled: false, openRouterConfigured: false, modelConfigured: false, successes: 0, failures: [], validationFailures: [], recoveredAttempts: [], maxTestCases: 400, testCasesGenerated: 0, testCasesDropped: 0, deterministicFallbacks: 0 },
+      ai: { calls: 0, maxCalls: 25, disabled: false, providerConfigured: false, successes: 0, failures: [], validationFailures: [], recoveredAttempts: [], maxTestCases: 400, testCasesGenerated: 0, testCasesDropped: 0, deterministicFallbacks: 0 },
     },
   };
 }

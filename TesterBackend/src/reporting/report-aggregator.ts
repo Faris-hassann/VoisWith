@@ -9,11 +9,12 @@ import type {
 } from "../types/report.js";
 import { getTestTypeAvailability } from "../testing/test-types.js";
 import type { RunContext } from "../testing/run-context.js";
+import { buildIssuesFromPages } from "./issue-builder.js";
 
 export class ReportAggregator {
   aggregate(context: RunContext, completedAt: string): TestingRunResponse {
     context.diagnostics.completedAt = completedAt;
-    context.diagnostics.ai.calls = context.aiCalls ?? context.openRouterCalls ?? 0;
+    context.diagnostics.ai.calls = context.aiCalls ?? 0;
     context.diagnostics.crawl.acceptedUrls = [...context.visitedUrls];
     context.diagnostics.crawl.skippedUrls = [...context.skippedUrls.entries()].map(([url, reason]) => ({ url, reason }));
     context.diagnostics.crawl.failedUrls = [...context.failedUrls.entries()].map(([url, reason]) => ({ url, reason }));
@@ -31,21 +32,7 @@ export class ReportAggregator {
     const totalArtifactBytes = pages
       .flatMap((page) => page.evidence)
       .reduce((sum, artifact) => sum + (artifact.sizeBytes ?? 0), 0);
-    const issues: Issue[] = [
-      ...failedTests.map((test, index): Issue => ({
-        id: `issue_${index + 1}`,
-        severity: test.severity ?? "MEDIUM",
-        title: test.name,
-        description: test.error ?? test.actualResult ?? "Test failed.",
-        pageUrl: pages.find((page) => page.tests.includes(test))?.url,
-        role: pages.find((page) => page.tests.includes(test))?.role,
-        viewport: pages.find((page) => page.tests.includes(test))?.viewport,
-        locale: pages.find((page) => page.tests.includes(test))?.locale,
-        testName: test.name,
-        evidence: test.evidence,
-        confidence: test.confidence ?? 0.7,
-      })),
-    ];
+    const issues: Issue[] = buildIssuesFromPages(pages);
 
     // FORMS and FORM_VALIDATION each have a deterministic half (always runs)
     // and an AI-assisted half (planning-dependent). Reporting a plain

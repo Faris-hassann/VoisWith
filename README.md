@@ -2,7 +2,7 @@
 
 This repository contains two projects:
 
-- [TesterBackend](TesterBackend/README.md), an Express 5, TypeScript, Playwright, and OpenRouter backend for authorized black-box functional testing.
+- [TesterBackend](TesterBackend/README.md), an Express 5, TypeScript, Playwright, and Qwen backend for authorized black-box functional testing.
 - [TesterFrontend](TesterFrontend/README.md), a Next.js App Router frontend for configuring and reviewing runs from the backend.
 
 ## Repository Layout
@@ -48,14 +48,15 @@ Then open:
 http://localhost:3000/docs
 ```
 
-Add your OpenRouter secret manually in `.env`:
+Add your Qwen secret manually in `.env`:
 
 ```env
-OPENROUTER_API_KEY=your_secret_here
-OPENROUTER_MODELS=vendor/model-a:free,vendor/model-b:free,vendor/model-c:free
+QWEN_API_KEY=your_secret_here
+QWEN_API_URL=https://qwen.snouhy.com/chat
+QWEN_TIMEOUT_MS=60000
 ```
 
-`OPENROUTER_MODELS` takes exactly 3 pinned OpenRouter free-model slugs, tried in order. The free-tier catalogue rotates — run `npm run openrouter:models` from `TesterBackend` to list what's currently available rather than reusing ids from an old `.env` or chat transcript. The backend refuses to boot if fewer than 3 are set, any fail the `vendor/model:free` shape, or any is no longer listed by OpenRouter.
+Qwen receives the canonical Markdown planner prompt from `TesterBackend/src/prompts/form-test-planner.system.md` plus sanitized `{ formCount, forms }` input in a single `message` payload. If `QWEN_API_KEY` is missing or rejected, deterministic planning still runs and the AI failure is surfaced only in diagnostics.
 
 Do not commit `.env`.
 
@@ -83,7 +84,7 @@ http://localhost:3000/openapi.json
 
 - Only test systems you own or are explicitly authorized to test.
 - The caller must send `authorizationConfirmed: true`.
-- Credentials are redacted from logs/errors and never sent to OpenRouter.
+- Credentials are redacted from logs/errors and never sent to Qwen.
 - AI plans are schema-validated and policy-checked before Playwright execution.
 - Safe mode blocks destructive, payment, message-sending, permission-changing, and legal-acceptance actions by default.
 - The AI receives sanitized page snapshots with internal element IDs only; it never receives cookies, passwords, tokens, or raw HTML.
@@ -117,8 +118,9 @@ LIVE_VIEW_FRAME_INTERVAL_MS=1500
 Important values:
 
 ```env
-OPENROUTER_API_KEY=
-OPENROUTER_MODELS=
+QWEN_API_KEY=
+QWEN_API_URL=https://qwen.snouhy.com/chat
+QWEN_TIMEOUT_MS=60000
 PLAYWRIGHT_HEADLESS=false
 PLAYWRIGHT_CHANNEL=chrome
 AI_RESPONSE_TIMEOUT_MS=30000
@@ -129,7 +131,7 @@ SCREENSHOT_DIRECTORY=artifacts/screenshots
 TRACE_DIRECTORY=artifacts/traces
 ```
 
-Legacy `BROWSER_*`, `OPENROUTER_TIMEOUT_MS`, and `PAGE_NAVIGATION_TIMEOUT_MS` variables still work.
+Legacy `BROWSER_*` and `PAGE_NAVIGATION_TIMEOUT_MS` variables still work.
 
 ### System Test
 
@@ -203,7 +205,7 @@ npm run e2e
 
 ### Notes
 
-- OpenRouter keys never belong in the frontend.
+- Qwen keys never belong in the frontend.
 - Playwright is never run by the frontend.
 - Credentials are omitted from storage, query keys, URLs, review summaries, and logs.
 - The backend returns a run ID immediately, then streams status, live-view frames, generated tests, and final report state over WebSocket with polling fallback.
