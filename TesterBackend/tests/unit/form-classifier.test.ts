@@ -15,7 +15,7 @@ describe("privileged form classifier", () => {
   it("hard-blocks every §4 submit verb and records which one matched", () => {
     const verbs = [
       "delete", "remove", "revoke", "deactivate", "suspend", "reset",
-      "purge", "transfer", "invite", "send", "pay", "upgrade", "downgrade",
+      "purge", "transfer", "invite", "pay", "upgrade", "downgrade",
     ];
     for (const verb of verbs) {
       const result = classifyForm(formFor({ submitText: `${verb} it` }));
@@ -72,6 +72,15 @@ describe("privileged form classifier", () => {
 
   it("allows an ordinary multi-field contact form", () => {
     expect(classifyForm(formFor({ fields: threeValidatedFields(), submitText: "Submit message" }))).toEqual({
+      decision: "allowed",
+    });
+  });
+
+  it("allows ordinary send-labelled forms", () => {
+    expect(classifyForm(formFor({ fields: threeValidatedFields(), submitText: "Send message" }))).toEqual({
+      decision: "allowed",
+    });
+    expect(classifyForm(formFor({ fields: threeValidatedFields(), submitText: "Send" }))).toEqual({
       decision: "allowed",
     });
   });

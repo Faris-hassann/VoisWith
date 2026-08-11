@@ -237,6 +237,7 @@ ai.batch_started
 ai.skipped_budget
 ai.planning_failed
 ai.planning_passed
+ai.planning_skipped
 ai:configuration-missing
 ai:disabled
 ai:enabled
@@ -351,7 +352,6 @@ src/collectors/network-collector.ts
 src/collectors/performance-collector.ts
 src/config/env.ts
 src/config/logger.ts
-src/config/openrouter-preflight.ts
 src/controllers/testing.controller.ts
 src/crawler/page-crawler.ts
 src/crawler/scope-policy.ts
@@ -424,7 +424,7 @@ QWEN_API_URL=https://qwen.snouhy.com/chat
 QWEN_TIMEOUT_MS=60000
 ```
 
-Qwen AI planning sends the canonical Markdown prompt from `src/prompts/form-test-planner.system.md` plus sanitized `{ formCount, forms }` input in a single `message` payload. If `QWEN_API_KEY` is missing, AI calls are skipped immediately and deterministic planning remains active.
+Qwen AI planning sends the canonical Markdown prompt from `src/prompts/form-test-planner.system.md` plus sanitized `{ formCount, forms }` input in a single `message` payload. If `QWEN_API_KEY` is missing, AI calls are skipped immediately and deterministic planning remains active. If the key is present but rejected, reports and the running UI distinguish that from a missing configuration state.
 
 Do not commit `.env`.
 
@@ -438,7 +438,7 @@ QWEN_API_URL=https://qwen.snouhy.com/chat
 QWEN_TIMEOUT_MS=60000
 PLAYWRIGHT_HEADLESS=false
 PLAYWRIGHT_CHANNEL=chrome
-AI_RESPONSE_TIMEOUT_MS=30000
+AI_CALL_PACING_MS=1500
 ACTION_TIMEOUT_MS=10000
 NAVIGATION_TIMEOUT_MS=30000
 TEST_RUN_ALLOWED_ORIGINS=
@@ -458,6 +458,7 @@ npm run dev
 npm run build
 npm run lint
 npm test
+npm run qwen:smoke
 npm run trueform:system-test
 npm run playwright:install:chrome
 ```

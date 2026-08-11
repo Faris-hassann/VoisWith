@@ -1,0 +1,112 @@
+import "dotenv/config";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const backendRoot = path.resolve(__dirname, "..");
+
+async function main() {
+  const apiKey = process.env.QWEN_API_KEY ?? "";
+  const apiUrl = (process.env.QWEN_API_URL ?? "https://qwen.snouhy.com/chat").replace(/\/$/, "");
+  const timeoutMs = Number(process.env.QWEN_TIMEOUT_MS ?? "60000");
+  const promptPath = path.resolve(backendRoot, process.env.PROMPT_FILE_PATH ?? "src/prompts/form-test-planner.system.md");
+
+  if (!apiKey) {
+    throw new Error("QWEN_API_KEY is missing.");
+  }
+
+  const prompt = await fs.readFile(promptPath, "utf8");
+  const controller = new globalThis.AbortController();
+  const timer = globalThis.setTimeout(() => controller.abort(new Error("Qwen smoke request timed out.")), timeoutMs);
+
+  try {
+    const message = `${prompt}\n\nRUNTIME INPUT JSON\n${JSON.stringify({
+      formCount: 1,
+      forms: [
+        {
+          formId: "fixture-form",
+          elementId: "element_1",
+          routeFamily: "/contact",
+          apparentPurpose: "Contact form",
+          fields: [
+            {
+              elementId: "element_2",
+              kind: "input",
+              type: "text",
+              name: "name",
+              label: "Name",
+              required: true,
+              disabled: false,
+            },
+            {
+              elementId: "element_3",
+              kind: "input",
+              type: "email",
+              name: "email",
+              label: "Email",
+              required: true,
+              disabled: false,
+            },
+          ],
+          submitLabel: "Send",
+        },
+      ],
+    }, null, 2)}`;
+
+    const response = await fetch(apiUrl, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${apiKey}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ message }),
+      signal: controller.signal,
+    });
+
+    const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+    const bodyText = await response.text();
+    let parsedBody;
+    try {
+      parsedBody = JSON.parse(bodyText);
+    } catch {
+      parsedBody = null;
+    }
+
+    console.log(JSON.stringify({
+      status: response.status,
+      ok: response.ok,
+      contentType,
+      promptLoaded: prompt.length > 0,
+      hasStructuredTestCases: Boolean(extractStructuredValue(parsedBody)),
+    }, null, 2));
+  } finally {
+    globalThis.clearTimeout(timer);
+  }
+}
+
+function extractStructuredValue(input) {
+  if (!input || typeof input !== "object") return null;
+  if (Array.isArray(input.testCases)) return input;
+  for (const value of Object.values(input)) {
+    if (typeof value === "string") {
+      try {
+        const parsed = JSON.parse(value);
+        if (parsed && typeof parsed === "object" && Array.isArray(parsed.testCases)) return parsed;
+      } catch {
+        continue;
+      }
+    }
+    if (value && typeof value === "object") {
+      const nested = extractStructuredValue(value);
+      if (nested) return nested;
+    }
+  }
+  return null;
+}
+
+main().catch((error) => {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
+});

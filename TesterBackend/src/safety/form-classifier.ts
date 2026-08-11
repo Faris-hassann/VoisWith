@@ -17,7 +17,7 @@ import type { ElementInventoryItem, InspectedForm } from "../types/testing.js";
 const PRIVILEGED_FIELD = /role|permission|scope|grant|admin|owner|tenant|billing|plan|api[_-]?key|secret/i;
 
 /** §4 hard block: a submit control that performs a destructive, financial, or outbound action. */
-const PRIVILEGED_SUBMIT = /delete|remove|revoke|deactivate|suspend|reset|purge|transfer|invite|send|pay|upgrade|downgrade/i;
+const PRIVILEGED_SUBMIT = /delete|remove|revoke|deactivate|suspend|reset|purge|transfer|invite|pay|upgrade|downgrade/i;
 
 /** §4 hard block: a form action that targets a destructive endpoint. */
 const DESTRUCTIVE_ACTION = /delete|remove|revoke/i;

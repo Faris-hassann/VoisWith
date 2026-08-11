@@ -17,6 +17,7 @@ export interface FormPlanResult {
   source: "ai" | "deterministic" | "mixed" | "none";
   batchesPlanned: number;
   batchesFallenBack: number;
+  fallbackFailures: Array<{ pageUrl?: string; message: string; reason?: string; attempts?: LlmAttempt[] }>;
 }
 
 /**
@@ -41,6 +42,7 @@ export class AiTestPlanner {
     let usedAi = false;
     let usedDeterministic = false;
     let batchesFallenBack = 0;
+    const fallbackFailures: FormPlanResult["fallbackFailures"] = [];
     // Cases are counted, never estimated, as they're accepted below — so a
     // batch is only skipped outright once the cap is already exactly hit.
     const budgetExhausted = () => context.diagnostics.ai.testCasesGenerated >= config.limits.maxAiTestCasesPerRun;
@@ -50,9 +52,10 @@ export class AiTestPlanner {
 
       const currentAiCalls = context.aiCalls ?? 0;
       const withinCallBudget = currentAiCalls < config.limits.maxAiCallsPerRun;
+      const providerConfigured = Boolean(config.ai.apiKey);
       let batchCases: FormTestCase[] | undefined;
 
-      if (withinCallBudget) {
+      if (providerConfigured && withinCallBudget) {
         const isFirstCallInRun = currentAiCalls === 0;
         context.aiCalls = currentAiCalls + 1;
         if (!isFirstCallInRun && config.ai.pacingMs > 0) {
@@ -84,6 +87,7 @@ export class AiTestPlanner {
           const attempts = extractLlmAttempts(error);
           const failure = { pageUrl: snapshot.url, message: errorText(error), reason, attempts };
           context.diagnostics.ai.failures.push(failure);
+          fallbackFailures.push(failure);
           // A shape failure (this model's response didn't satisfy the contract,
           // as opposed to a transport/rate-limit/availability problem) is worth
           // surfacing distinctly — it is the one category that indicates the
@@ -121,6 +125,7 @@ export class AiTestPlanner {
       source: usedAi && usedDeterministic ? "mixed" : usedAi ? "ai" : usedDeterministic ? "deterministic" : "none",
       batchesPlanned: batches.length,
       batchesFallenBack,
+      fallbackFailures,
     };
   }
 }

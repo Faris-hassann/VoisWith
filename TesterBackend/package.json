@@ -17,6 +17,7 @@
     "acceptance:deterministic": "npm run build && node scripts/run-fixture-acceptance.mjs",
     "acceptance:live": "npm run build && node scripts/run-fixture-acceptance.mjs --live-ai",
     "acceptance:phase5-adversarial": "npm run build && node scripts/run-phase5-adversarial.mjs",
+    "qwen:smoke": "node scripts/qwen-smoke.mjs",
     "fixture": "node tests/fixtures/test-site/server.mjs",
     "playwright:install:chrome": "playwright install chrome"
   },

@@ -179,6 +179,7 @@ The backend currently emits these progress event types inside `run.event.event.t
 ai.skipped_budget
 ai.planning_failed
 ai.planning_passed
+ai.planning_skipped
 ai.batch_failed
 ai.batch_started
 ai:configuration-missing

@@ -762,6 +762,45 @@ export class RunOrchestrator {
       });
     }
 
+    if (dedup.unique.length === 0) {
+      emit(input, {
+        runId: context.runId,
+        type: "ai.planning_skipped",
+        status: "skipped",
+        message: `Skipping AI planning because no unique eligible forms remain on this page (${built.length} discovered, ${blockedResults.length} hard-blocked, ${dedup.duplicates.length} duplicate, 0 eligible).`,
+        pageUrl: snapshot.url,
+        role: context.roleName,
+        viewport: context.viewportName,
+        locale: context.localeName,
+        counts: {
+          discoveredForms: built.length,
+          blockedForms: blockedResults.length,
+          duplicateForms: dedup.duplicates.length,
+          eligibleForms: 0,
+        },
+      });
+      const testResults: TestCaseResult[] = [...baselineResults, ...linkHealthResults, ...blockedResults];
+      const pageReport: PageReport = {
+        url: snapshot.url,
+        canonicalUrl: snapshot.canonicalUrl,
+        stateFingerprint: snapshot.stateFingerprint,
+        role: context.roleName,
+        viewport: context.viewportName,
+        locale: context.localeName,
+        direction: context.direction,
+        status: summarizePageStatus(testResults),
+        tests: testResults,
+        consoleErrors: snapshot.consoleErrors,
+        failedNetworkRequests: snapshot.failedRequests,
+        performanceObservations: snapshot.performance,
+        evidence: pageEvidence,
+        skippedReason: "AI planning skipped because every discovered form was either privileged-blocked or already tested.",
+      };
+      this.recordPageDiagnostics(context, pageReport, snapshot, baselineResults.length, 0, navigationMs);
+      await this.writePageReportArtifact(input.artifacts, context, pageReport, input.events);
+      return { report: pageReport, snapshot };
+    }
+
     let planResult: FormPlanResult;
     try {
       emit(input, {
@@ -789,6 +828,14 @@ export class RunOrchestrator {
         viewport: context.viewportName,
         locale: context.localeName,
         counts: { aiPlannedTests: planResult.testCases.length },
+        diagnostics: planResult.batchesFallenBack > 0
+          ? {
+              batchesPlanned: planResult.batchesPlanned,
+              batchesFallenBack: planResult.batchesFallenBack,
+              deterministicFallbacks: planResult.batchesFallenBack,
+              failures: planResult.fallbackFailures,
+            }
+          : undefined,
       });
     } catch (error) {
       // planner.plan() degrades to the deterministic generator internally on

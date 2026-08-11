@@ -407,23 +407,23 @@ function dedupeEvents(events: RunProgressEvent[]): RunProgressEvent[] {
 
 function summarizeAiWarning(events: RunProgressEvent[], report?: TestingRunResponse): string | undefined {
   const ai = report?.diagnostics?.ai;
+  const latestFailure = ai?.failures.at(-1) ?? latestEventFailure(events);
   if (ai?.disabled || events.some((event) => event.type === "ai:disabled")) {
     return "AI planning is disabled because the backend AI call budget is 0. Deterministic baseline, link, form, and safety tests still run.";
   }
-  const providerConfigured = ai?.providerConfigured;
-  if (
-    ai &&
-    providerConfigured === false
-  ) {
+  if (ai && ai.providerConfigured === false) {
     return "Qwen is not fully configured, so AI planning cannot generate test cases yet. Add QWEN_API_KEY, then restart the backend.";
   }
   if (events.some((event) => event.type === "ai:configuration-missing")) {
     return "Qwen is not fully configured, so AI planning may be skipped while deterministic tests continue.";
   }
+  if (latestFailure) {
+    return describeAiFailure(latestFailure.reason, latestFailure.message);
+  }
   if (events.some((event) => event.type === "ai.skipped_budget" || event.type === "ai:skipped-budget")) {
     return "AI planning was skipped because the per-run AI call budget was exhausted.";
   }
-  if (events.some((event) => event.type === "ai.planning_failed")) {
+  if (events.some((event) => event.type === "ai.planning_failed" || event.type === "ai.batch_failed")) {
     return "AI planning failed for at least one page. Deterministic tests continued and the report includes the failure details.";
   }
   return undefined;
@@ -472,6 +472,35 @@ function stringify(value: unknown): string {
   } catch {
     return "Unknown run error";
   }
+}
+
+function describeAiFailure(reason?: string, message?: string): string {
+  if (reason === "llm_unavailable" && message?.includes("credential is configured but was rejected")) {
+    return "Qwen is configured, but the provider rejected the current credential. Replace QWEN_API_KEY with a valid key and restart the backend.";
+  }
+  if (reason === "llm_rate_limited") {
+    return "Qwen rate-limited at least one planning batch. Deterministic planning continued for the affected forms.";
+  }
+  if (reason === "llm_transport_error") {
+    return "Qwen could not be reached or timed out for at least one planning batch. Deterministic planning continued for the affected forms.";
+  }
+  if (reason === "llm_invalid_json") {
+    return "Qwen returned invalid JSON for at least one planning batch. Deterministic planning continued for the affected forms.";
+  }
+  if (reason === "llm_schema_invalid") {
+    return "Qwen returned a schema-invalid planning response for at least one batch. Deterministic planning continued for the affected forms.";
+  }
+  if (reason === "llm_unavailable") {
+    return "Qwen responded with an unusable provider response for at least one planning batch. Deterministic planning continued for the affected forms.";
+  }
+  return "AI planning failed for at least one page. Deterministic tests continued and the report includes the failure details.";
+}
+
+function latestEventFailure(events: RunProgressEvent[]): { reason?: string; message?: string } | undefined {
+  const failedEvent = [...events].reverse().find((event) => event.type === "ai.batch_failed" || event.type === "ai.planning_failed");
+  if (!failedEvent || !failedEvent.diagnostics || typeof failedEvent.diagnostics !== "object") return undefined;
+  const diagnostics = failedEvent.diagnostics as { failures?: Array<{ reason?: string; message?: string }> };
+  return diagnostics.failures?.at(-1) ?? { message: failedEvent.message };
 }
 
 function isSnapshotMessage(payload: unknown): payload is { type: "run.snapshot"; snapshot: AsyncRunSnapshot } {

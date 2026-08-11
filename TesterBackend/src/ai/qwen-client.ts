@@ -12,6 +12,7 @@ interface AttemptResult {
 }
 
 const NON_JSON_CONTENT_TYPE = "Qwen response was not JSON.";
+const AUTH_REJECTED = "Qwen credential is configured but was rejected by the provider.";
 
 export interface StructuredPlanResult {
   value: unknown;
@@ -92,7 +93,7 @@ export class QwenClient {
           return {
             ok: false,
             reason: LLM_FAILURE_REASONS.LLM_UNAVAILABLE,
-            message: `Qwen rejected the configured credential (${response.status}).`,
+            message: `${AUTH_REJECTED} HTTP ${response.status}.`,
           };
         }
         if (response.status === 429) {
@@ -115,7 +116,7 @@ export class QwenClient {
           return {
             ok: false,
             reason: LLM_FAILURE_REASONS.LLM_UNAVAILABLE,
-            message: NON_JSON_CONTENT_TYPE,
+            message: `${NON_JSON_CONTENT_TYPE} Content-Type: ${contentType || "missing"}.`,
           };
         }
 

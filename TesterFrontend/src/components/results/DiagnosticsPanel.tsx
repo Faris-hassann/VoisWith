@@ -20,6 +20,8 @@ export function DiagnosticsPanel({ report }: { report: TestingRunResponse }) {
     );
   }
 
+  const latestAiFailure = diagnostics.ai.failures.at(-1);
+
   return (
     <div className="space-y-4">
       {(onlyOnePage || onlyOneTest || diagnostics.ai.disabled || providerConfigured === false || diagnostics.ai.failures.length > 0) ? (
@@ -28,7 +30,7 @@ export function DiagnosticsPanel({ report }: { report: TestingRunResponse }) {
           {onlyOneTest && firstFailedTest ? <p className="mt-1">Only one test was recorded: {firstFailedTest.name}. Error: {firstFailedTest.error ?? firstFailedTest.actualResult ?? "No error detail returned."}</p> : null}
           {diagnostics.ai.disabled ? <p className="mt-1">AI planning was disabled because the backend AI call budget was 0.</p> : null}
           {providerConfigured === false ? <p className="mt-1">Qwen is not configured, so AI test generation is being skipped and deterministic planning is used instead.</p> : null}
-          {diagnostics.ai.failures.length > 0 ? <p className="mt-1">AI planning failed on at least one page. Check the Qwen credential, response shape, timeout, or provider availability in backend logs.</p> : null}
+          {diagnostics.ai.failures.length > 0 ? <p className="mt-1">{describeAiFailure(latestAiFailure?.reason, latestAiFailure?.message)}</p> : null}
         </div>
       ) : null}
 
@@ -57,7 +59,7 @@ export function DiagnosticsPanel({ report }: { report: TestingRunResponse }) {
             <Row label="Budget" value={`${diagnostics.ai.maxCalls ?? "Unknown"}`} />
             <Row label="Enabled" value={diagnostics.ai.disabled ? "No" : "Yes"} />
             <Row label="Provider" value={diagnostics.ai.provider ?? "legacy"} />
-            <Row label="Qwen key" value={providerConfigured === false ? "Missing" : "Configured"} />
+            <Row label="Qwen key" value={providerConfigured === false ? "Missing" : latestAiFailure?.reason === "llm_unavailable" && latestAiFailure.message?.includes("credential is configured but was rejected") ? "Rejected" : "Configured"} />
             <Row label="Calls" value={`${diagnostics.ai.calls}`} />
             <Row label="Successes" value={`${diagnostics.ai.successes}`} />
             <Row label="Failures" value={`${diagnostics.ai.failures.length}`} />
@@ -117,6 +119,25 @@ export function DiagnosticsPanel({ report }: { report: TestingRunResponse }) {
       </Card>
     </div>
   );
+}
+
+function describeAiFailure(reason?: string, message?: string): string {
+  if (reason === "llm_unavailable" && message?.includes("credential is configured but was rejected")) {
+    return "Qwen is configured, but the provider rejected the current credential. Replace QWEN_API_KEY and restart the backend before expecting AI-generated cases.";
+  }
+  if (reason === "llm_rate_limited") {
+    return "Qwen rate-limited at least one planning batch. Deterministic planning covered the affected forms.";
+  }
+  if (reason === "llm_transport_error") {
+    return "Qwen timed out or could not be reached for at least one planning batch. Deterministic planning covered the affected forms.";
+  }
+  if (reason === "llm_invalid_json") {
+    return "Qwen returned invalid JSON for at least one planning batch. Deterministic planning covered the affected forms.";
+  }
+  if (reason === "llm_schema_invalid") {
+    return "Qwen returned a schema-invalid planning payload for at least one batch. Deterministic planning covered the affected forms.";
+  }
+  return "AI planning failed on at least one page. Check the Qwen credential, response shape, timeout, or provider availability in backend logs.";
 }
 
 function Row({ label, value }: { label: string; value: string }) {

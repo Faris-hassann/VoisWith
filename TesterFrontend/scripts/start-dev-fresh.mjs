@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const port = process.env.FRONTEND_PORT ?? "3001";
 const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const nextDir = resolve(projectRoot, ".next");
+const nextDir = resolve(projectRoot, ".next-dev");
 
 function killPortWindows() {
   let output = "";

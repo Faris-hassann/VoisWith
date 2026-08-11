@@ -5,7 +5,7 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    ignores: ["next-env.d.ts", ".next/**", "node_modules/**", "coverage/**", "playwright-report/**", "test-results/**"],
+    ignores: ["next-env.d.ts", ".next/**", ".next-dev/**", "node_modules/**", "coverage/**", "playwright-report/**", "test-results/**"],
   },
   {
     languageOptions: {

@@ -30,6 +30,7 @@ describe("QwenClient", () => {
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(401, { error: "unauthorized" })));
     const error = await capture(() => new QwenClient().createStructuredPlan({ systemPrompt: "sys", context: {} }));
     expect(error?.llmFailureReason).toBe(LLM_FAILURE_REASONS.LLM_UNAVAILABLE);
+    expect(error?.message).toContain("credential is configured but was rejected");
   });
 
   it("classifies a network throw as llm_transport_error", async () => {
@@ -63,6 +64,26 @@ describe("QwenClient", () => {
     expect(result.provider).toBe("qwen");
     expect(result.model).toBe("qwen");
     expect(result.recoveredAttempts).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const init = ((fetchMock.mock.calls as unknown) as Array<[unknown, RequestInit | undefined]>)[0]?.[1];
+    expect(init).toBeDefined();
+    if (!init) throw new Error("Missing fetch init");
+    expect(init.headers).toMatchObject({
+      authorization: "Bearer test-key",
+      "content-type": "application/json",
+    });
+    expect(JSON.parse(String(init.body))).toEqual({
+      message: "sys\n\nRUNTIME INPUT JSON\n{}",
+    });
+  });
+
+  it("classifies a non-JSON content type as llm_unavailable without repair", async () => {
+    const fetchMock = vi.fn(async () => new Response("<html>bad gateway</html>", { status: 200, headers: { "content-type": "text/html" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const error = await capture(() => new QwenClient().createStructuredPlan({ systemPrompt: "sys", context: {} }));
+    expect(error?.llmFailureReason).toBe(LLM_FAILURE_REASONS.LLM_UNAVAILABLE);
+    expect(error?.message).toContain("response was not JSON");
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
