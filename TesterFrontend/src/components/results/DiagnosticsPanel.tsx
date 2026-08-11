@@ -9,6 +9,9 @@ export function DiagnosticsPanel({ report }: { report: TestingRunResponse }) {
   const onlyOneTest = report.summary.testsExecuted === 1;
   const firstFailedTest = report.pages.flatMap((page) => page.tests).find((test) => test.status === "FAILED" || test.status === "ERROR");
 
+  const providerConfigured = diagnostics?.ai.providerConfigured ?? diagnostics?.ai.openRouterConfigured;
+  const legacyModelConfigured = diagnostics?.ai.modelConfigured;
+
   if (!diagnostics) {
     return (
       <EmptyState
@@ -20,13 +23,13 @@ export function DiagnosticsPanel({ report }: { report: TestingRunResponse }) {
 
   return (
     <div className="space-y-4">
-      {(onlyOnePage || onlyOneTest || diagnostics.ai.disabled || diagnostics.ai.openRouterConfigured === false || diagnostics.ai.modelConfigured === false || diagnostics.ai.failures.length > 0) ? (
+      {(onlyOnePage || onlyOneTest || diagnostics.ai.disabled || providerConfigured === false || legacyModelConfigured === false || diagnostics.ai.failures.length > 0) ? (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
           {onlyOnePage ? <p>Only the starting page was accepted for crawl.</p> : null}
           {onlyOneTest && firstFailedTest ? <p className="mt-1">Only one test was recorded: {firstFailedTest.name}. Error: {firstFailedTest.error ?? firstFailedTest.actualResult ?? "No error detail returned."}</p> : null}
           {diagnostics.ai.disabled ? <p className="mt-1">AI planning was disabled because the backend AI call budget was 0.</p> : null}
-          {diagnostics.ai.openRouterConfigured === false || diagnostics.ai.modelConfigured === false ? <p className="mt-1">OpenRouter is not fully configured, so AI test generation cannot run yet.</p> : null}
-          {diagnostics.ai.failures.length > 0 ? <p className="mt-1">AI planning failed on at least one page. Check OpenRouter key/model, structured JSON support, and backend logs.</p> : null}
+          {providerConfigured === false || legacyModelConfigured === false ? <p className="mt-1">Qwen is not fully configured, so AI test generation cannot run yet.</p> : null}
+          {diagnostics.ai.failures.length > 0 ? <p className="mt-1">AI planning failed on at least one page. Check the Qwen key, Qwen response shape, and backend logs.</p> : null}
         </div>
       ) : null}
 
@@ -54,8 +57,9 @@ export function DiagnosticsPanel({ report }: { report: TestingRunResponse }) {
           <CardContent className="space-y-2 text-sm">
             <Row label="Budget" value={`${diagnostics.ai.maxCalls ?? "Unknown"}`} />
             <Row label="Enabled" value={diagnostics.ai.disabled ? "No" : "Yes"} />
-            <Row label="OpenRouter key" value={diagnostics.ai.openRouterConfigured === false ? "Missing" : "Configured"} />
-            <Row label="Models" value={diagnostics.ai.modelConfigured === false ? "Missing" : diagnostics.ai.models?.join(", ") ?? "Configured"} />
+            <Row label="Provider" value={diagnostics.ai.provider ?? "legacy"} />
+            <Row label="Qwen key" value={providerConfigured === false ? "Missing" : "Configured"} />
+            <Row label="Legacy model config" value={legacyModelConfigured === false ? "Missing" : diagnostics.ai.models?.join(", ") ?? "N/A"} />
             <Row label="Calls" value={`${diagnostics.ai.calls}`} />
             <Row label="Successes" value={`${diagnostics.ai.successes}`} />
             <Row label="Failures" value={`${diagnostics.ai.failures.length}`} />

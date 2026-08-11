@@ -1,4 +1,5 @@
 import type { Page } from "playwright";
+import { CURSOR_HOST_ATTRIBUTE } from "../browser/browser-visual-agent.js";
 import type { ElementInventoryItem, LocatorDescriptor } from "../types/testing.js";
 
 interface RawElement {
@@ -96,7 +97,10 @@ export class ElementInventoryBuilder {
         ...document.querySelectorAll(
           "a,button,input,textarea,select,form,[role='button'],[role='dialog'],[role='tab'],[role='menu'],[role='menuitem']",
         ),
-      ].slice(0, 500);
+      ].filter((element) => {
+        const host = element.getRootNode() instanceof ShadowRoot ? element.getRootNode().host : null;
+        return !element.closest("[${CURSOR_HOST_ATTRIBUTE}]") && !host?.hasAttribute("${CURSOR_HOST_ATTRIBUTE}");
+      }).slice(0, 500);
       const keyFor = (element) => {
         if (!element) return undefined;
         const index = candidates.indexOf(element);

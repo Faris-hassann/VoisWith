@@ -1,15 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-// Config is read once at module load, so pacing/model config must be in place
-// before env.ts (and therefore ai-test-planner.ts) import. Per-test budget
-// overrides are applied by mutating the already-parsed `config` object
-// directly (see beforeEach/afterEach below) rather than re-importing modules.
-process.env.OPENROUTER_API_KEY = "test-key";
-process.env.OPENROUTER_MODELS = "vendor-a/model-a:free,vendor-b/model-b:free,vendor-c/model-c:free";
+process.env.QWEN_API_KEY = "test-key";
+process.env.QWEN_API_URL = "https://qwen.snouhy.com/chat";
 process.env.AI_CALL_PACING_MS = "500";
 
-// `delay` is spied (not faked via timers) so the test doesn't have to race real
-// fs I/O from PromptLoader against fake timers.
 const delaySpy = vi.fn(async () => undefined);
 vi.mock("../../src/utilities/timeout.js", async () => {
   const actual = await vi.importActual<typeof import("../../src/utilities/timeout.js")>("../../src/utilities/timeout.js");
@@ -21,12 +15,13 @@ const { config } = await import("../../src/config/env.js");
 const { buildInspectedForms } = await import("../../src/inspection/page-inspector.js");
 const { buildFormSnapshots } = await import("../../src/ai/form-snapshot-builder.js");
 
-const originalMaxCalls = config.limits.maxOpenRouterCallsPerRun;
+const originalMaxCalls = config.limits.maxAiCallsPerRun;
 const originalMaxTestCases = config.limits.maxAiTestCasesPerRun;
 
 function emptyPlanResponse(): Response {
-  return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ testCases: [] }) }, finish_reason: "stop" }] }), {
+  return new Response(JSON.stringify({ message: '{"testCases":[]}' }), {
     status: 200,
+    headers: { "content-type": "application/json" },
   });
 }
 
@@ -38,7 +33,7 @@ describe("AiTestPlanner batching", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     delaySpy.mockClear();
-    config.limits.maxOpenRouterCallsPerRun = originalMaxCalls;
+    config.limits.maxAiCallsPerRun = originalMaxCalls;
     config.limits.maxAiTestCasesPerRun = originalMaxTestCases;
   });
 
@@ -48,7 +43,6 @@ describe("AiTestPlanner batching", () => {
 
     const planner = new AiTestPlanner();
     const context = contextFor();
-    // 4 forms -> batches of [3, 1], so 2 sequential OpenRouter calls.
     const snapshot = snapshotWithForms(4);
 
     const result = await planner.plan(context, snapshot, buildFormSnapshots(snapshot.forms, snapshot.url));
@@ -56,18 +50,18 @@ describe("AiTestPlanner batching", () => {
     expect(result.batchesPlanned).toBe(2);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(delaySpy).toHaveBeenCalledTimes(1);
-    expect(delaySpy).toHaveBeenCalledWith(config.openRouter.pacingMs);
-    expect(context.openRouterCalls).toBe(2);
+    expect(delaySpy).toHaveBeenCalledWith(config.ai.pacingMs);
+    expect(context.aiCalls).toBe(2);
   });
 
   it("stops issuing AI calls once the call budget is reached and falls back to deterministic cases for the rest", async () => {
-    config.limits.maxOpenRouterCallsPerRun = 1;
+    config.limits.maxAiCallsPerRun = 1;
     const fetchMock = vi.fn(async () => emptyPlanResponse());
     vi.stubGlobal("fetch", fetchMock);
 
     const planner = new AiTestPlanner();
     const context = contextFor();
-    const snapshot = snapshotWithForms(4); // batches of [3, 1]
+    const snapshot = snapshotWithForms(4);
 
     const result = await planner.plan(context, snapshot, buildFormSnapshots(snapshot.forms, snapshot.url));
 
@@ -75,7 +69,7 @@ describe("AiTestPlanner batching", () => {
     expect(result.batchesFallenBack).toBe(1);
     expect(context.diagnostics.ai.deterministicFallbacks).toBe(1);
     expect(result.source).toBe("mixed");
-    expect(context.openRouterCalls).toBe(1);
+    expect(context.aiCalls).toBe(1);
   });
 
   it("truncates at the run-wide test-case budget without touching the call budget", async () => {
@@ -84,21 +78,14 @@ describe("AiTestPlanner batching", () => {
     const [batch] = buildFormSnapshots(snapshot.forms, snapshot.url);
     const twoCaseResponse = new Response(
       JSON.stringify({
-        choices: [
-          {
-            message: {
-              content: JSON.stringify({
-                testCases: [
-                  { caseId: "c1", formId: batch!.formId, testType: "FORM_VALIDATION", intent: "a", inputs: [], submit: false, expectedOutcome: { kind: "NO_NAVIGATION" } },
-                  { caseId: "c2", formId: batch!.formId, testType: "FORM_VALIDATION", intent: "b", inputs: [], submit: false, expectedOutcome: { kind: "NO_NAVIGATION" } },
-                ],
-              }),
-            },
-            finish_reason: "stop",
-          },
-        ],
+        message: JSON.stringify({
+          testCases: [
+            { caseId: "c1", formId: batch!.formId, testType: "FORM_VALIDATION", intent: "a", inputs: [], submit: false, expectedOutcome: { kind: "NO_NAVIGATION" } },
+            { caseId: "c2", formId: batch!.formId, testType: "FORM_VALIDATION", intent: "b", inputs: [], submit: false, expectedOutcome: { kind: "NO_NAVIGATION" } },
+          ],
+        }),
       }),
-      { status: 200 },
+      { status: 200, headers: { "content-type": "application/json" } },
     );
     vi.stubGlobal("fetch", vi.fn(async () => twoCaseResponse));
 
@@ -109,10 +96,10 @@ describe("AiTestPlanner batching", () => {
     expect(result.testCases).toHaveLength(1);
     expect(context.diagnostics.ai.testCasesDropped).toBe(1);
     expect(context.diagnostics.ai.testCasesGenerated).toBe(1);
-    expect(context.openRouterCalls).toBe(1);
+    expect(context.aiCalls).toBe(1);
   });
 
-  it("records the full per-model attempt history and falls back to deterministic cases when a batch exhausts the model chain", async () => {
+  it("records the provider attempt history and falls back to deterministic cases when a batch exhausts Qwen", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => rateLimitedResponse()));
 
     const planner = new AiTestPlanner();
@@ -124,7 +111,7 @@ describe("AiTestPlanner batching", () => {
     expect(result.source).toBe("deterministic");
     expect(result.testCases.length).toBeGreaterThan(0);
     expect(context.diagnostics.ai.failures).toHaveLength(1);
-    expect(context.diagnostics.ai.failures[0]?.attempts).toHaveLength(3);
+    expect(context.diagnostics.ai.failures[0]?.attempts).toHaveLength(1);
     expect(context.diagnostics.ai.deterministicFallbacks).toBe(1);
   });
 });
@@ -162,7 +149,7 @@ function contextFor(): import("../../src/testing/run-context.js").RunContext {
     previousTestResults: [],
     knownWorkflows: [],
     generatedEntities: [],
-    openRouterCalls: 0,
+    aiCalls: 0,
     deadlineMs: Date.now() + 60_000,
     artifactRoot: "",
     diagnostics: {
@@ -174,11 +161,11 @@ function contextFor(): import("../../src/testing/run-context.js").RunContext {
       crawl: { acceptedUrls: [], skippedUrls: [], failedUrls: [], discoveredCandidates: 0, noInternalLinksPages: [], events: [] },
       pages: [],
       ai: {
+        provider: "qwen",
+        providerConfigured: true,
         calls: 0,
         maxCalls: 25,
         disabled: false,
-        openRouterConfigured: true,
-        modelConfigured: true,
         successes: 0,
         failures: [],
         validationFailures: [],
@@ -195,7 +182,6 @@ function contextFor(): import("../../src/testing/run-context.js").RunContext {
 function snapshotWithForms(formCount: number): import("../../src/types/testing.js").PageSnapshot {
   const elements = [];
   for (let i = 0; i < formCount; i += 1) {
-    // elementId must match /^element_\d+$/ — the LLM-boundary schema's shape check.
     const formId = `element_${i * 2 + 1}`;
     const fieldId = `element_${i * 2 + 2}`;
     elements.push({ id: formId, kind: "form" as const, tagName: "form", disabled: false, hidden: false, locator: { strategy: "css" as const, value: `#${formId}` } });

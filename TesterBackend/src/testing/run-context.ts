@@ -16,9 +16,7 @@ export interface RunContext {
   pendingUrls: Set<string>;
   pendingCrawlItems?: Set<string>;
   processedInteractions?: Set<string>;
-  /** Visit count per route family, enforcing §9's 3-instances-per-family budget. */
   routeFamilies?: Map<string, number>;
-  /** formId → first page URL that tested it, enforcing §7's one-form-tested-once rule. */
   processedForms?: Map<string, string>;
   skippedUrls: Map<string, string>;
   failedUrls: Map<string, string>;
@@ -28,15 +26,10 @@ export interface RunContext {
   previousTestResults: string[];
   knownWorkflows: string[];
   generatedEntities: string[];
-  openRouterCalls: number;
+  aiCalls?: number;
+  openRouterCalls?: number;
   deadlineMs: number;
   artifactRoot: string;
-  /**
-   * Set by the crawler when it exits, before the report aggregator reads it.
-   * Precedence when multiple conditions apply: error > user_stopped >
-   * time_budget > page_budget > depth_budget > converged.
-   * See DESIGN-DECISIONS.md §3, §9.
-   */
   stoppedReason?: StoppedReason;
   control?: {
     isStopped: () => boolean;

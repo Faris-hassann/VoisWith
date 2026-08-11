@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Activity, AlertTriangle, CheckCircle2, Download, Loader2, Pause, Play, Radio, Square, WifiOff } from "lucide-react";
 import { use, useEffect, useMemo, useRef, useState } from "react";
 import Swal from "sweetalert2";
+import { RunningTestPanel } from "@/components/testing/RunningTestPanel";
 import { Button } from "@/components/ui/button";
 import { buildTestingRunReportUrl, buildTestingRunWebSocketUrl, controlTestingRun, getTestingRunStatus } from "@/lib/api/testing.api";
 import type { AsyncRunSnapshot, AsyncRunStatus, RunProgressEvent, TestingRunResponse } from "@/lib/api/types";
@@ -22,6 +23,7 @@ export default function RunningPage({ params }: { params: Promise<{ runId: strin
   const [error, setError] = useState<unknown>();
   const [startedAt, setStartedAt] = useState<string>();
   const [liveFrame, setLiveFrame] = useState<string>();
+  const [liveCursor, setLiveCursor] = useState<RunProgressEvent["liveCursor"]>();
   const [isControlling, setIsControlling] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const alertShownRef = useRef(false);
@@ -52,8 +54,12 @@ export default function RunningPage({ params }: { params: Promise<{ runId: strin
       setStatus(snapshot.status);
       const sanitizedEvents = snapshot.events.map(stripLiveFrameData);
       const latestFrameEvent = [...snapshot.events].reverse().find((event) => event.liveFrame);
+      const latestCursorEvent = [...snapshot.events].reverse().find((event) => event.liveCursor);
       if (latestFrameEvent?.liveFrame) {
         setLiveFrame(`data:${latestFrameEvent.liveFrame.mimeType};base64,${latestFrameEvent.liveFrame.data}`);
+      }
+      if (latestCursorEvent?.liveCursor) {
+        setLiveCursor(latestCursorEvent.liveCursor);
       }
       for (const event of snapshot.events) lastSequence = Math.max(lastSequence, event.sequence);
       setEvents((current) => dedupeEvents([...current, ...sanitizedEvents]));
@@ -162,6 +168,9 @@ export default function RunningPage({ params }: { params: Promise<{ runId: strin
           setEvents((current) => dedupeEvents([...current, stripLiveFrameData(payload.event)]));
           if (payload.event.liveFrame) {
             setLiveFrame(`data:${payload.event.liveFrame.mimeType};base64,${payload.event.liveFrame.data}`);
+          }
+          if (payload.event.liveCursor) {
+            setLiveCursor(payload.event.liveCursor);
           }
           if (payload.event.report) completeWithReport(payload.event.report, "completed");
           if (payload.event.type === "run.failed") {
@@ -301,16 +310,7 @@ export default function RunningPage({ params }: { params: Promise<{ runId: strin
       </section>
 
       <section className="grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.6fr)]">
-        <div className="rounded-lg border bg-card p-5 shadow-sm">
-          <h2 className="font-semibold">Live browser</h2>
-          <div className="mt-3 aspect-video overflow-hidden rounded-md border bg-background">
-            {liveFrame ? (
-              <img src={liveFrame} alt="Live browser frame" className="h-full w-full object-contain" />
-            ) : (
-              <div className="grid h-full place-items-center text-sm text-muted-foreground">Waiting for live-view frames.</div>
-            )}
-          </div>
-        </div>
+        <RunningTestPanel frameSrc={liveFrame} cursor={liveCursor} />
         <div className="rounded-lg border bg-card p-5 shadow-sm">
           <h2 className="font-semibold">DFS discovery</h2>
           <div className="mt-3 max-h-80 overflow-auto rounded-md border bg-background">
@@ -410,14 +410,15 @@ function summarizeAiWarning(events: RunProgressEvent[], report?: TestingRunRespo
   if (ai?.disabled || events.some((event) => event.type === "ai:disabled")) {
     return "AI planning is disabled because the backend AI call budget is 0. Deterministic baseline, link, form, and safety tests still run.";
   }
+  const providerConfigured = ai?.providerConfigured ?? ai?.openRouterConfigured;
   if (
     ai &&
-    (ai.openRouterConfigured === false || ai.modelConfigured === false)
+    (providerConfigured === false || ai.modelConfigured === false)
   ) {
-    return "OpenRouter is not fully configured, so AI planning cannot generate test cases yet. Add OPENROUTER_API_KEY and OPENROUTER_MODEL, then restart the backend.";
+    return "Qwen is not fully configured, so AI planning cannot generate test cases yet. Add QWEN_API_KEY, then restart the backend.";
   }
   if (events.some((event) => event.type === "ai:configuration-missing")) {
-    return "OpenRouter is not fully configured, so AI planning may be skipped while deterministic tests continue.";
+    return "Qwen is not fully configured, so AI planning may be skipped while deterministic tests continue.";
   }
   if (events.some((event) => event.type === "ai.skipped_budget" || event.type === "ai:skipped-budget")) {
     return "AI planning was skipped because the per-run AI call budget was exhausted.";

@@ -1,7 +1,7 @@
 {
   "name": "testerbackend",
   "version": "1.0.0",
-  "description": "Authorized black-box website testing backend powered by Playwright and OpenRouter.",
+  "description": "Authorized black-box website testing backend powered by Playwright and Qwen.",
   "type": "module",
   "main": "dist/src/server.js",
   "scripts": {
@@ -14,9 +14,9 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "trueform:system-test": "node scripts/run-trueform-system-test.mjs",
-    "openrouter:models": "node scripts/list-free-models.mjs",
     "acceptance:deterministic": "npm run build && node scripts/run-fixture-acceptance.mjs",
     "acceptance:live": "npm run build && node scripts/run-fixture-acceptance.mjs --live-ai",
+    "acceptance:phase5-adversarial": "npm run build && node scripts/run-phase5-adversarial.mjs",
     "fixture": "node tests/fixtures/test-site/server.mjs",
     "playwright:install:chrome": "playwright install chrome"
   },

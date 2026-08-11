@@ -9,8 +9,8 @@ import type { PageSnapshot } from "../types/testing.js";
 import { delay } from "../utilities/timeout.js";
 import { batchFormSnapshots } from "./form-batcher.js";
 import { validateFormTestPlan } from "./form-plan-validator.js";
-import { OpenRouterClient } from "./openrouter-client.js";
 import { PromptLoader } from "./prompt-loader.js";
+import { QwenClient } from "./qwen-client.js";
 
 export interface FormPlanResult {
   testCases: FormTestCase[];
@@ -22,11 +22,11 @@ export interface FormPlanResult {
 /**
  * Batches discovered forms (DESIGN-DECISIONS.md §5: 3 forms or ~4k estimated
  * tokens, sequential, one request in flight) and runs each batch through the
- * model chain. A batch that exhausts the chain falls back to the
+ * provider. A batch that exhausts the provider falls back to the
  * deterministic generator rather than failing the page.
  */
 export class AiTestPlanner {
-  private readonly client = new OpenRouterClient();
+  private readonly client = new QwenClient();
   private readonly prompts = new PromptLoader();
 
   /**
@@ -48,14 +48,15 @@ export class AiTestPlanner {
     for (const batch of batches) {
       if (budgetExhausted()) continue;
 
-      const withinCallBudget = context.openRouterCalls < config.limits.maxOpenRouterCallsPerRun;
+      const currentAiCalls = context.aiCalls ?? context.openRouterCalls ?? 0;
+      const withinCallBudget = currentAiCalls < config.limits.maxAiCallsPerRun;
       let batchCases: FormTestCase[] | undefined;
 
       if (withinCallBudget) {
-        const isFirstCallInRun = context.openRouterCalls === 0;
-        context.openRouterCalls += 1;
-        if (!isFirstCallInRun && config.openRouter.pacingMs > 0) {
-          await delay(config.openRouter.pacingMs);
+        const isFirstCallInRun = currentAiCalls === 0;
+        context.aiCalls = currentAiCalls + 1;
+        if (!isFirstCallInRun && config.ai.pacingMs > 0) {
+          await delay(config.ai.pacingMs);
         }
 
         try {
@@ -124,7 +125,7 @@ export class AiTestPlanner {
   }
 }
 
-/** Pulls the full per-model attempt history off an OpenRouterClient exhaustion error, when present. */
+/** Pulls the full provider attempt history off a QwenClient exhaustion error, when present. */
 function extractLlmAttempts(error: unknown): LlmAttempt[] | undefined {
   if (!(error instanceof AppError)) return undefined;
   const details = error.details;

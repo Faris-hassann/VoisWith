@@ -3,7 +3,7 @@ import type { Page } from "playwright";
 import { ArtifactManager } from "../artifacts/artifact-manager.js";
 import { AuthenticationHandler } from "../authentication/authentication-handler.js";
 import { BrowserManager, type BrowserSession } from "../browser/browser-manager.js";
-import { scrollPageForDiscovery } from "../browser/browser-visual-agent.js";
+import { scrollPageForDiscovery, withCursorSuppressed } from "../browser/browser-visual-agent.js";
 import { ConsoleCollector } from "../collectors/console-collector.js";
 import { EvidenceCollector } from "../collectors/evidence-collector.js";
 import { NetworkCollector } from "../collectors/network-collector.js";
@@ -120,7 +120,7 @@ export class RunOrchestrator {
       previousTestResults: [],
       knownWorkflows: [],
       generatedEntities: [],
-      openRouterCalls: 0,
+      aiCalls: 0,
       deadlineMs: deadlineFromNow(request.execution.maximumRunDurationSeconds),
       artifactRoot: artifacts.runRoot,
       control: options.control,
@@ -148,12 +148,13 @@ export class RunOrchestrator {
         },
         pages: [],
         ai: {
+          provider: "qwen",
+          providerConfigured: Boolean(config.ai.apiKey),
+          openRouterConfigured: Boolean(config.ai.apiKey),
+          modelConfigured: Boolean(config.ai.apiKey),
           calls: 0,
-          maxCalls: config.limits.maxOpenRouterCallsPerRun,
-          disabled: config.limits.maxOpenRouterCallsPerRun <= 0,
-          openRouterConfigured: Boolean(config.openRouter.apiKey),
-          modelConfigured: config.openRouter.models.length === 3,
-          models: config.openRouter.models.length ? config.openRouter.models : undefined,
+          maxCalls: config.limits.maxAiCallsPerRun,
+          disabled: config.limits.maxAiCallsPerRun <= 0,
           successes: 0,
           failures: [],
           validationFailures: [],
@@ -319,6 +320,19 @@ export class RunOrchestrator {
       viewport: localRequest.browser.viewport,
       locale: targetItem.locale.locale,
       direction: targetItem.locale.direction,
+      onCursor: (payload) => {
+        emit(input, {
+          runId: context.runId,
+          type: "live-view:cursor",
+          status: "info",
+          message: `Live cursor ${payload.action}.`,
+          pageUrl: safePageUrl(session.page),
+          role: targetItem.role.name,
+          viewport: targetItem.viewport.name,
+          locale: targetItem.locale.name,
+          liveCursor: payload,
+        });
+      },
     });
     context.diagnostics.browser.launched = true;
     logger.info({ runId: context.runId, role: targetItem.role.name }, "Browser launched");
@@ -462,6 +476,19 @@ export class RunOrchestrator {
             locale: targetItem.locale.locale,
             direction: targetItem.locale.direction,
             storageState,
+            onCursor: (payload) => {
+              emit(input, {
+                runId: context.runId,
+                type: "live-view:cursor",
+                status: "info",
+                message: `Live cursor ${payload.action}.`,
+                pageUrl: safePageUrl(session.page),
+                role: targetItem.role.name,
+                viewport: targetItem.viewport.name,
+                locale: targetItem.locale.name,
+                liveCursor: payload,
+              });
+            },
           });
           consoleCollector.attach(session.page);
           networkCollector.attach(session.page);
@@ -495,7 +522,7 @@ export class RunOrchestrator {
     for (const url of localContext.visitedUrls) context.visitedUrls.add(url);
     for (const [url, reason] of localContext.skippedUrls) context.skippedUrls.set(`${targetItem.role.name}:${targetItem.viewport.name}:${targetItem.locale.name}:${url}`, reason);
     for (const [url, reason] of localContext.failedUrls) context.failedUrls.set(`${targetItem.role.name}:${targetItem.viewport.name}:${targetItem.locale.name}:${url}`, reason);
-    context.openRouterCalls = localContext.openRouterCalls;
+    context.aiCalls = localContext.aiCalls;
     // The crawler records stoppedReason on the *local* context, so without this
     // merge the run report silently falls back to "converged" even when a
     // target ran out of time — a truncated crawl that claims to be complete.
@@ -1170,11 +1197,10 @@ function emit(input: { onEvent?: RunEventSink; events?: RunEventSink }, event: R
 
 function emitAiDiagnostics(input: { onEvent?: RunEventSink; events?: RunEventSink }, context: RunContext): void {
   const diagnostics = {
+    provider: context.diagnostics.ai.provider,
+    providerConfigured: context.diagnostics.ai.providerConfigured,
     maxCalls: context.diagnostics.ai.maxCalls,
     disabled: context.diagnostics.ai.disabled,
-    openRouterConfigured: context.diagnostics.ai.openRouterConfigured,
-    modelConfigured: context.diagnostics.ai.modelConfigured,
-    models: context.diagnostics.ai.models,
   };
 
   if (context.diagnostics.ai.disabled) {
@@ -1188,12 +1214,12 @@ function emitAiDiagnostics(input: { onEvent?: RunEventSink; events?: RunEventSin
     return;
   }
 
-  if (!context.diagnostics.ai.openRouterConfigured || !context.diagnostics.ai.modelConfigured) {
+  if (!context.diagnostics.ai.providerConfigured) {
     emit(input, {
       runId: context.runId,
       type: "ai:configuration-missing",
       status: "skipped",
-      message: "OpenRouter is not fully configured, so AI planning may be skipped or fail while deterministic tests continue.",
+      message: "Qwen is not fully configured, so AI planning may be skipped or fail while deterministic tests continue.",
       diagnostics,
     });
     return;
@@ -1277,7 +1303,7 @@ async function emitLiveFrame(input: {
 }, page: Page, message: string): Promise<void> {
   if (!config.liveView.enabled || input.context.request.visualizationMode !== "live") return;
   try {
-    const buffer = await page.screenshot({ type: "jpeg", quality: 55, timeout: 5000 });
+    const buffer = await withCursorSuppressed(page, () => page.screenshot({ type: "jpeg", quality: 55, timeout: 5000 }));
     emit(input, {
       runId: input.context.runId,
       type: "live-view:frame",

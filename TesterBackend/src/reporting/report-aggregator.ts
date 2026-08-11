@@ -13,7 +13,7 @@ import type { RunContext } from "../testing/run-context.js";
 export class ReportAggregator {
   aggregate(context: RunContext, completedAt: string): TestingRunResponse {
     context.diagnostics.completedAt = completedAt;
-    context.diagnostics.ai.calls = context.openRouterCalls;
+    context.diagnostics.ai.calls = context.aiCalls ?? context.openRouterCalls ?? 0;
     context.diagnostics.crawl.acceptedUrls = [...context.visitedUrls];
     context.diagnostics.crawl.skippedUrls = [...context.skippedUrls.entries()].map(([url, reason]) => ({ url, reason }));
     context.diagnostics.crawl.failedUrls = [...context.failedUrls.entries()].map(([url, reason]) => ({ url, reason }));

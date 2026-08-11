@@ -14,7 +14,7 @@ This document remains the canonical contract; implementation progress is recorde
 | Decision | Value |
 | --- | --- |
 | Microsoft Power Apps | **Out of v1.** Not in scope, not in the pitch. |
-| LLM provider | OpenRouter **free models only**. No paid fallback. |
+| LLM provider | Qwen at `https://qwen.snouhy.com/chat`. No paid fallback. |
 | Demo target | `staging.trueform.cultivbureau.com`, admin credentials |
 | Acceptance target | Local fixture (see §11) — **not** TrueForm |
 | `entertab.net` | Not a target. Illustration only. Not in any allowlist or config. |
@@ -303,7 +303,7 @@ TrueForm staging is then a **manual** demo run whose only criterion is that it c
 | **3. LLM path** | 3-form batching, model chain, typed failures, output caps, deterministic fallback | ✅ Complete — see §14 |
 | **4. Assertions** | six evaluation rules, mechanical severity table, form dedup | ✅ Complete — see §14 |
 | **5. Persistence** | manifest durability, disk-backed history, `GET /runs`, retention sweep, `artifactsBytes`, stream recovery | ✅ Complete — see §14 |
-| **6. Live view** | shadow-root cursor overlay, `live-view:cursor` | Not started |
+| **6. Live view** | shadow-root cursor overlay, `live-view:cursor` | âœ… Complete â€” see Â§14 |
 
 Nothing starts before Phase 1 — the schemas are load-bearing for the validator, policy engine, executor, report, and UI simultaneously. Phase 6 is the demo feature and the one most tempting to build first; it animates a broken pipeline if 1–4 aren't green.
 

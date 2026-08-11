@@ -1,45 +1,29 @@
 "use client";
 
-import { Loader2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import type { TestingFormValues } from "@/lib/schemas/testing-run.schema";
+import { MonitorPlay } from "lucide-react";
+import type { RunProgressEvent } from "@/lib/api/types";
+import { CursorOverlay } from "./CursorOverlay";
 
-export function RunningTestPanel({ values, elapsedSeconds, onCancel }: { values: TestingFormValues; elapsedSeconds: number; onCancel: () => void }) {
+export function RunningTestPanel({
+  frameSrc,
+  cursor,
+}: {
+  frameSrc?: string;
+  cursor?: RunProgressEvent["liveCursor"];
+}) {
   return (
-    <div className="rounded-lg border bg-card p-6 shadow-lg" aria-live="polite">
-      <div className="flex items-center gap-3">
-        <Loader2 className="h-5 w-5 animate-spin text-primary" />
-        <div>
-          <h2 className="font-semibold">Test is running</h2>
-          <p className="text-sm text-muted-foreground">Chrome may have opened on the backend machine.</p>
-        </div>
+    <div className="rounded-lg border bg-card p-5 shadow-sm">
+      <div className="flex items-center gap-2">
+        <MonitorPlay className="h-4 w-4 text-primary" />
+        <h2 className="font-semibold">Live browser</h2>
       </div>
-      <div className="mt-5 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
-        <Info label="Target" value={values.targetUrl || "Configured target"} />
-        <Info label="Elapsed" value={`${elapsedSeconds}s`} />
-        <Info label="Safety mode" value={values.execution.safeMode ? "Enabled" : "Disabled"} />
-        <Info label="Request state" value="Waiting for completed backend report" />
-        <Info label="Pages limit" value={`${values.crawl.maxPages}`} />
-        <Info label="Actions/page" value={`${values.execution.maximumActionsPerPage}`} />
+      <div className="mt-3 aspect-video overflow-hidden rounded-md border bg-background">
+        {frameSrc ? (
+          <CursorOverlay frameSrc={frameSrc} cursor={cursor} />
+        ) : (
+          <div className="grid h-full place-items-center text-sm text-muted-foreground">Waiting for live-view frames.</div>
+        )}
       </div>
-      <div className="mt-5 grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
-        {["Connecting to backend", "Starting isolated browser", "Discovering pages", "Planning tests", "Executing tests", "Building report"].map((phase) => (
-          <div key={phase} className="rounded border bg-background px-3 py-2">{phase}</div>
-        ))}
-      </div>
-      <div className="mt-5">
-        <Button type="button" variant="outline" onClick={onCancel}>Cancel frontend request</Button>
-        <p className="mt-2 text-xs text-muted-foreground">Cancelling this browser request may not stop backend execution unless a cancellation endpoint is later added.</p>
-      </div>
-    </div>
-  );
-}
-
-function Info({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-md border bg-background p-3">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-1 truncate font-medium">{value}</div>
     </div>
   );
 }

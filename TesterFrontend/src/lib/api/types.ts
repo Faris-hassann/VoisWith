@@ -193,6 +193,11 @@ export interface RunProgressEvent {
     data: string;
     pageUrl?: string;
   };
+  liveCursor?: {
+    x: number;
+    y: number;
+    action: "move" | "click" | "scroll";
+  };
   report?: TestingRunResponse;
 }
 
@@ -387,6 +392,8 @@ export interface RunDiagnostics {
   };
   pages: PageDiagnostics[];
   ai: {
+    provider?: "qwen";
+    providerConfigured?: boolean;
     calls: number;
     maxCalls?: number;
     disabled?: boolean;

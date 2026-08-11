@@ -1,6 +1,7 @@
 import type { Page } from "playwright";
 import { locatorFromDescriptor } from "../actions/playwright-action-executor.js";
 import { collectOutcomeFacts, evaluateOutcome, type OutcomeObservation } from "../assertions/outcome-evaluator.js";
+import { withCursorSuppressed } from "../browser/browser-visual-agent.js";
 import { outcomePassed, severityForOutcome } from "../reporting/severity.js";
 import type { FormTestCase } from "../types/llm-contract.js";
 import type { TestCaseResult } from "../types/report.js";
@@ -80,7 +81,7 @@ export async function executeFormTestCase(input: FormTestExecutionInput): Promis
   const targetElementId = testCase.expectedOutcome.elementId ?? testCase.inputs[0]?.elementId;
   const targetSelector = targetElementId ? selectorFor(elementMap.get(targetElementId)) : undefined;
 
-  const facts = await collectOutcomeFacts({ page, urlBefore, targetSelector });
+  const facts = await withCursorSuppressed(page, () => collectOutcomeFacts({ page, urlBefore, targetSelector }));
   const observation = evaluateOutcome(testCase.expectedOutcome.kind, facts);
 
   return buildResult(input, observation, reproductionSteps);

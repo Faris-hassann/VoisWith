@@ -9,6 +9,7 @@ const SENSITIVE_KEYS = [
   "cookie",
   "set-cookie",
   "openrouter_api_key",
+  "qwen_api_key",
   "access_token",
   "refresh_token",
   "session",

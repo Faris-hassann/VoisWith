@@ -6,7 +6,7 @@ Part of the [VoisWith repository overview](../README.md).
 
 ## What Runs Now
 
-The frontend does not run Playwright and does not hold OpenRouter secrets. It builds a backend request, requires the authorization confirmation gate, calls the backend directly or through local Next.js proxy routes, and renders async run state from HTTP polling plus WebSocket events.
+The frontend does not run Playwright and does not hold Qwen secrets. It builds a backend request, requires the authorization confirmation gate, calls the backend directly or through local Next.js proxy routes, and renders async run state from HTTP polling plus WebSocket events.
 
 Routes:
 
@@ -14,8 +14,8 @@ Routes:
 /                                      redirects to /testing/new
 /testing/new                          configure and start a test
 /testing/running/[runId]              stream events, live-view frames, DFS progress, and controls
-/testing/results/[runId]              show the completed in-memory report
-/testing/history                      explain that persistent backend history is unavailable
+/testing/results/[runId]              show the completed backend report
+/testing/history                      list retained backend run history
 /settings                             show API configuration
 /about                                explain safety and current limitations
 /api/testing/run                      proxy sync runs when NEXT_PUBLIC_API_MODE=proxy
@@ -192,6 +192,7 @@ form:discovered
 form:duplicate_skipped
 form:ready-for-ai
 form:scanning
+live-view:cursor
 live-view:frame
 login.failed
 login.passed
@@ -219,7 +220,7 @@ test_case.passed
 test_case.started
 ```
 
-`live-view:frame` events carry a base64 JPEG in `event.liveFrame.data`.
+`live-view:frame` events carry a base64 JPEG in `event.liveFrame.data`. `live-view:cursor` carries `{ x, y, action }` in `event.liveCursor`, and the frontend animates those viewport coordinates on top of the slower JPEG stream without raising the 1500 ms frame interval.
 
 The client reconnects non-1000 closes with `?lastSequence=N` using capped exponential backoff while polling the disk-backed async endpoint every 10 seconds. It answers `stream.ping` with `stream.pong`, declares the socket dead after two missed 30-second heartbeats, and never reconnects after close code 1000. History and result routes read the backend retention store; browser local storage is only a cache.
 

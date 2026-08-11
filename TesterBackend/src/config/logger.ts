@@ -13,7 +13,7 @@ export const logger = pino({
       "*.password",
       "*.token",
       "*.apiKey",
-      "*.OPENROUTER_API_KEY",
+      "*.QWEN_API_KEY",
     ],
     censor: "[REDACTED]",
   },

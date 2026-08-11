@@ -18,6 +18,7 @@ interface RunRecord {
   sequence: number;
   events: RunProgressEvent[];
   latestFrame?: RunProgressEvent;
+  latestCursor?: RunProgressEvent;
   listeners: Set<RunListener>;
   report?: TestingRunResponse;
   error?: unknown;
@@ -75,6 +76,11 @@ export class RunRegistry {
   get(runId: string): AsyncRunSnapshot | undefined {
     const record = this.runs.get(runId);
     return record ? this.snapshot(record) : undefined;
+  }
+
+  snapshotEvents(runId: string, lastSequence?: number): RunProgressEvent[] | undefined {
+    const record = this.runs.get(runId);
+    return record ? this.listSnapshotEvents(record, lastSequence) : undefined;
   }
 
   subscribe(runId: string, listener: RunListener): () => void {
@@ -155,6 +161,8 @@ export class RunRegistry {
     this.history?.noteSequence(runId, event.sequence);
     if (event.liveFrame) {
       record.latestFrame = event;
+    } else if (event.liveCursor) {
+      record.latestCursor = event;
     } else {
       record.events.push(event);
     }
@@ -226,10 +234,27 @@ export class RunRegistry {
       startedAt: record.startedAt,
       updatedAt: record.updatedAt,
       completedAt: record.completedAt,
-      events: [...record.events, ...(record.latestFrame ? [record.latestFrame] : [])].sort((a, b) => a.sequence - b.sequence),
+      events: this.listSnapshotEvents(record),
       report: record.report,
       error: record.error,
     };
+  }
+
+  private listSnapshotEvents(record: RunRecord, lastSequence?: number): RunProgressEvent[] {
+    const events = lastSequence === undefined
+      ? [...record.events]
+      : record.events.filter((event) => event.sequence > lastSequence);
+    const includedSequences = new Set(events.map((event) => event.sequence));
+
+    for (const liveEvent of [record.latestFrame, record.latestCursor]) {
+      if (!liveEvent) continue;
+      if (!includedSequences.has(liveEvent.sequence)) {
+        events.push(liveEvent);
+        includedSequences.add(liveEvent.sequence);
+      }
+    }
+
+    return events.sort((a, b) => a.sequence - b.sequence);
   }
 
   private scheduleCleanup(runId: string): void {

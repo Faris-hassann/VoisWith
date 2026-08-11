@@ -23,6 +23,11 @@ export interface RunProgressEvent {
     data: string;
     pageUrl?: string;
   };
+  liveCursor?: {
+    x: number;
+    y: number;
+    action: "move" | "click" | "scroll";
+  };
   report?: TestingRunResponse;
 }
 

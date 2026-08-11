@@ -15,7 +15,7 @@ process.env.ALLOW_PRIVATE_NETWORK_TARGETS = "true";
 process.env.REQUIRE_HTTPS = "false";
 process.env.BROWSER_HEADLESS = "true";
 process.env.MAX_AI_CALLS_PER_RUN = liveAi ? (process.env.MAX_AI_CALLS_PER_RUN || "25") : "0";
-if (liveAi) process.env.AI_RESPONSE_TIMEOUT_MS = process.env.ACCEPTANCE_AI_TIMEOUT_MS || "90000";
+if (liveAi) process.env.QWEN_TIMEOUT_MS = process.env.ACCEPTANCE_AI_TIMEOUT_MS || "60000";
 
 try {
   if (!(await isFixtureReady())) {
@@ -27,13 +27,11 @@ try {
     await waitForFixture();
   }
 
-  const [{ config }, { preflightOpenRouterModels }, { RunHistoryStore }, { RunOrchestrator }] = await Promise.all([
+  const [{ config }, { RunHistoryStore }, { RunOrchestrator }] = await Promise.all([
     import("../dist/src/config/env.js"),
-    import("../dist/src/config/openrouter-preflight.js"),
     import("../dist/src/runs/run-history-store.js"),
     import("../dist/src/services/run-orchestrator.js"),
   ]);
-  if (liveAi) await preflightOpenRouterModels();
 
   const history = new RunHistoryStore(config.artifacts.root, 14);
   await history.initialize();
@@ -42,7 +40,7 @@ try {
   assertAcceptance(report, events, liveAi);
   console.log(JSON.stringify({
     mode: liveAi ? "live-ai" : "deterministic",
-    models: liveAi ? config.openRouter.models : [],
+    provider: config.ai.provider,
     runId: report.runId,
     runStatus: report.runStatus,
     findingsStatus: report.findingsStatus,

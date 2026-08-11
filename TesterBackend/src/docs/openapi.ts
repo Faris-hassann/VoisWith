@@ -6,7 +6,7 @@ export const openApiDocument = {
     title: "TesterBackend API",
     version: "1.0.0",
     description:
-      "Authorized black-box functional website testing backend powered by Playwright and OpenRouter.",
+      "Authorized black-box functional website testing backend powered by Playwright and Qwen.",
   },
   servers: [
     {
@@ -270,6 +270,22 @@ export const openApiDocument = {
           counts: { type: "object", additionalProperties: { type: "number" } },
           diagnostics: {},
           issue: {},
+          liveFrame: {
+            type: "object",
+            properties: {
+              mimeType: { type: "string", enum: ["image/jpeg", "image/png"] },
+              data: { type: "string" },
+              pageUrl: { type: "string" },
+            },
+          },
+          liveCursor: {
+            type: "object",
+            properties: {
+              x: { type: "integer" },
+              y: { type: "integer" },
+              action: { type: "string", enum: ["move", "click", "scroll"] },
+            },
+          },
           report: { $ref: "#/components/schemas/TestingRunResponse" },
         },
       },
@@ -361,7 +377,7 @@ export const openApiDocument = {
           password: {
             type: "string",
             format: "password",
-            description: "Never logged, stored in reports, or sent to OpenRouter.",
+            description: "Never logged, stored in reports, or sent to Qwen.",
           },
           fieldHints: {
             type: "object",

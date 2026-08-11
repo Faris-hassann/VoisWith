@@ -229,13 +229,11 @@ export interface RunDiagnostics {
   };
   pages: PageDiagnostics[];
   ai: {
+    provider?: "qwen";
+    providerConfigured?: boolean;
     calls: number;
     maxCalls: number;
     disabled: boolean;
-    openRouterConfigured: boolean;
-    modelConfigured: boolean;
-    /** The 3 pinned model slugs, tried in order. Undefined when AI is not configured. */
-    models?: string[];
     successes: number;
     failures: Array<{ pageUrl?: string; message: string; reason?: LlmFailureReason; attempts?: LlmAttempt[] }>;
     validationFailures: Array<{ pageUrl?: string; message: string; reason?: LlmFailureReason; attempts?: LlmAttempt[] }>;
@@ -251,6 +249,9 @@ export interface RunDiagnostics {
     testCasesDropped: number;
     /** Number of batches that exhausted the 3-model chain and fell through to the deterministic generator. */
     deterministicFallbacks: number;
+    openRouterConfigured?: boolean;
+    modelConfigured?: boolean;
+    models?: string[];
   };
 }
 

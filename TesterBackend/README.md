@@ -1,6 +1,6 @@
 # TesterBackend
 
-TesterBackend is an Express 5, TypeScript, Playwright, and OpenRouter backend for authorized black-box functional testing of websites and web applications.
+TesterBackend is an Express 5, TypeScript, Playwright, and Qwen-backed AI planning backend for authorized black-box functional testing of websites and web applications.
 
 Part of the [VoisWith repository overview](../README.md).
 
@@ -38,14 +38,14 @@ validate request and authorization flag
 -> crawl allowed pages with DFS
 -> inspect pages and collect links, forms, console, network, performance, screenshots
 -> run deterministic baseline checks
--> optionally ask OpenRouter for safe form/workflow test cases
+-> optionally ask Qwen for safe form/workflow test cases
 -> validate and policy-check AI actions
 -> execute allowed Playwright actions
 -> write per-page report artifacts
 -> aggregate final report and diagnostics
 ```
 
-OpenRouter is optional at runtime. If `MAX_AI_CALLS_PER_RUN=0`, the backend still performs deterministic crawl, inventory, and baseline checks and emits `ai:disabled` / `ai.skipped_budget` events.
+Qwen is optional at runtime. If `MAX_AI_CALLS_PER_RUN=0`, the backend still performs deterministic crawl, inventory, and baseline checks and emits `ai:disabled` / `ai.skipped_budget` events.
 
 ## Authorization Gate
 
@@ -248,6 +248,7 @@ form:discovered
 form:duplicate_skipped
 form:ready-for-ai
 form:scanning
+live-view:cursor
 live-view:frame
 login.failed
 login.passed
@@ -275,7 +276,7 @@ test_case.passed
 test_case.started
 ```
 
-Each progress event includes `runId`, `sequence`, `type`, `status`, `timestamp`, and `message`, with optional `pageUrl`, `role`, `viewport`, `locale`, `counts`, `diagnostics`, `issue`, `liveFrame`, or `report`.
+Each progress event includes `runId`, `sequence`, `type`, `status`, `timestamp`, and `message`, with optional `pageUrl`, `role`, `viewport`, `locale`, `counts`, `diagnostics`, `issue`, `liveFrame`, `liveCursor`, or `report`.
 
 Reconnect with `?lastSequence=N` to replay buffered events after `N`; the lightweight ring retains about 2,000 events and terminal buffers remain for 10 minutes. The terminal order is `run.completed` → `run.report_ready` → a two-second grace period → close code `1000` (`run_complete`). `stream.ping` is an application heartbeat every 30 seconds and clients answer with `stream.pong`. A run is `run.not_found` only when absent from the live registry, retained terminal buffer, and disk history.
 
@@ -287,6 +288,8 @@ Two events carry a structured `diagnostics` payload worth naming:
 | --- | --- | --- |
 | `form:blocked_privileged` | `{ formId, decision: "blocked_privileged", matchedSignal }` | The privileged-form classifier (§4) refused the form. A `hard` block is never planned or submitted; a `soft` block is filled but never submitted. `matchedSignal` names the rule that fired, e.g. `submit_label:invite`. |
 | `form:duplicate_skipped` | `{ formId, decision: "duplicate_of:<firstPageUrl>" }` | §7 dedup: this form was already tested on an earlier page. One form is tested once, on the first page it appears. |
+
+`live-view:cursor` carries `{ x, y, action }` in `event.liveCursor`, where `action` is one of `move`, `click`, or `scroll`. Cursor data is streamed only for local headed dev runs, is excluded from manifests and persisted reports, and the live registry retains only the latest cursor so high-frequency cursor traffic cannot evict diagnostic replay events.
 
 ## Stop States
 

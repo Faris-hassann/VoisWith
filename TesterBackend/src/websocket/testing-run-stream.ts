@@ -38,7 +38,7 @@ export function attachTestingRunWebSocketServer(server: Server, registry: RunReg
       type: "run.snapshot",
       snapshot: {
         ...snapshot,
-        events: lastSequence === undefined ? snapshot.events : snapshot.events.filter((event) => event.sequence > lastSequence),
+        events: liveSnapshot ? (registry.snapshotEvents(runId, lastSequence) ?? snapshot.events) : lastSequence === undefined ? snapshot.events : snapshot.events.filter((event) => event.sequence > lastSequence),
       },
     });
     let closeTimer: NodeJS.Timeout | undefined;

@@ -4,12 +4,13 @@ import type { LocaleDirection, TestingRunRequest } from "../types/testing.js";
 import { AppError } from "../errors/app-error.js";
 import { ERROR_CODES } from "../errors/error-codes.js";
 import { serializeError } from "../errors/serialize-error.js";
-import { installVisibleCursor } from "./browser-visual-agent.js";
+import { installLiveCursor, shouldEnableLiveCursor, type LiveCursorPayload } from "./browser-visual-agent.js";
 
 export interface BrowserSession {
   browser: Browser;
   context: BrowserContext;
   page: Page;
+  cursorEnabled?: boolean;
 }
 
 export class BrowserManager {
@@ -21,6 +22,7 @@ export class BrowserManager {
       locale?: string;
       direction?: LocaleDirection;
       storageState?: Awaited<ReturnType<BrowserContext["storageState"]>>;
+      onCursor?: (payload: LiveCursorPayload) => void;
     },
   ): Promise<BrowserSession> {
     try {
@@ -39,14 +41,17 @@ export class BrowserManager {
       context.setDefaultNavigationTimeout(config.browser.pageNavigationTimeoutMs);
       context.setDefaultTimeout(config.browser.actionTimeoutMs);
       const page = await context.newPage();
-      await context.tracing.start({ screenshots: true, snapshots: true, sources: false });
-      await installVisibleCursor(page);
+      const cursorEnabled = shouldEnableLiveCursor(request);
+      await context.tracing.start({ screenshots: !cursorEnabled, snapshots: true, sources: false });
+      if (cursorEnabled) {
+        await installLiveCursor(context, page, options?.onCursor);
+      }
       if (options?.direction === "rtl") {
         await page.addInitScript(() => {
           document.documentElement.setAttribute("dir", "rtl");
         });
       }
-      return { browser, context, page };
+      return { browser, context, page, cursorEnabled };
     } catch (error) {
       const serialized = serializeError(error);
       throw new AppError({

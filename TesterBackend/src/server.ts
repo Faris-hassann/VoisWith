@@ -2,7 +2,6 @@ import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { config } from "./config/env.js";
 import { logger } from "./config/logger.js";
-import { preflightOpenRouterModels } from "./config/openrouter-preflight.js";
 import { createApp } from "./app.js";
 import { runHistoryStore, runRegistry } from "./controllers/testing.controller.js";
 import { attachTestingRunWebSocketServer } from "./websocket/testing-run-stream.js";
@@ -31,9 +30,8 @@ start();
 async function start(): Promise<void> {
   try {
     await runHistoryStore.initialize();
-    await preflightOpenRouterModels();
   } catch (error) {
-    logger.error({ err: error }, "OpenRouter model preflight failed; refusing to start");
+    logger.error({ err: error }, "Backend startup failed");
     process.exit(1);
   }
 

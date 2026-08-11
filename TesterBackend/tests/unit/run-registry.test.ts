@@ -69,9 +69,18 @@ describe("RunRegistry", () => {
       message: "frame",
       liveFrame: { mimeType: "image/jpeg", data: "abc" },
     });
+    registry.append(started.runId, {
+      runId: started.runId,
+      type: "live-view:cursor",
+      status: "info",
+      message: "cursor",
+      liveCursor: { x: 100, y: 120, action: "move" },
+    });
 
-    expect(registry.get(started.runId)?.events.filter((event) => !event.liveFrame)).toHaveLength(2_000);
+    expect(registry.get(started.runId)?.events.filter((event) => !event.liveFrame && !event.liveCursor)).toHaveLength(2_000);
+    expect(registry.get(started.runId)?.events.some((event) => event.liveCursor?.action === "move")).toBe(true);
     expect(registry.eventsAfter(started.runId, 2_095)?.every((event) => event.sequence > 2_095)).toBe(true);
+    expect(registry.snapshotEvents(started.runId, 5_000)?.some((event) => event.liveCursor?.action === "move")).toBe(true);
     resolveRun(reportFor(started.runId));
     await eventually(() => registry.isTerminal(started.runId));
   });
