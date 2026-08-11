@@ -116,7 +116,7 @@ export const defaultFormValues: TestingFormValues = {
   includeSubdomains: false,
   visualizationMode: "live",
   authorizationConfirmed: true,
-  writeActionsAcknowledged: false,
+  writeActionsAcknowledged: true,
   authenticationEnabled: false,
   credentials: {},
   testTypes: [...recommendedTypes],
@@ -136,7 +136,7 @@ export const defaultFormValues: TestingFormValues = {
   },
   execution: {
     safeMode: true,
-    allowFormSubmission: false,
+    allowFormSubmission: true,
     allowFileUploads: false,
     allowDestructiveActions: false,
     allowPayments: false,

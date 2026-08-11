@@ -7,6 +7,14 @@ describe("testingFormSchema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("enables acknowledged form submission by default", () => {
+    expect(defaultFormValues.execution.allowFormSubmission).toBe(true);
+    expect(defaultFormValues.writeActionsAcknowledged).toBe(true);
+
+    const result = testingFormSchema.safeParse({ ...defaultFormValues, targetUrl: "https://example.com" });
+    expect(result.success).toBe(true);
+  });
+
   it("validates recommended defaults when authorization is confirmed", () => {
     const result = testingFormSchema.safeParse({
       ...defaultFormValues,

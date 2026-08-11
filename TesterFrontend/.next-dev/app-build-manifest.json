@@ -26,10 +26,10 @@
       "static/chunks/main-app.js",
       "static/chunks/app/testing/results/[runId]/page.js"
     ],
-    "/page": [
+    "/testing/test-cases/[runId]/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/page.js"
+      "static/chunks/app/testing/test-cases/[runId]/page.js"
     ]
   }
 }
