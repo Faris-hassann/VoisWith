@@ -1,466 +1,402 @@
 # TesterBackend
 
-TesterBackend is an Express 5, TypeScript, Playwright, and OpenRouter-backed AI planning backend for authorized black-box functional testing of websites and web applications.
+TesterBackend is the server-side website tester in VoisWith. It performs **authorized, black-box functional testing** of websites with Express 5, TypeScript, Playwright-controlled Chrome, and optional OpenRouter planning. It crawls only the permitted scope, observes the browser, runs safe deterministic checks, optionally plans form cases with AI, and produces structured JSON reports and artifacts.
 
-Part of the [VoisWith repository overview](../README.md).
+> **Important:** use this service only on systems you own or have clear permission to test. Every request must explicitly confirm authorization. Form submission also needs a separate write-action acknowledgment.
 
-## What Runs Now
+For the complete HTTP and WebSocket contract, see [Swagger.md](Swagger.md). Interactive Swagger UI is available at `/docs`, and the machine-readable OpenAPI 3.1 document is available at `/openapi.json`.
 
-The backend exposes:
+## Contents
+
+- [Main capabilities](#main-capabilities)
+- [How a run works](#how-a-run-works)
+- [Safety and security](#safety-and-security)
+- [Requirements and installation](#requirements-and-installation)
+- [Configuration](#configuration)
+- [Running the service](#running-the-service)
+- [Test-type coverage](#test-type-coverage)
+- [Reports and artifacts](#reports-and-artifacts)
+- [AI form planning](#ai-form-planning)
+- [Project architecture](#project-architecture)
+- [Scripts and tests](#scripts-and-tests)
+- [Operational notes](#operational-notes)
+
+## Main capabilities
+
+- Synchronous and asynchronous test runs.
+- Depth-first crawling with page, depth, time, origin, include-pattern, and exclude-pattern limits.
+- URL normalization, route-family grouping, state fingerprints, and duplicate-form detection.
+- Page, link, form, validation, console, network, performance, and basic accessibility checks.
+- Optional authentication and a role/viewport/locale matrix.
+- Safe AI-assisted form planning with strict input and output contracts.
+- Policy checks that block destructive, payment, privileged, or unacknowledged write actions.
+- Screenshots, traces, observations, page reports, a final report, and a recoverable run manifest.
+- Live progress, screenshots, cursor events, pause/resume/stop controls, and reconnect replay over WebSocket.
+- Retained run history and recovery of interrupted runs after a process restart.
+
+This is not a penetration-testing, load-testing, full WCAG-certification, or cross-browser system. Passive security observations do not prove that a target is secure.
+
+## How a run works
+
+The main runtime path is:
 
 ```text
-GET  /docs
-GET  /openapi.json
-GET  /health
-POST /api/v1/testing/run
-POST /api/v1/testing/runs
-GET  /api/v1/testing/runs/:runId
-POST /api/v1/testing/runs/:runId/pause
-POST /api/v1/testing/runs/:runId/resume
-POST /api/v1/testing/runs/:runId/stop
-GET  /api/v1/testing/runs/:runId/report.json
-WS   /api/v1/testing/runs/:runId/stream
-```
-
-`POST /api/v1/testing/run` is synchronous and returns the completed JSON report. `POST /api/v1/testing/runs` starts an async run, returns a run ID immediately, and streams progress over WebSocket.
-
-`GET /api/v1/testing/runs` returns `{ runs: RunHistoryItem[] }` newest-first from the 14-day disk-backed retention window. `GET /api/v1/testing/runs/:runId` and `/report.json` fall back to the persisted manifest/report after restart or registry eviction.
-
-The runtime pipeline is:
-
-```text
-validate request and authorization flag
--> reject unsafe targets by SSRF/HTTPS policy
--> create artifact directory
+validate and normalize request
+-> confirm authorization and optional write acknowledgment
+-> apply HTTPS, DNS/IP, private-network, and origin policy
+-> create run manifest and artifact folders
 -> launch Playwright Chrome
--> optionally authenticate
--> build role/viewport/locale matrix
--> crawl allowed pages with DFS
--> inspect pages and collect links, forms, console, network, performance, screenshots
--> run deterministic baseline checks
--> optionally ask OpenRouter for schema-constrained form test cases
--> save the validated test-case plan as a run artifact
--> execute each case sequentially and reload the form between cases
--> write per-page report artifacts
--> aggregate final report and diagnostics
+-> authenticate when credentials or roles are supplied
+-> build role × viewport × locale execution targets
+-> crawl permitted pages with DFS
+-> canonicalize URLs and avoid loops/duplicate states
+-> inspect visible elements, forms, links, and assets
+-> collect console, network, timing, screenshot, and trace evidence
+-> run deterministic baseline and link checks
+-> classify and deduplicate forms
+-> optionally create schema-constrained AI form plans
+-> use deterministic form plans when AI is unavailable or fails
+-> enforce action policy and execute cases one at a time
+-> reload the page between form cases
+-> evaluate observable outcomes
+-> checkpoint each page report
+-> aggregate issues, coverage, diagnostics, and the final report
 ```
 
-OpenRouter is optional at runtime. If `MAX_AI_CALLS_PER_RUN=0`, the backend still performs deterministic crawl, inventory, and baseline checks and emits `ai:disabled` / `ai.skipped_budget` events.
+The synchronous endpoint waits for this pipeline. The asynchronous endpoint immediately returns a run ID, performs the same work in the background, and makes state available through REST and WebSocket.
 
-## Authorization Gate
+## Safety and security
 
-Every run request must include:
+### Authorization gate
+
+Every run requires the literal value:
+
+```json
+{ "authorizationConfirmed": true }
+```
+
+A missing or false value fails request validation.
+
+### Form-write gate
+
+Form submission is disabled by default. If `execution.allowFormSubmission` is `true`, the top-level `writeActionsAcknowledged` must also be `true`, whether or not credentials are supplied (including an anonymous run):
 
 ```json
 {
-  "authorizationConfirmed": true
-}
-```
-
-The schema rejects any request where `authorizationConfirmed` is missing or not literally `true`.
-
-Target authorization is also constrained by an allowlist:
-
-- By default, `allowedOrigins` becomes the origin of `targetUrl`.
-- Request-level `allowedOrigins` may add explicit target origins.
-- `includeSubdomains` can widen matching for configured origins.
-- `crawl.sameOriginOnly` stays true unless explicit `allowedOrigins` are supplied.
-- WebSocket browser origins are allowed when they match `FRONTEND_ORIGINS` or the built-in local frontend origins: `http://localhost:3000`, `http://localhost:3001`, `http://localhost:5173`.
-
-Only test systems you own or are explicitly authorized to test.
-
-## Write Acknowledgment
-
-`execution.allowFormSubmission` defaults to `false`. Whenever it is `true`, the request must also carry:
-
-```json
-{
-  "allowFormSubmission": true,
-  "writeActionsAcknowledged": true
-}
-```
-
-The acknowledgment is required **regardless of whether credentials are supplied**. Anonymous form submission can create or modify data just as a credentialed session can, so both paths gate on the same flag. A request with `allowFormSubmission: true` and a missing or non-`true` `writeActionsAcknowledged` is rejected by the schema.
-
-## Test-Type Availability
-
-Test types fall into four tiers. The 12 implemented-and-default types are the ones checked by default in the frontend selector; every other type must be selected deliberately.
-
-| Test type | Tier | Current behavior |
-| --- | --- | --- |
-| `SMOKE` | Implemented (default) | Verifies the page loads and can be inspected. |
-| `PAGE_DISCOVERY` | Implemented (default) | Inventories same-origin links for DFS discovery. |
-| `NAVIGATION` | Implemented (default) | Checks observed same-origin navigation candidates. |
-| `LINKS` | Implemented (default) | Inventories links; reachability failures come from the dedicated link health checker. |
-| `FORMS` | Implemented (default) | Inventories forms deterministically; visible forms can be sent to AI for safe action planning. |
-| `FORM_VALIDATION` | Implemented (default) | Checks visible validation attributes; deeper cases depend on AI-planned safe actions. |
-| `AUTHENTICATION` | Implemented (default) | Attempts configured login and records skipped, passed, failed, or human-required diagnostics. |
-| `API_NETWORK` | Implemented (default) | Reports observed API-like calls and failed requests during page load/workflows. |
-| `ERROR_HANDLING` | Implemented (default) | Reports visible error/validation states and collected runtime errors. |
-| `PERFORMANCE_BASIC` | Implemented (default) | Collects basic browser timing observations; this is not load testing. |
-| `CONSOLE_ERRORS` | Implemented (default) | Reports browser console errors and warnings observed during the run. |
-| `ACCESSIBILITY_TECHNICAL` | Implemented (default) | Checks basic technical accessibility signals such as names on interactive controls. |
-| `PASSIVE_SECURITY` | Implemented (opt-in) | Passive checks such as HTTPS observation; no exploitative testing. Implemented but unchecked by default. |
-| `SESSION` | Partial | Records authenticated prerequisite state; deeper session behavior depends on observed workflows. |
-| `AUTHORIZATION` | Partial | Requires two or more role credential sets and compares crawled role results; single-role runs are skipped. |
-| `CHROMIUM_COMPATIBILITY` | Partial | Runs in Playwright-controlled Chrome only; no cross-browser matrix. |
-| `POSITIVE` | Planned | Page is inspected; deeper happy-path workflow proof is not implemented. |
-| `NEGATIVE` | Planned | Page is inspected; invalid-input workflows are not implemented. |
-| `BOUNDARY` | Planned | Page is inspected; field-boundary workflows are not implemented. |
-| `END_TO_END` | Planned | No deterministic end-to-end workflow engine yet. |
-| `BUSINESS_RULES` | Planned | Observable rule checks are not implemented. |
-| `FILE_UPLOAD_SAFE` | Planned | Safe fixture upload is represented in types but not proven by deterministic coverage. |
-| `DATA_INTEGRITY_OBSERVABLE` | Planned | Requires safe create/update/readback workflows. |
-| `RELIABILITY_BASIC` | Planned | Repeatability checks are not deterministic yet. |
-| `REGRESSION_BASELINE` | Planned | Skipped unless a future baseline is supplied. |
-
-Selecting a partial or planned type is allowed and never fails the request. It produces a `coverageLimitations` row with `executed: false` explaining what was and was not proven.
-
-## Statuses
-
-The report separates *what happened to the run* from *what the run concluded about the target*.
-
-| Field | Values | Meaning |
-| --- | --- | --- |
-| `runStatus` | `COMPLETED`, `STOPPED`, `ERRORED` | Whether the run finished on its own, was stopped, or failed. |
-| `findingsStatus` | `PASSED`, `ISSUES_FOUND`, `INCONCLUSIVE` | What the run concluded about the target. |
-| `status` | `PASSED`, `FAILED`, `PARTIAL`, `ERROR`, `INCONCLUSIVE` | **Deprecated.** Derived alias retained for existing consumers. |
-
-`INCONCLUSIVE` means no outcome was observable — it is recorded with a reason and never counted as passed.
-
-### Deprecated `status` Alias
-
-`status` is derived from the two fields above and introduces no value outside the five legacy strings:
-
-| `runStatus` | `findingsStatus` | `status` |
-| --- | --- | --- |
-| `COMPLETED` | `PASSED` | `PASSED` |
-| `COMPLETED` | `ISSUES_FOUND` | `FAILED` |
-| `COMPLETED` | `INCONCLUSIVE` | `INCONCLUSIVE` |
-| `STOPPED` | any | `PARTIAL` |
-| `ERRORED` | any | `ERROR` |
-
-New consumers should read `runStatus` and `findingsStatus` and ignore `status`.
-
-## Coverage Limitations
-
-`coverageLimitations` carries exactly one row per selected test type — including selected types that could not execute — so a consumer can always account for every type it asked for:
-
-| Field | Type | Meaning |
-| --- | --- | --- |
-| `testType` | test type | The selected type this row accounts for. |
-| `availability` | `implemented`, `partial`, `planned` | Implementation tier at run time. |
-| `executed` | boolean | Whether the type actually ran. |
-| `reason` | string | What was and was not proven. |
-
-## Request And Response Example
-
-Real sync request used against a local fixture page with AI disabled:
-
-```json
-{
-  "targetUrl": "http://127.0.0.1:43117/",
   "authorizationConfirmed": true,
-  "testTypes": [
-    "SMOKE",
-    "PAGE_DISCOVERY",
-    "LINKS",
-    "FORMS",
-    "FORM_VALIDATION",
-    "CONSOLE_ERRORS",
-    "PERFORMANCE_BASIC",
-    "PASSIVE_SECURITY",
-    "ACCESSIBILITY_TECHNICAL"
-  ],
-  "browserMode": "headless",
-  "visualizationMode": "off",
-  "crawl": {
-    "strategy": "DFS",
-    "maxDepth": 1,
-    "maxPages": 2,
-    "sameOriginOnly": true
-  },
-  "execution": {
-    "safeMode": true,
-    "maximumRunDurationSeconds": 60,
-    "allowFileUploads": false
-  }
+  "writeActionsAcknowledged": true,
+  "execution": { "allowFormSubmission": true }
 }
 ```
 
-Trimmed response excerpt from the completed run:
+The action policy separately considers safe mode, submission, upload, destructive-action, and payment settings. Privileged forms may receive a hard block (not planned or filled) or a soft block (may be filled but not submitted). A test result can therefore be `BLOCKED_BY_POLICY`; this is different from a product failure.
 
-```json
-{
-  "runId": "67d1530f-af2d-4387-a91a-d01dc348c1ee",
-  "runStatus": "COMPLETED",
-  "findingsStatus": "ISSUES_FOUND",
-  "status": "FAILED",
-  "stoppedReason": "converged",
-  "targetOrigin": "http://127.0.0.1:43117",
-  "selectedTestingTypes": ["SMOKE", "PAGE_DISCOVERY", "LINKS", "FORMS", "FORM_VALIDATION", "CONSOLE_ERRORS", "PERFORMANCE_BASIC", "PASSIVE_SECURITY", "ACCESSIBILITY_TECHNICAL"],
-  "summary": {
-    "pagesDiscovered": 2,
-    "pagesTested": 2,
-    "pagesSkipped": 0,
-    "testsExecuted": 22,
-    "passedTests": 14,
-    "failedTests": 2,
-    "skippedTests": 4,
-    "blockedByPolicy": 0,
-    "inconclusiveTests": 2,
-    "consoleErrors": 0,
-    "failedNetworkRequests": 0,
-    "artifactsBytes": 184320
-  }
-}
-```
+### Target and crawl scope
 
-The actual response also includes full `pages`, `issues`, `coverageLimitations`, per-page `artifacts`, and `diagnostics`. Per-page report JSON is written under `artifacts/<runId>/reports/*.json`; a completed local fixture run produced `artifacts/67d1530f-af2d-4387-a91a-d01dc348c1ee/reports/67d1530f-af2d-4387-a91a-d01dc348c1ee-127.0.0.1_43117_.json`.
+- The target origin becomes the default allowlist.
+- `allowedOrigins` can add explicitly authorized origins; values are normalized to origins.
+- `includeSubdomains` can widen an allowed host to its subdomains.
+- `crawl.sameOriginOnly` normally stays enabled. Supplying explicit `allowedOrigins` permits the normalized multi-origin scope.
+- The scope policy applies include/exclude patterns and rejects unsafe schemes or out-of-scope navigation.
+- DNS is resolved before navigation. By default private, loopback, link-local, multicast, unspecified, and other forbidden addresses are rejected.
+- HTTPS is required by default. Local fixture tests must explicitly set `ALLOW_PRIVATE_NETWORK_TARGETS=true` and `REQUIRE_HTTPS=false`.
+- URL canonicalization removes fragments, normalizes paths and query order, drops configured tracking parameters, and detects likely pagination/query loops.
 
-## WebSocket Events
+### Secret handling
 
-The WebSocket sends JSON messages with these wrapper types:
+Credentials are used only for browser login. Request logging redacts credentials, roles, authorization/cookie headers, and known secret keys. Values matching password, token, API-key, cookie, and authorization names are recursively redacted from events, errors, manifests, and reports. The sanitized form snapshot sent to AI contains stable element IDs and visible metadata, not credentials, field values, hidden inputs, Playwright selectors, or the full target URL.
 
-```text
-run.snapshot
-run.event
-run.not_found
-stream.ping
-```
+### HTTP protection
 
-`run.event.event.type` can currently be:
+The application disables `X-Powered-By`, uses Helmet, accepts JSON bodies up to 512 KB, adds request IDs, restricts CORS to configured frontend origins plus the built-in localhost origins, and rate-limits the service to 30 HTTP requests per minute per client. WebSocket browser origins are checked separately.
 
-```text
-ai.batch_failed
-ai.batch_started
-ai.skipped_budget
-ai.planning_failed
-ai.planning_passed
-ai.planning_skipped
-ai:configuration-missing
-ai:disabled
-ai:enabled
-ai:skipped-no-forms
-browser.launched
-browser.recycled
-form:blocked_privileged
-form:discovered
-form:duplicate_skipped
-form:ready-for-ai
-form:scanning
-live-view:cursor
-live-view:frame
-login.failed
-login.passed
-login.skipped
-login.started
-matrix.completed
-matrix.started
-navigation.initial_passed
-navigation.initial_started
-page.navigation_passed
-page.navigation_started
-page.report_written
-page.snapshot_collected
-run.completed
-run.error
-run.failed
-run.orchestrator_started
-run.report_ready
-run.started
-run:paused
-run:resumed
-run:stopped
-test_case.failed
-test_case.passed
-test_case.started
-```
+## Requirements and installation
 
-Each progress event includes `runId`, `sequence`, `type`, `status`, `timestamp`, and `message`, with optional `pageUrl`, `role`, `viewport`, `locale`, `counts`, `diagnostics`, `issue`, `liveFrame`, `liveCursor`, or `report`.
+- Node.js 20 or later.
+- npm.
+- Google Chrome installed through Playwright.
+- An OpenRouter API key only if AI planning is wanted.
 
-Reconnect with `?lastSequence=N` to replay buffered events after `N`; the lightweight ring retains about 2,000 events and terminal buffers remain for 10 minutes. The terminal order is `run.completed` → `run.report_ready` → a two-second grace period → close code `1000` (`run_complete`). `stream.ping` is an application heartbeat every 30 seconds and clients answer with `stream.pong`. A run is `run.not_found` only when absent from the live registry, retained terminal buffer, and disk history.
-
-Every run atomically checkpoints `artifacts/<runId>/manifest.json` after each completed page. Startup recovers unterminated manifests as `ERRORED` / `error`, preserving completed page reports. `ARTIFACT_RETENTION_DAYS` defaults to 14; screenshots are JPEG quality 70 and artifact totals warn above 1 GB.
-
-Two events carry a structured `diagnostics` payload worth naming:
-
-| Event | `diagnostics` payload | Meaning |
-| --- | --- | --- |
-| `form:blocked_privileged` | `{ formId, decision: "blocked_privileged", matchedSignal }` | The privileged-form classifier (§4) refused the form. A `hard` block is never planned or submitted; a `soft` block is filled but never submitted. `matchedSignal` names the rule that fired, e.g. `submit_label:invite`. |
-| `form:duplicate_skipped` | `{ formId, decision: "duplicate_of:<firstPageUrl>" }` | §7 dedup: this form was already tested on an earlier page. One form is tested once, on the first page it appears. |
-
-`live-view:cursor` carries `{ x, y, action }` in `event.liveCursor`, where `action` is one of `move`, `click`, or `scroll`. Cursor data is streamed only for local headed dev runs, is excluded from manifests and persisted reports, and the live registry retains only the latest cursor so high-frequency cursor traffic cannot evict diagnostic replay events.
-
-## Stop States
-
-`stoppedReason` explains why a run ended. It appears in the final report, the asynchronous run snapshot, and the `run.completed` payload.
-
-| Value | Meaning |
-| --- | --- |
-| `converged` | The crawl ran out of new work within budget — the normal healthy ending. |
-| `page_budget` | The configured page limit was reached. |
-| `depth_budget` | The configured crawl depth limit was reached. |
-| `time_budget` | The configured run duration was reached. |
-| `user_stopped` | A stop was requested through `/runs/:runId/stop`. |
-| `error` | The run terminated on an error, or an unterminated run manifest was recovered. |
-
-There is deliberately **no** `ai_budget` value: an exhausted AI budget never stops a crawl. Excess AI test cases are reported as `truncated_by_budget` while deterministic checks continue.
-
-Related run-lifecycle values:
-
-| Surface | Value | Meaning |
-| --- | --- | --- |
-| `AsyncRunStatus` | `stopping` | A stop was requested and the orchestrator is unwinding at a control checkpoint. |
-| `AsyncRunStatus` | `stopped` | The run completed after a stop request. |
-| `RunProgressEvent.type` | `run:stopped` | Emitted immediately when `/runs/:runId/stop` is accepted. |
-| `RunProgressEvent.type` | `run.completed` | Emitted after stopped run aggregation finishes, carrying `stoppedReason`. |
-| Crawl diagnostic message | `Run was stopped by request.` | Recorded when the crawler exits because the async control flag is stopped. |
-
-## AI Test Planning
-
-Only a `FormSnapshot` — route family and visible field metadata, never a selector, value, hidden field, or full URL — crosses to the model (`src/types/llm-contract.ts`, DESIGN-DECISIONS.md §3). Forms are batched at 3 per request (or ~4k estimated input tokens, whichever hits first) and sent sequentially, one request in flight. Each batch runs the retry ladder `normal → repair prompt → next pinned model → deterministic generator`; a `FormTestCase` response is validated `.strict()` against the batch it was produced from, so an unknown key or an `elementId`/`formId` outside that batch is `llm_schema_invalid`, not silently stripped.
-
-Validated cases are saved to `reports/planned-test-cases-*.json` before browser interaction, exposed in `pages[].plannedTestCases`, and executed one by one. The page is reloaded between cases so a submit, save, or send cannot contaminate the next case.
-
-`MAX_AI_CALLS_PER_RUN` (default 25) caps OpenRouter requests for the run; `MAX_AI_TEST_CASES_PER_RUN` (default 400) separately caps the total planned cases, AI-generated or deterministic-fallback alike. Exhausting either never stops the run — deterministic `FORMS`/`FORM_VALIDATION` checks always complete. Case-budget overflow is reported as `truncated_by_budget` in `coverageLimitations`; call-budget exhaustion gets its own distinct wording. `diagnostics.ai` also tracks `testCasesGenerated`, `testCasesDropped`, and `deterministicFallbacks` for exact accounting.
-
-## Source Tree
-
-Current `src` tree:
-
-```text
-src/actions/action-policy-engine.ts
-src/actions/playwright-action-executor.ts
-src/ai/ai-test-planner.ts
-src/ai/form-batcher.ts
-src/ai/form-plan-validator.ts
-src/ai/form-snapshot-builder.ts
-src/ai/openrouter-client.ts
-src/ai/prompt-loader.ts
-src/app.ts
-src/artifacts/artifact-manager.ts
-src/assertions/assertion-engine.ts
-src/assertions/outcome-evaluator.ts
-src/authentication/authentication-handler.ts
-src/authentication/login-detector.ts
-src/browser/browser-manager.ts
-src/browser/browser-visual-agent.ts
-src/collectors/console-collector.ts
-src/collectors/evidence-collector.ts
-src/collectors/network-collector.ts
-src/collectors/performance-collector.ts
-src/config/env.ts
-src/config/logger.ts
-src/controllers/testing.controller.ts
-src/crawler/page-crawler.ts
-src/crawler/scope-policy.ts
-src/crawler/state-fingerprint-service.ts
-src/crawler/url-canonicalizer.ts
-src/docs/openapi.ts
-src/docs/swagger.ts
-src/errors/app-error.ts
-src/errors/error-codes.ts
-src/errors/serialize-error.ts
-src/inspection/element-inventory.ts
-src/inspection/page-inspector.ts
-src/middleware/error.middleware.ts
-src/middleware/request-id.middleware.ts
-src/prompts/form-test-planner.system.md
-src/reporting/report-aggregator.ts
-src/reporting/severity.ts
-src/routes/testing.routes.ts
-src/runs/run-events.ts
-src/runs/run-registry.ts
-src/safety/form-classifier.ts
-src/schemas/llm-contract.schema.ts
-src/schemas/report.schema.ts
-src/schemas/testing-request.schema.ts
-src/security/secret-redaction.ts
-src/security/ssrf-protection.ts
-src/server.ts
-src/services/run-orchestrator.ts
-src/testing/deterministic-form-plan.ts
-src/testing/form-data-generator.ts
-src/testing/form-dedup.ts
-src/testing/form-test-executor.ts
-src/testing/link-health-checker.ts
-src/testing/page-baseline-tests.ts
-src/testing/run-context.ts
-src/testing/run-matrix.ts
-src/testing/test-types.ts
-src/types/ai.ts
-src/types/llm-contract.ts
-src/types/report.ts
-src/types/testing.ts
-src/utilities/async-handler.ts
-src/utilities/route-family.ts
-src/utilities/timeout.ts
-src/websocket/testing-run-stream.ts
-```
-
-See [package.json](package.json) for the exact scripts and dependency versions.
-
-## Setup
+From `TesterBackend`:
 
 ```bash
 npm install
-# create .env and add the values shown below
 npm run playwright:install:chrome
+cp ../.env.example .env   # or create TesterBackend/.env yourself
 npm run dev
 ```
 
-Then open:
+Environment loading is anchored to `TesterBackend/.env`, independent of the shell working directory. Real environment variables take precedence. Never commit `.env`.
+
+The default port is `3000`, so the useful local URLs are:
 
 ```text
+http://localhost:3000/health
 http://localhost:3000/docs
+http://localhost:3000/openapi.json
 ```
 
-Add your OpenRouter configuration manually in `.env`:
+`AUTO_OPEN_SWAGGER=true` attempts to open `/docs` in the operating-system browser when the server starts. Disable it on headless servers.
 
-```env
-OPENROUTER_API_KEY=your_secret_here
-OPENROUTER_API_URL=https://openrouter.ai/api/v1/chat/completions
-OPENROUTER_MODEL=openai/gpt-4o-mini
-OPENROUTER_TIMEOUT_MS=300000
-```
+## Configuration
 
-OpenRouter AI planning sends the canonical prompt as a system message and sanitized `{ formCount, forms }` input as a user message. It requests strict JSON-schema output and validates every returned ID against the discovered form before saving or executing it. If `OPENROUTER_API_KEY` is missing, deterministic planning remains active.
+All values are optional unless a feature says otherwise.
 
-Do not commit `.env`.
+### Server and logging
 
-## Environment Variables
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `NODE_ENV` | `development` | `development`, `test`, or `production`. |
+| `PORT` | `3000` | HTTP and WebSocket port. |
+| `LOG_LEVEL` | `info` | Pino log level. |
+| `FRONTEND_ORIGINS` | localhost ports `3000,3001,5173` | Comma-separated allowed browser origins. |
+| `AUTO_OPEN_SWAGGER` | `true` | Open Swagger UI after startup. |
 
-Important values:
+### OpenRouter and planning
 
-```env
-OPENROUTER_API_KEY=
-OPENROUTER_API_URL=https://openrouter.ai/api/v1/chat/completions
-OPENROUTER_MODEL=openai/gpt-4o-mini
-OPENROUTER_TIMEOUT_MS=300000
-PLAYWRIGHT_HEADLESS=false
-PLAYWRIGHT_CHANNEL=chrome
-AI_CALL_PACING_MS=1500
-ACTION_TIMEOUT_MS=10000
-NAVIGATION_TIMEOUT_MS=30000
-TEST_RUN_ALLOWED_ORIGINS=
-FRONTEND_ORIGINS=http://localhost:3000,http://localhost:3001,http://localhost:5173
-SCREENSHOT_DIRECTORY=artifacts/screenshots
-TRACE_DIRECTORY=artifacts/traces
-LIVE_VIEW_ENABLED=true
-LIVE_VIEW_FRAME_INTERVAL_MS=1500
-```
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `OPENROUTER_API_KEY` | empty | Enables AI planning when present. |
+| `OPENROUTER_API_URL` | derived | Full chat-completions URL; overrides the base URL. |
+| `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | Base URL; `/chat/completions` is appended. |
+| `OPENROUTER_MODEL` | first configured model | Preferred pinned model. |
+| `OPENROUTER_MODELS` | empty | Comma-separated fallback models. |
+| `OPENROUTER_TIMEOUT_MS` | `300000` | Provider timeout; legacy `AI_RESPONSE_TIMEOUT_MS` is also accepted. |
+| `OPENROUTER_HTTP_REFERER` | unset | Optional OpenRouter referer; `OPENROUTER_SITE_URL` is a legacy alias. |
+| `OPENROUTER_APP_TITLE` | `VoisWith Website Tester` | Provider app title; `OPENROUTER_APP_NAME` is a legacy alias. |
+| `AI_CALL_PACING_MS` | `1500` | Delay between provider calls. |
+| `PROMPT_FILE_PATH` | `src/prompts/form-test-planner.system.md` | Canonical system prompt. |
+| `MAX_AI_CALLS_PER_RUN` | `25` | Maximum provider requests per run; `0` disables AI. |
+| `MAX_AI_TEST_CASES_PER_RUN` | `400` | Maximum retained AI or fallback form cases. |
 
-Legacy `BROWSER_*` and `PAGE_NAVIGATION_TIMEOUT_MS` variables still work.
+### Browser and limits
 
-## Scripts
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `BROWSER_CHANNEL` | `chrome` | Only Chrome is supported. `PLAYWRIGHT_CHANNEL` overrides it. |
+| `BROWSER_HEADLESS` | `false` | Default browser visibility. `PLAYWRIGHT_HEADLESS` overrides it. |
+| `BROWSER_LAUNCH_TIMEOUT_MS` | `30000` | Browser launch timeout. |
+| `PAGE_NAVIGATION_TIMEOUT_MS` | `30000` | Page navigation timeout. `NAVIGATION_TIMEOUT_MS` overrides it. |
+| `ACTION_TIMEOUT_MS` | `10000` | Individual browser-action timeout. |
+| `MAX_CONCURRENT_RUNS` | `1` | Maximum active async runs. |
+| `MAX_PAGES_PER_RUN` | `500` | Server ceiling, range 1–500. |
+| `MAX_DEPTH_PER_RUN` | `7` | Server ceiling, range 0–7. |
+| `MAX_ACTIONS_PER_PAGE` | `15` | Server action budget. |
+| `MAX_RUN_DURATION_SECONDS` | `10800` | Server duration ceiling, range 10–10800. |
+
+Request values are additionally constrained by the server ceilings. A browser can be selected with the modern top-level `browserMode` (`headed` or `headless`) or the legacy `browser.headless`; `browserMode` wins.
+
+### Security, artifacts, and live view
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `ALLOW_PRIVATE_NETWORK_TARGETS` | `false` | Permit private/local targets. Use only in controlled environments. |
+| `REQUIRE_HTTPS` | `true` | Reject non-HTTPS targets. |
+| `TEST_RUN_ALLOWED_ORIGINS` | empty | Server-wide comma-separated crawl origins. |
+| `ARTIFACT_ROOT` | `artifacts` | Root for manifests and reports. |
+| `ARTIFACT_RETENTION_DAYS` | `14` | Age after which startup sweeping deletes completed runs. |
+| `SCREENSHOT_DIRECTORY` | `artifacts/screenshots` | Screenshot directory configuration. |
+| `TRACE_DIRECTORY` | `artifacts/traces` | Trace directory configuration. |
+| `LIVE_VIEW_ENABLED` | `true` | Permit live frames/cursor support. |
+| `LIVE_VIEW_FRAME_INTERVAL_MS` | `1500` | Minimum live-frame interval. |
+
+Invalid environment values stop startup with a readable list of Zod validation errors.
+
+## Running the service
 
 ```bash
-npm run dev
-npm run build
-npm run lint
-npm test
-npm run openrouter:smoke
-npm run trueform:system-test
-npm run playwright:install:chrome
+npm run dev       # watch TypeScript with tsx
+npm run build     # compile to dist/
+npm start         # run dist/src/server.js
 ```
+
+The HTTP server uses a 30-second request timeout and a 35-second header timeout. Long test work should use the async endpoint; the synchronous endpoint is mainly convenient for direct integrations and controlled runs.
+
+Minimal async request:
+
+```bash
+curl -X POST http://localhost:3000/api/v1/testing/runs \
+  -H 'content-type: application/json' \
+  -d '{
+    "targetUrl":"https://example.com",
+    "authorizationConfirmed":true,
+    "testTypes":["SMOKE","PAGE_DISCOVERY","LINKS"],
+    "browserMode":"headless",
+    "visualizationMode":"off"
+  }'
+```
+
+See [Swagger.md](Swagger.md) for every input field, endpoint, response, error, lifecycle control, and WebSocket message.
+
+## Test-type coverage
+
+There are 25 accepted test types. Selecting a partial or planned type is valid: it creates a `coverageLimitations` row rather than pretending that the capability ran.
+
+| Test type | Availability | What the current project does |
+| --- | --- | --- |
+| `SMOKE` | Implemented, default | Confirms that pages load and can be inspected. |
+| `PAGE_DISCOVERY` | Implemented, default | Discovers permitted same-origin pages within crawl budgets. |
+| `NAVIGATION` | Implemented, default | Checks observed navigation candidates. |
+| `LINKS` | Implemented, default | Inventories links and performs dedicated health checks. |
+| `FORMS` | Implemented, default | Inventories forms and safely plans/executes eligible cases. |
+| `FORM_VALIDATION` | Implemented, default | Checks visible validation and planned safe invalid/boundary cases. |
+| `AUTHENTICATION` | Implemented, default | Attempts configured login or records skip/human-required/failure diagnostics. |
+| `API_NETWORK` | Implemented, default | Reports observed API-like calls and failed requests. |
+| `ERROR_HANDLING` | Implemented, default | Reports visible, browser, and network error states. |
+| `PERFORMANCE_BASIC` | Implemented, default | Collects basic page timing; it is not load testing. |
+| `CONSOLE_ERRORS` | Implemented, default | Captures browser console errors and warnings. |
+| `ACCESSIBILITY_TECHNICAL` | Implemented, default | Checks basic automation-visible accessibility signals. |
+| `PASSIVE_SECURITY` | Implemented, opt-in | Makes non-exploitative observations such as HTTPS/browser warnings. |
+| `SESSION` | Partial | Records observable authenticated/session prerequisites. |
+| `AUTHORIZATION` | Partial | Compares role crawl results when two or more roles exist. |
+| `CHROMIUM_COMPATIBILITY` | Partial | Proves only Playwright-controlled Chrome behavior. |
+| `POSITIVE` | Planned | No general happy-path workflow engine. |
+| `NEGATIVE` | Planned | No general invalid-input workflow coverage. |
+| `BOUNDARY` | Planned | No general boundary-combination coverage. |
+| `END_TO_END` | Planned | No deterministic cross-page business-flow engine. |
+| `BUSINESS_RULES` | Planned | Cannot prove unobservable business rules. |
+| `FILE_UPLOAD_SAFE` | Planned | Upload types exist, but full deterministic proof is not available. |
+| `DATA_INTEGRITY_OBSERVABLE` | Planned | Needs safe write/readback workflows. |
+| `RELIABILITY_BASIC` | Planned | Repeatability coverage is not deterministic. |
+| `REGRESSION_BASELINE` | Planned | No baseline input is currently supported. |
+
+`coverageLimitations` contains exactly one entry for every selected type with `availability`, `executed`, and an honest `reason`.
+
+## Reports and artifacts
+
+### Status model
+
+The report separates run completion from the conclusion:
+
+| Field | Values | Meaning |
+| --- | --- | --- |
+| `runStatus` | `COMPLETED`, `STOPPED`, `ERRORED` | How execution ended. |
+| `findingsStatus` | `PASSED`, `ISSUES_FOUND`, `INCONCLUSIVE` | What was concluded about the target. |
+| `status` | `PASSED`, `FAILED`, `PARTIAL`, `ERROR`, `INCONCLUSIVE` | Deprecated compatibility alias. |
+
+Alias mapping: completed/passed → `PASSED`; completed/issues → `FAILED`; completed/inconclusive → `INCONCLUSIVE`; stopped → `PARTIAL`; errored → `ERROR`. New clients should use the first two fields.
+
+Individual tests use `PASSED`, `FAILED`, `SKIPPED`, `BLOCKED_BY_POLICY`, `INCONCLUSIVE`, or `ERROR`. `INCONCLUSIVE` means that no reliable outcome was observable; it is never counted as a pass.
+
+### Stop reasons (`stoppedReason`)
+
+- `converged`: normal finish; no permitted work remained.
+- `page_budget`: page maximum reached.
+- `depth_budget`: depth prevented remaining work.
+- `time_budget`: duration reached.
+- `user_stopped`: stop endpoint was used.
+- `error`: execution failed or an interrupted manifest was recovered.
+
+An exhausted AI budget never stops a run, and there is no `ai_budget` value. Deterministic work continues, and dropped cases are reported as budget truncation.
+
+### Storage layout and recovery
+
+Each run uses `ARTIFACT_ROOT/<runId>/`. The run history store creates `manifest.json`, a `reports/` directory, per-page report files, planned-case files, and the final `reports/report.json`. Evidence references can describe screenshots, traces, network, console, report, download, or fixture files and include their sizes.
+
+The manifest is written atomically and checkpointed after each completed page. On startup, a manifest with no terminal state is rebuilt from completed page reports and finalized as `ERRORED` with `stoppedReason: "error"`. History is returned newest-first. Runs older than `ARTIFACT_RETENTION_DAYS` are swept at startup. Credentials are removed before the request is persisted.
+
+The final report includes run metadata, selected types, stop reason, summary counters, page reports, deduplicated issues, coverage rows, evidence, and diagnostics. Diagnostics cover browser launch, matrix targets, authorization comparisons, crawl/skipped/unreached pages, blocked actions, AI attempts/budgets, artifacts, and timestamped internal events.
+
+## AI form planning
+
+OpenRouter is optional. With no key, or with `MAX_AI_CALLS_PER_RUN=0`, deterministic crawling and testing remain active and the event stream explains why AI was skipped.
+
+1. Visible inspected forms become sanitized `FormSnapshot` objects.
+2. Forms are classified for privileged/destructive/payment signals and deduplicated across pages.
+3. Snapshots are batched (normally three forms, also bounded by estimated context size) and sent sequentially.
+4. The canonical Markdown prompt and `{ formCount, forms }` are sent to OpenRouter with strict JSON-schema response formatting.
+5. Output is validated strictly: unknown properties, unknown form IDs, unknown element IDs, excessive values, or invalid expected outcomes are rejected.
+6. The retry ladder uses the normal request, a repair request, another configured model, and then deterministic generation.
+7. Validated plans are saved before interaction, exposed on page reports, and executed sequentially.
+8. The page reloads between cases. Submissions enter a visible hold stage before the final action and remain governed by request and form policy.
+9. Outcome evaluation looks for navigation, validation, success/error messages, network results, and other observable facts. If evidence is insufficient, the result is `INCONCLUSIVE`.
+
+The plan contract permits up to 12 validated cases per form and generated values up to 500 characters. Expected outcomes are observable categories such as validation, accepted submission/navigation, success/error message, no crash, or no sensitive-data exposure.
+
+`src/ai/qwen-client.ts` and `scripts/qwen-smoke.mjs` contain a separate Qwen-compatible client/smoke implementation. The production `config.ai.provider` and orchestrator are currently wired to OpenRouter; Qwen is not selected by the documented runtime environment schema or npm scripts.
+
+## Project architecture
+
+### Application and API
+
+- `src/server.ts`: initializes retained history, creates the HTTP server, attaches WebSocket upgrades, listens, optionally opens Swagger, and performs signal shutdown.
+- `src/app.ts`: Express middleware, CORS, security headers, JSON limits, rate limiting, Swagger, health, routes, and centralized errors.
+- `src/controllers/testing.controller.ts`: validates bodies and implements sync, async, history, lifecycle, and report-download controllers.
+- `src/routes/testing.routes.ts`: REST route table.
+- `src/docs/`: OpenAPI document and Swagger UI registration.
+- `src/middleware/`, `src/errors/`, `src/utilities/`: request IDs, error serialization, async wrappers, timeout helpers, and route-family utilities.
+
+### Browser, crawl, and inspection
+
+- `src/browser/`: Chrome lifecycle, contexts/pages, live frames, and optional local cursor visualization.
+- `src/crawler/`: DFS, scope decisions, URL canonicalization/loop avoidance, and state fingerprints.
+- `src/inspection/`: stable element inventory and page snapshots for links, assets, forms, and UI observations.
+- `src/authentication/`: login-page detection, hinted/fallback selector ordering, filling, submit, and outcome diagnostics.
+- `src/collectors/`: console, network, performance, screenshots, traces, and evidence references.
+
+### Planning, execution, and assertions
+
+- `src/ai/`: snapshot sanitization, batching, prompt loading, OpenRouter/Qwen clients, plan validation, and planner fallback handling.
+- `src/schemas/` and `src/types/`: runtime Zod contracts and TypeScript contracts for requests, plans, events, and reports.
+- `src/actions/`: locator resolution, Playwright actions, and action-policy decisions.
+- `src/safety/form-classifier.ts`: hard/soft privileged-form classification.
+- `src/testing/`: matrix expansion, baseline checks, link health, generated data, deterministic plans, form deduplication, form execution, and run context.
+- `src/assertions/`: low-level assertions and observable-outcome evaluation.
+
+### Orchestration, events, and reporting
+
+- `src/services/run-orchestrator.ts`: owns the full run and joins every subsystem.
+- `src/runs/run-registry.ts`: live async state, pause/resume/stop flags, event replay, and terminal cleanup.
+- `src/runs/run-history-store.ts`: atomic manifests, page checkpoints, final reports, recovery, retention, and history queries.
+- `src/websocket/testing-run-stream.ts`: upgrade path, origin checks, snapshots, replay, heartbeats, and terminal close.
+- `src/reporting/`: report aggregation, issue fingerprint/deduplication, and severity mapping.
+- `src/security/`: SSRF/DNS defenses and recursive secret redaction.
+
+### Other project files
+
+- `src/prompts/form-test-planner.system.md`: strict instructions and safety rules given to the form planner.
+- `scripts/`: provider smoke tests, fixture acceptance, adversarial persistence/replay checks, and the TrueForm system runner.
+- `tests/unit/`: unit and contract tests for policy, AI, crawler, browser, forms, reports, history, orchestration, schemas, security, and documentation drift.
+- `tests/fixtures/test-site/server.mjs`: deterministic local site with forms, redirects, errors, duplicate routes, privileged actions, and other seeded behavior.
+- `tsconfig.json`: strict ES2022/NodeNext compilation into `dist`.
+- `vitest.config.ts`: Node test environment, 30-second unit-test timeout.
+- `eslint.config.js`, `.prettierrc`: TypeScript linting and formatting rules.
+
+Generated or local directories (`node_modules`, `dist`, `artifacts`, coverage, Playwright reports, test results, and `.env`) are ignored by Git.
+
+## Scripts and tests
+
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Start a watched development server. |
+| `npm run build` | Compile source and tests to `dist`. |
+| `npm start` | Run the compiled server. |
+| `npm test` | Run all Vitest unit/contract tests once. |
+| `npm run test:watch` | Run Vitest in watch mode. |
+| `npm run test:ci` | Unit tests, build, then deterministic fixture acceptance. |
+| `npm run lint` | Run ESLint over the project. |
+| `npm run format` | Rewrite supported files with Prettier. |
+| `npm run fixture` | Start the local fixture on port 43117. |
+| `npm run acceptance:deterministic` | Build and test the fixture with AI disabled. |
+| `npm run acceptance:live` | Build and test the fixture with live OpenRouter planning. |
+| `npm run acceptance:phase5-adversarial` | Test process-kill recovery, reconnect replay, and disk/API parity. |
+| `npm run openrouter:smoke` | Send one direct provider request; requires `OPENROUTER_API_KEY`. |
+| `npm run trueform:system-test` | Run the remote TrueForm scenario; requires authorization and `TRUEFORM_PASSWORD`. |
+| `npm run playwright:install:chrome` | Install Playwright's Chrome dependency. |
+
+`scripts/qwen-smoke.mjs` is currently invoked directly with Node rather than through `package.json` and requires `QWEN_API_KEY`.
+
+## Operational notes
+
+- Async runs are limited by `MAX_CONCURRENT_RUNS`; overload is returned as HTTP 429.
+- Live non-frame events use an in-memory ring of about 2,000 entries. Terminal live records remain for about ten minutes; disk history remains longer.
+- Reconnect with `?lastSequence=N` to request events after the last processed sequence.
+- The server sends WebSocket and JSON heartbeats every 30 seconds. Clients answer the JSON ping with `{"type":"stream.pong"}`. Two missed heartbeats close with code `4000` and reason `heartbeat_timeout`.
+- Normal terminal ordering is `run.completed`, then `run.report_ready`, then a two-second grace period, then close code `1000` with reason `run_complete`.
+- Live cursor traffic is not written into manifests/reports and only its newest value is retained, preventing it from evicting diagnostic events.
+- Screenshots use compressed JPEG evidence. Large artifact totals are reported in diagnostics and summaries.
+- The project uses ES modules. Local TypeScript imports intentionally use `.js` extensions for NodeNext output.
+
+## License
+
+No project license file is present in `TesterBackend`. Ask the repository owner before redistributing or reusing the code outside the repository.
