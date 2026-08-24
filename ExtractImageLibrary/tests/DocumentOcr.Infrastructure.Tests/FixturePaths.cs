@@ -22,6 +22,8 @@ internal static class FixturePaths
 
     public static string OnePagePdf => GetPdfPath("one-page.pdf");
 
+    public static string TwoPageRasterOcrPdf => GetPdfPath("two-page-raster-ocr.pdf");
+
     public static string TruncatedPdf => GetPdfPath("truncated.pdf");
 
     private static string GetImagePath(string fileName) => Path.Combine(AppContext.BaseDirectory, "Fixtures", "Images", fileName);

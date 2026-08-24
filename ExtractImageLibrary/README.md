@@ -4,7 +4,7 @@ This repository contains a staged implementation of a UiPath custom activity tha
 
 Intended public activity name: `Extract Text From Document`
 
-Current implementation phase: Phase 4 - Tesseract OCR Engine
+Current implementation phase: Phase 5 - OCR Orchestration Service
 
 Version 1 target:
 - UiPath Studio Windows projects
@@ -46,10 +46,20 @@ Phase 4 is implemented and verified:
 - OCR remains local-only. The engine does not upload images, log raw image bytes, or persist recognized text.
 - Deterministic Infrastructure coverage now includes real OCR, bundled data integrity checks, language validation, missing TessData, missing/corrupt traineddata handling, confidence range checks, cancellation, stream ownership, engine disposal, and recovery after failed native initialization (`61` passing tests total in `DocumentOcr.Infrastructure.Tests`).
 
+Phase 5 is implemented and verified:
+- `DocumentOcrService` now orchestrates validation, PDF rendering, optional preprocessing, OCR recognition, page-text cleanup, and final result aggregation in `DocumentOcr.Core`.
+- Service branching is extension-based after validation: `.pdf` inputs stream through `IDocumentPageRenderer`, and supported image inputs are opened directly as a single `DocumentPage` with read-only shared access.
+- The service owns and disposes every raw and processed `DocumentPage` that it touches. Injected renderer, preprocessor, and OCR engine instances remain caller-owned.
+- Optional preprocessing is enforced strictly: returning the original page instance, changing page numbers, or returning duplicate OCR page numbers is rejected.
+- Page text cleanup normalizes line endings, trims trailing spaces and tabs before line feeds, collapses runs of three or more blank lines to exactly two, trims outer whitespace, and joins non-empty page texts with exactly one blank line between pages.
+- Unexpected image-open, preprocessing, and OCR failures are contextualized while cancellation, provider exceptions, disposal errors, and domain exceptions continue to propagate.
+- Core orchestration coverage now includes image/PDF branching, cleanup rules, aggregation ordering, ownership/disposal, duplicate-page rejection, invalid preprocessor/OCR outputs, stage-specific failure contextualization, OCR-provider argument preservation, and cancellation (`78` passing tests total in `DocumentOcr.Core.Tests`).
+- Infrastructure integration coverage now includes real end-to-end orchestration with `PdfPageRenderer`, `ImagePreprocessor`, `TesseractOcrEngine`, the existing `ocr-hello.png` fixture, repeatability and file-lock-release checks, caller-owned engine disposal checks, and a visually verified two-page raster PDF OCR fixture (`68` passing tests total in `DocumentOcr.Infrastructure.Tests`).
+
 ## Current architecture
 
 - `src/DocumentOcr.Core`
-  Technology-independent Core contracts, models, validation, and domain exceptions.
+  Technology-independent Core contracts, models, validation, domain exceptions, and the `DocumentOcrService` orchestration layer.
 - `src/DocumentOcr.Infrastructure`
   Home for PDF rendering, image preprocessing, and the local Tesseract OCR engine. Future phases add orchestration and trained-data expansion.
 - `src/Company.UiPath.DocumentOcr.Activities`
@@ -59,7 +69,7 @@ Phase 4 is implemented and verified:
 - `tests/DocumentOcr.Core.Tests`
   Unit tests for the implemented Core behavior.
 - `tests/DocumentOcr.Infrastructure.Tests`
-  Unit tests for PDF rendering, image preprocessing, and OCR behavior.
+  Unit and integration tests for PDF rendering, image preprocessing, OCR behavior, and the real orchestrated pipeline.
 - `tests/Company.UiPath.DocumentOcr.Activities.Tests`
   Placeholder for later activity-facing tests.
 
@@ -84,7 +94,6 @@ These packages remain confined to `DocumentOcr.Infrastructure`. `DocumentOcr.Cor
 ## Phase boundaries
 
 The repository still does not include:
-- `DocumentOcrService`
 - UiPath activity implementation
 - Final packaging or runtime-distribution work
 
@@ -162,6 +171,26 @@ Remove-Item Env:DOTNET_ROLL_FORWARD
   - access is serialized per `TesseractOcrEngine` instance with `SemaphoreSlim`
   - no static global engine cache is used
 
+## Orchestration service behavior
+
+- Public API:
+  - `DocumentOcrService.ExtractAsync(string? filePath, OcrOptions? options = null, CancellationToken cancellationToken = default)`
+- Validation:
+  - always runs through `DocumentValidator.Validate(...)` before any rendering or OCR work starts
+- Document branching:
+  - `.pdf`: renders lazily and sequentially through `IDocumentPageRenderer`
+  - supported image extensions: opens the canonical file directly as page `1`
+- Ownership:
+  - raw renderer/output pages and processed pages are service-owned and disposed by the service
+  - injected renderer, preprocessor, and OCR engine instances are borrowed and never disposed by the service
+- Aggregation:
+  - all per-page OCR results remain in the final `OcrResult.Pages`
+  - only non-empty cleaned page texts participate in `OcrResult.Text`
+  - non-empty page texts are joined with exactly `\n\n`
+- Cancellation:
+  - cancellation is cooperative at validation, image open, page iteration, preprocessing, OCR, and aggregation boundaries
+  - the service preserves provider-level cancellation behavior, so an in-progress native render or OCR call may still complete before cancellation surfaces
+
 ## Toolchain note
 
 The local machine currently has the .NET 10 SDK and runtime available. Core and Infrastructure tests were verified successfully by using a process-local major roll-forward from the `net6.0` test target to the installed .NET 10 runtime.
@@ -170,4 +199,4 @@ Native execution on an exact .NET 6 runtime has not been verified yet because th
 
 ## Next phase
 
-The next planned phase is Phase 5 - Complete OCR Orchestration Service.
+The next planned phase is Phase 6 - UiPath Custom Activity and ViewModel.
