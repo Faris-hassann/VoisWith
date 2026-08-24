@@ -20,6 +20,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DocumentOcr.Core.Tests", "t
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Company.UiPath.DocumentOcr.Activities.Tests", "tests\Company.UiPath.DocumentOcr.Activities.Tests\Company.UiPath.DocumentOcr.Activities.Tests.csproj", "{1C0E1551-1A7F-4D84-A8C0-8B1B597729C7}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DocumentOcr.Infrastructure.Tests", "tests\DocumentOcr.Infrastructure.Tests\DocumentOcr.Infrastructure.Tests.csproj", "{D4B71A02-F30D-4A13-A607-6DF99B127FE9}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -50,6 +52,10 @@ Global
 		{1C0E1551-1A7F-4D84-A8C0-8B1B597729C7}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{1C0E1551-1A7F-4D84-A8C0-8B1B597729C7}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{1C0E1551-1A7F-4D84-A8C0-8B1B597729C7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D4B71A02-F30D-4A13-A607-6DF99B127FE9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D4B71A02-F30D-4A13-A607-6DF99B127FE9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D4B71A02-F30D-4A13-A607-6DF99B127FE9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D4B71A02-F30D-4A13-A607-6DF99B127FE9}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -61,6 +67,7 @@ Global
 		{CF6B5C4D-5D42-49A4-8F13-D0569940CBA4} = {FA56F41D-D390-4193-A0A6-B2D7D96A65B2}
 		{7FB2872B-CA44-4995-8B06-59987A0A84C6} = {76CB15BF-BA42-4E6A-AE87-23C6BF06298B}
 		{1C0E1551-1A7F-4D84-A8C0-8B1B597729C7} = {76CB15BF-BA42-4E6A-AE87-23C6BF06298B}
+		{D4B71A02-F30D-4A13-A607-6DF99B127FE9} = {76CB15BF-BA42-4E6A-AE87-23C6BF06298B}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {F281A95E-EE09-44FF-9F11-D97D844E0F7D}

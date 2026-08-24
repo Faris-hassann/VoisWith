@@ -7,4 +7,10 @@
   <ItemGroup>
     <ProjectReference Include="..\DocumentOcr.Core\DocumentOcr.Core.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="PDFtoImage" Version="5.2.1" />
+    <PackageReference Include="SkiaSharp" Version="3.119.4" />
+    <PackageReference Include="BitMiracle.LibTiff.NET" Version="2.4.660" />
+  </ItemGroup>
 </Project>
