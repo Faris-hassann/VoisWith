@@ -6,6 +6,8 @@ internal static class FixturePaths
 
     public static string LowContrastPng => GetImagePath("low-contrast.png");
 
+    public static string OcrHelloPng => GetImagePath("ocr-hello.png");
+
     public static string RotatedExifJpeg => GetImagePath("rotated-exif.jpg");
 
     public static string SampleBmp => GetImagePath("sample.bmp");

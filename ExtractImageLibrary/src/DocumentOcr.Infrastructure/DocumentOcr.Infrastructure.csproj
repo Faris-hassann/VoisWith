@@ -12,5 +12,27 @@
     <PackageReference Include="PDFtoImage" Version="5.2.1" />
     <PackageReference Include="SkiaSharp" Version="3.119.4" />
     <PackageReference Include="BitMiracle.LibTiff.NET" Version="2.4.660" />
+    <PackageReference Include="Tesseract" Version="5.2.0" GeneratePathProperty="true" />
   </ItemGroup>
+
+  <ItemGroup>
+    <None Include="TessData\eng.traineddata">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <TargetPath>TessData\eng.traineddata</TargetPath>
+    </None>
+    <None Include="TessData\LICENSE.tessdata_fast.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <TargetPath>TessData\LICENSE.tessdata_fast.txt</TargetPath>
+    </None>
+  </ItemGroup>
+
+  <Target Name="ExposeManagedTesseractWrapper" AfterTargets="CopyFilesToOutputDirectory">
+    <ItemGroup>
+      <_ManagedTesseractWrapper Include="$(PkgTesseract)\lib\netstandard2.0\Tesseract.dll" Condition="Exists('$(PkgTesseract)\lib\netstandard2.0\Tesseract.dll')" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(_ManagedTesseractWrapper)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
 </Project>

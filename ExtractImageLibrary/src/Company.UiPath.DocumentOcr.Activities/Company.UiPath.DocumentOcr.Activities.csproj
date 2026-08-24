@@ -8,4 +8,16 @@
     <ProjectReference Include="..\DocumentOcr.Core\DocumentOcr.Core.csproj" />
     <ProjectReference Include="..\DocumentOcr.Infrastructure\DocumentOcr.Infrastructure.csproj" />
   </ItemGroup>
+
+  <Target Name="CopyManagedTesseractWrapperFromInfrastructureOutput" AfterTargets="CopyFilesToOutputDirectory">
+    <PropertyGroup>
+      <_InfrastructureOutputDirectory>$(MSBuildProjectDirectory)\..\DocumentOcr.Infrastructure\bin\$(Configuration)\$(TargetFramework)\</_InfrastructureOutputDirectory>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <_ManagedTesseractWrapper Include="$(_InfrastructureOutputDirectory)Tesseract.dll" Condition="Exists('$(_InfrastructureOutputDirectory)Tesseract.dll')" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(_ManagedTesseractWrapper)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
 </Project>
