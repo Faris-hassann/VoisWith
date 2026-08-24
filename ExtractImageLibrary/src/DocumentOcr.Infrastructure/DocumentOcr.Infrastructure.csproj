@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>DocumentOcr.Infrastructure</RootNamespace>
+    <AssemblyName>DocumentOcr.Infrastructure</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DocumentOcr.Core\DocumentOcr.Core.csproj" />
+  </ItemGroup>
+</Project>

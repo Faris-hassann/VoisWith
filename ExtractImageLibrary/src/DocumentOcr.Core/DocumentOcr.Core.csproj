@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>DocumentOcr.Core</RootNamespace>
+    <AssemblyName>DocumentOcr.Core</AssemblyName>
+  </PropertyGroup>
+</Project>

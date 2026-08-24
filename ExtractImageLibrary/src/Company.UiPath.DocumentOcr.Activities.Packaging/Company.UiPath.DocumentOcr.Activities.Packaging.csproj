@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Company.UiPath.DocumentOcr.Activities.Packaging</RootNamespace>
+    <AssemblyName>Company.UiPath.DocumentOcr.Activities.Packaging</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <Description>Phase 1 packaging scaffold only. UiPath-specific packaging is deferred until a supported template/toolchain is available.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Company.UiPath.DocumentOcr.Activities\Company.UiPath.DocumentOcr.Activities.csproj" />
+  </ItemGroup>
+</Project>
