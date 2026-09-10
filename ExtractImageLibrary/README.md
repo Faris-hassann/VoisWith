@@ -4,7 +4,7 @@ This repository contains a staged implementation of a UiPath custom activity tha
 
 Intended public activity name: `Extract Text From Document`
 
-Current implementation phase: Phase 5 - OCR Orchestration Service
+Current implementation phase: Phase 6 - UiPath Custom Activity and ViewModel
 
 Version 1 target:
 - UiPath Studio Windows projects
@@ -56,6 +56,14 @@ Phase 5 is implemented and verified:
 - Core orchestration coverage now includes image/PDF branching, cleanup rules, aggregation ordering, ownership/disposal, duplicate-page rejection, invalid preprocessor/OCR outputs, stage-specific failure contextualization, OCR-provider argument preservation, and cancellation (`78` passing tests total in `DocumentOcr.Core.Tests`).
 - Infrastructure integration coverage now includes real end-to-end orchestration with `PdfPageRenderer`, `ImagePreprocessor`, `TesseractOcrEngine`, the existing `ocr-hello.png` fixture, repeatability and file-lock-release checks, caller-owned engine disposal checks, and a visually verified two-page raster PDF OCR fixture (`68` passing tests total in `DocumentOcr.Infrastructure.Tests`).
 
+Phase 6 is implemented and verified:
+- `ExtractTextFromDocument` exposes the v1 UiPath-facing activity surface with required `FilePath`, defaulted `Language`, PDF scale, maximum page/file limits, preprocessing toggle, and text/page-count/confidence outputs.
+- The activity maps arguments into `OcrOptions`, keeps auto-rotation enabled internally, awaits `DocumentOcrService.ExtractAsync`, and assigns outputs only after successful completion.
+- Runtime composition is kept in the activity layer: `PdfPageRenderer`, `ImagePreprocessor`, and `TesseractOcrEngine` are constructed for execution, and the Tesseract engine is disposed deterministically.
+- Service/domain exceptions and cancellation propagate without converting failures into empty successful outputs.
+- `ExtractTextFromDocumentViewModel`, embedded `ActivitiesMetadata.json`, localized resource strings, and `Resources/Icons/document-ocr.svg` provide the Studio presentation metadata for display name, category, principal properties, advanced properties, outputs, ordering, and icon.
+- Activity coverage verifies argument shape, required/default behavior, option mapping, output mapping, metadata/resources/icon embedding, exception/cancellation propagation, build output assets, deterministic `WorkflowInvoker` execution, and real PNG/PDF workflow execution (`10` passing tests total in `Company.UiPath.DocumentOcr.Activities.Tests`).
+
 ## Current architecture
 
 - `src/DocumentOcr.Core`
@@ -63,7 +71,7 @@ Phase 5 is implemented and verified:
 - `src/DocumentOcr.Infrastructure`
   Home for PDF rendering, image preprocessing, and the local Tesseract OCR engine. Future phases add orchestration and trained-data expansion.
 - `src/Company.UiPath.DocumentOcr.Activities`
-  Future UiPath-facing activity layer. It remains thin and depends on Core and Infrastructure.
+  UiPath-facing activity layer. It remains thin, maps Studio arguments to Core options, composes Infrastructure implementations, and depends on Core and Infrastructure.
 - `src/Company.UiPath.DocumentOcr.Activities.Packaging`
   Packaging scaffold only. It is deliberately non-packable until supported UiPath packaging conventions are confirmed.
 - `tests/DocumentOcr.Core.Tests`
@@ -71,7 +79,7 @@ Phase 5 is implemented and verified:
 - `tests/DocumentOcr.Infrastructure.Tests`
   Unit and integration tests for PDF rendering, image preprocessing, OCR behavior, and the real orchestrated pipeline.
 - `tests/Company.UiPath.DocumentOcr.Activities.Tests`
-  Placeholder for later activity-facing tests.
+  Activity-facing tests for the UiPath public surface, ViewModel metadata/resources, deterministic workflow execution, real OCR workflow execution, and output asset inspection.
 
 ## Project reference direction
 
@@ -91,13 +99,21 @@ Phase 5 is implemented and verified:
 
 These packages remain confined to `DocumentOcr.Infrastructure`. `DocumentOcr.Core` still has no package references and no dependency on Infrastructure or native imaging/PDF libraries.
 
+## Selected UiPath Activity libraries
+
+- `System.Activities.ViewModels` `1.20260609.1`
+- `UiPath.Activities.Api` `24.10.1`
+- `UiPath.Workflow` `6.0.0-20240401-07`
+
+These packages are confined to `Company.UiPath.DocumentOcr.Activities` and its tests. `DocumentOcr.Core` and `DocumentOcr.Infrastructure` do not depend on UiPath SDK packages.
+
 ## Phase boundaries
 
 The repository still does not include:
-- UiPath activity implementation
 - Final packaging or runtime-distribution work
+- UiPath Studio installation/runtime validation
 
-Those remain deferred to later phases in the blueprint.
+Those remain deferred to Phase 7 in the blueprint.
 
 ## Build and test
 
@@ -119,6 +135,7 @@ Run verified tests:
 $env:DOTNET_ROLL_FORWARD = 'Major'
 & 'C:\Program Files\dotnet\dotnet.exe' test tests\DocumentOcr.Core.Tests\DocumentOcr.Core.Tests.csproj --no-build --no-restore
 & 'C:\Program Files\dotnet\dotnet.exe' test tests\DocumentOcr.Infrastructure.Tests\DocumentOcr.Infrastructure.Tests.csproj --no-build --no-restore
+& 'C:\Program Files\dotnet\dotnet.exe' test tests\Company.UiPath.DocumentOcr.Activities.Tests\Company.UiPath.DocumentOcr.Activities.Tests.csproj --no-build --no-restore
 Remove-Item Env:DOTNET_ROLL_FORWARD
 ```
 
@@ -193,10 +210,12 @@ Remove-Item Env:DOTNET_ROLL_FORWARD
 
 ## Toolchain note
 
-The local machine currently has the .NET 10 SDK and runtime available. Core and Infrastructure tests were verified successfully by using a process-local major roll-forward from the `net6.0` test target to the installed .NET 10 runtime.
+The local machine currently has the .NET 10 SDK and runtime available. Core, Infrastructure, and Activity tests were verified successfully by using a process-local major roll-forward from the `net6.0` test target to the installed .NET 10 runtime.
 
 Native execution on an exact .NET 6 runtime has not been verified yet because that runtime is not installed locally.
 
+UiPath Studio installation/runtime is NOT TESTED in this phase. Installation and final native package validation belong to Phase 7.
+
 ## Next phase
 
-The next planned phase is Phase 6 - UiPath Custom Activity and ViewModel.
+The next planned phase is Phase 7 - packaging, Studio installation, and final runtime-distribution validation.

@@ -5,6 +5,22 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Remove="Resources\ActivitiesMetadata.json" />
+    <None Remove="Resources\Icons\document-ocr.svg" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\ActivitiesMetadata.json" />
+    <EmbeddedResource Include="Resources\Icons\document-ocr.svg" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Activities.ViewModels" Version="1.20260609.1" />
+    <PackageReference Include="UiPath.Activities.Api" Version="24.10.1" PrivateAssets="All" />
+    <PackageReference Include="UiPath.Workflow" Version="6.0.0-20240401-07" PrivateAssets="All" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\DocumentOcr.Core\DocumentOcr.Core.csproj" />
     <ProjectReference Include="..\DocumentOcr.Infrastructure\DocumentOcr.Infrastructure.csproj" />
   </ItemGroup>

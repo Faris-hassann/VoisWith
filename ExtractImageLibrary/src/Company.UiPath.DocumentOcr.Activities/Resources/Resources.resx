@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=6.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=6.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="DocumentOcr_Category" xml:space="preserve">
+    <value>Document OCR</value>
+  </data>
+  <data name="Input_Category" xml:space="preserve">
+    <value>Input</value>
+  </data>
+  <data name="Advanced_Category" xml:space="preserve">
+    <value>Advanced</value>
+  </data>
+  <data name="Output_Category" xml:space="preserve">
+    <value>Output</value>
+  </data>
+  <data name="ExtractTextFromDocument_DisplayName" xml:space="preserve">
+    <value>Extract Text From Document</value>
+  </data>
+  <data name="ExtractTextFromDocument_Description" xml:space="preserve">
+    <value>Extracts OCR text from a local PDF or image document.</value>
+  </data>
+  <data name="ExtractTextFromDocument_FilePath_DisplayName" xml:space="preserve">
+    <value>File Path</value>
+  </data>
+  <data name="ExtractTextFromDocument_FilePath_Description" xml:space="preserve">
+    <value>Path to the PDF or image file to process.</value>
+  </data>
+  <data name="ExtractTextFromDocument_Language_DisplayName" xml:space="preserve">
+    <value>Language</value>
+  </data>
+  <data name="ExtractTextFromDocument_Language_Description" xml:space="preserve">
+    <value>Tesseract language code. Use plus-separated values for multiple languages, for example eng+ara.</value>
+  </data>
+  <data name="ExtractTextFromDocument_PdfScale_DisplayName" xml:space="preserve">
+    <value>PDF Scale</value>
+  </data>
+  <data name="ExtractTextFromDocument_PdfScale_Description" xml:space="preserve">
+    <value>Scale factor used when rendering PDF pages before OCR.</value>
+  </data>
+  <data name="ExtractTextFromDocument_MaximumPages_DisplayName" xml:space="preserve">
+    <value>Maximum Pages</value>
+  </data>
+  <data name="ExtractTextFromDocument_MaximumPages_Description" xml:space="preserve">
+    <value>Maximum number of PDF pages allowed for one document.</value>
+  </data>
+  <data name="ExtractTextFromDocument_MaximumFileSizeMb_DisplayName" xml:space="preserve">
+    <value>Maximum File Size MB</value>
+  </data>
+  <data name="ExtractTextFromDocument_MaximumFileSizeMb_Description" xml:space="preserve">
+    <value>Maximum allowed document size in mebibytes.</value>
+  </data>
+  <data name="ExtractTextFromDocument_EnablePreprocessing_DisplayName" xml:space="preserve">
+    <value>Enable Preprocessing</value>
+  </data>
+  <data name="ExtractTextFromDocument_EnablePreprocessing_Description" xml:space="preserve">
+    <value>Preprocess page images before OCR recognition.</value>
+  </data>
+  <data name="ExtractTextFromDocument_ExtractedText_DisplayName" xml:space="preserve">
+    <value>Extracted Text</value>
+  </data>
+  <data name="ExtractTextFromDocument_ExtractedText_Description" xml:space="preserve">
+    <value>Aggregated OCR text extracted from the document.</value>
+  </data>
+  <data name="ExtractTextFromDocument_PageCount_DisplayName" xml:space="preserve">
+    <value>Page Count</value>
+  </data>
+  <data name="ExtractTextFromDocument_PageCount_Description" xml:space="preserve">
+    <value>Number of pages processed by OCR.</value>
+  </data>
+  <data name="ExtractTextFromDocument_Confidence_DisplayName" xml:space="preserve">
+    <value>Confidence</value>
+  </data>
+  <data name="ExtractTextFromDocument_Confidence_Description" xml:space="preserve">
+    <value>Average OCR confidence from 0 to 100.</value>
+  </data>
+</root>
