@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Resources;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using ActivityResources = Company.UiPath.DocumentOcr.Activities.Resources.Resources;
 using Company.UiPath.DocumentOcr.Activities.ViewModels;
 using DocumentOcr.Core.Exceptions;
 using DocumentOcr.Core.Models;
@@ -35,6 +36,7 @@ public sealed class ExtractTextFromDocumentTests
     {
         var type = typeof(ExtractTextFromDocumentViewModel);
 
+        Assert.False(type.IsSealed);
         Assert.Equal(typeof(DesignInArgument<string>), GetProperty(type, "FilePath").PropertyType);
         Assert.Equal(typeof(DesignInArgument<string>), GetProperty(type, "Language").PropertyType);
         Assert.Equal(typeof(DesignInArgument<int>), GetProperty(type, "PdfScale").PropertyType);
@@ -47,35 +49,82 @@ public sealed class ExtractTextFromDocumentTests
     }
 
     [Fact]
-    public void Metadata_RegistersActivityViewModelResourcesIconAndPropertyLayout()
+    public void Metadata_RegistersActivityViewModelResourcesAndDirectSvgIconUsingSupportedSchema()
     {
         using var metadataStream = OpenManifestResource("Company.UiPath.DocumentOcr.Activities.Resources.ActivitiesMetadata.json");
         using var metadata = JsonDocument.Parse(metadataStream);
+        Assert.Equal(new[] { "resourceManagerName", "activities" }, metadata.RootElement.EnumerateObject().Select(property => property.Name).ToArray());
+        Assert.False(metadata.RootElement.TryGetProperty("icons", out _));
+
         var activity = metadata.RootElement.GetProperty("activities")[0];
 
         Assert.Equal("Company.UiPath.DocumentOcr.Activities.Resources.Resources", metadata.RootElement.GetProperty("resourceManagerName").GetString());
+        Assert.Equal(
+            new[] { "fullName", "shortName", "displayNameKey", "descriptionKey", "categoryKey", "viewModelType", "iconKey" },
+            activity.EnumerateObject().Select(property => property.Name).ToArray());
         Assert.Equal("Company.UiPath.DocumentOcr.Activities.ExtractTextFromDocument", activity.GetProperty("fullName").GetString());
-        Assert.Equal("Extract Text From Document", Resource("ExtractTextFromDocument_DisplayName"));
+        Assert.Equal(nameof(ExtractTextFromDocument), activity.GetProperty("shortName").GetString());
+        Assert.Equal("ExtractTextFromDocument_DisplayName", activity.GetProperty("displayNameKey").GetString());
+        Assert.Equal("ExtractTextFromDocument_Description", activity.GetProperty("descriptionKey").GetString());
+        Assert.Equal("DocumentOcr_Category", activity.GetProperty("categoryKey").GetString());
+        Assert.Equal(ActivityResources.ExtractTextFromDocument_DisplayName, Resource("ExtractTextFromDocument_DisplayName"));
         Assert.Equal("Document OCR", Resource(activity.GetProperty("categoryKey").GetString()!));
         Assert.Equal("Company.UiPath.DocumentOcr.Activities.ViewModels.ExtractTextFromDocumentViewModel", activity.GetProperty("viewModelType").GetString());
-        Assert.Equal("document-ocr", activity.GetProperty("iconKey").GetString());
+        Assert.Equal("document-ocr.svg", activity.GetProperty("iconKey").GetString());
+        Assert.False(activity.TryGetProperty("properties", out _));
 
-        var properties = activity.GetProperty("properties").EnumerateArray().ToArray();
-        Assert.Equal(
-            new[] { "FilePath", "Language", "PdfScale", "MaximumPages", "MaximumFileSizeMb", "EnablePreprocessing", "ExtractedText", "PageCount", "Confidence" },
-            properties.Select(property => property.GetProperty("name").GetString()).ToArray());
-        Assert.Equal(new[] { true, true }, properties.Take(2).Select(property => property.GetProperty("isPrincipal").GetBoolean()).ToArray());
-        Assert.All(properties.Skip(2), property => Assert.False(property.TryGetProperty("isPrincipal", out var principal) && principal.GetBoolean()));
-        Assert.Equal(new[] { 10, 20, 30, 40, 50, 60, 70, 80, 90 }, properties.Select(property => property.GetProperty("order").GetInt32()).ToArray());
-        Assert.All(properties, property =>
-        {
-            Assert.False(string.IsNullOrWhiteSpace(Resource(property.GetProperty("displayNameKey").GetString()!)));
-            Assert.False(string.IsNullOrWhiteSpace(Resource(property.GetProperty("descriptionKey").GetString()!)));
-        });
+        Assert.True(typeof(ActivityResources).IsPublic);
+        Assert.Equal("Path to the PDF or image file to process.", ActivityResources.ExtractTextFromDocument_FilePath_Description);
 
         using var iconStream = OpenManifestResource("Company.UiPath.DocumentOcr.Activities.Resources.Icons.document-ocr.svg");
         using var reader = new StreamReader(iconStream);
         Assert.Contains("<svg", reader.ReadToEnd(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ViewModel_InitializeModelCreatesStudioCardPropertiesWithExpectedLayout()
+    {
+        var viewModel = new TestableExtractTextFromDocumentViewModel();
+
+        viewModel.InitializeForTest();
+
+        var properties = new DesignProperty[]
+        {
+            viewModel.FilePath,
+            viewModel.Language,
+            viewModel.PdfScale,
+            viewModel.MaximumPages,
+            viewModel.MaximumFileSizeMb,
+            viewModel.EnablePreprocessing,
+            viewModel.ExtractedText,
+            viewModel.PageCount,
+            viewModel.Confidence,
+        };
+
+        Assert.All(properties, Assert.NotNull);
+        Assert.Equal(Enumerable.Range(0, 9), properties.Select(property => property.OrderIndex));
+        Assert.Equal(new[] { "FilePath", "Language", "PdfScale", "MaximumPages", "MaximumFileSizeMb", "EnablePreprocessing", "ExtractedText", "PageCount", "Confidence" }, properties.Select(property => property.Name));
+
+        Assert.Equal(ActivityResources.ExtractTextFromDocument_FilePath_DisplayName, viewModel.FilePath.DisplayName);
+        Assert.Equal(ActivityResources.ExtractTextFromDocument_FilePath_Description, viewModel.FilePath.Tooltip);
+        Assert.Equal(ActivityResources.Input_Category, viewModel.FilePath.Category);
+        Assert.True(viewModel.FilePath.IsRequired);
+        Assert.True(viewModel.FilePath.IsPrincipal);
+
+        Assert.Equal(ActivityResources.ExtractTextFromDocument_Language_DisplayName, viewModel.Language.DisplayName);
+        Assert.Equal(ActivityResources.ExtractTextFromDocument_Language_Description, viewModel.Language.Tooltip);
+        Assert.Equal(ActivityResources.Input_Category, viewModel.Language.Category);
+        Assert.False(viewModel.Language.IsRequired);
+        Assert.True(viewModel.Language.IsPrincipal);
+
+        AssertAdvancedInput(viewModel.PdfScale, ActivityResources.ExtractTextFromDocument_PdfScale_DisplayName, ActivityResources.ExtractTextFromDocument_PdfScale_Description);
+        AssertAdvancedInput(viewModel.MaximumPages, ActivityResources.ExtractTextFromDocument_MaximumPages_DisplayName, ActivityResources.ExtractTextFromDocument_MaximumPages_Description);
+        AssertAdvancedInput(viewModel.MaximumFileSizeMb, ActivityResources.ExtractTextFromDocument_MaximumFileSizeMb_DisplayName, ActivityResources.ExtractTextFromDocument_MaximumFileSizeMb_Description);
+        AssertAdvancedInput(viewModel.EnablePreprocessing, ActivityResources.ExtractTextFromDocument_EnablePreprocessing_DisplayName, ActivityResources.ExtractTextFromDocument_EnablePreprocessing_Description);
+
+        AssertOutput(viewModel.ExtractedText, ActivityResources.ExtractTextFromDocument_ExtractedText_DisplayName, ActivityResources.ExtractTextFromDocument_ExtractedText_Description);
+        AssertOutput(viewModel.PageCount, ActivityResources.ExtractTextFromDocument_PageCount_DisplayName, ActivityResources.ExtractTextFromDocument_PageCount_Description);
+        AssertOutput(viewModel.Confidence, ActivityResources.ExtractTextFromDocument_Confidence_DisplayName, ActivityResources.ExtractTextFromDocument_Confidence_Description);
     }
 
     [Fact]
@@ -191,6 +240,8 @@ public sealed class ExtractTextFromDocumentTests
         Assert.True(File.Exists(Path.Combine(outputDirectory, "DocumentOcr.Core.dll")));
         Assert.True(File.Exists(Path.Combine(outputDirectory, "DocumentOcr.Infrastructure.dll")));
         Assert.True(File.Exists(Path.Combine(outputDirectory, "Tesseract.dll")));
+        Assert.True(File.Exists(Path.Combine(outputDirectory, "libSkiaSharp.dll")));
+        Assert.True(File.Exists(Path.Combine(outputDirectory, "pdfium.dll")));
         Assert.True(File.Exists(Path.Combine(outputDirectory, "TessData", "eng.traineddata")));
         Assert.True(File.Exists(Path.Combine(outputDirectory, "x64", "tesseract50.dll")));
         Assert.True(File.Exists(Path.Combine(outputDirectory, "x64", "leptonica-1.82.0.dll")));
@@ -214,6 +265,24 @@ public sealed class ExtractTextFromDocumentTests
         return manager.GetString(key) ?? throw new InvalidOperationException($"Resource key '{key}' was not found.");
     }
 
+    private static void AssertAdvancedInput(DesignProperty property, string displayName, string tooltip)
+    {
+        Assert.Equal(displayName, property.DisplayName);
+        Assert.Equal(tooltip, property.Tooltip);
+        Assert.Equal(ActivityResources.Advanced_Category, property.Category);
+        Assert.False(property.IsPrincipal);
+        Assert.False(property.IsRequired);
+    }
+
+    private static void AssertOutput(DesignProperty property, string displayName, string tooltip)
+    {
+        Assert.Equal(displayName, property.DisplayName);
+        Assert.Equal(tooltip, property.Tooltip);
+        Assert.Equal(ActivityResources.Output_Category, property.Category);
+        Assert.False(property.IsPrincipal);
+        Assert.False(property.IsRequired);
+    }
+
     private static Dictionary<string, object> RequiredInputs()
     {
         return new Dictionary<string, object>
@@ -230,5 +299,45 @@ public sealed class ExtractTextFromDocumentTests
     private static string NormalizeForAssertion(string value)
     {
         return Regex.Replace(value.ToUpperInvariant(), @"\s+", " ").Trim();
+    }
+
+    private sealed class TestableExtractTextFromDocumentViewModel : ExtractTextFromDocumentViewModel
+    {
+        public TestableExtractTextFromDocumentViewModel()
+            : base(null!)
+        {
+            FilePath = CreateInput<string>(nameof(ExtractTextFromDocument.FilePath));
+            Language = CreateInput<string>(nameof(ExtractTextFromDocument.Language));
+            PdfScale = CreateInput<int>(nameof(ExtractTextFromDocument.PdfScale));
+            MaximumPages = CreateInput<int>(nameof(ExtractTextFromDocument.MaximumPages));
+            MaximumFileSizeMb = CreateInput<int>(nameof(ExtractTextFromDocument.MaximumFileSizeMb));
+            EnablePreprocessing = CreateInput<bool>(nameof(ExtractTextFromDocument.EnablePreprocessing));
+            ExtractedText = CreateOutput<string>(nameof(ExtractTextFromDocument.ExtractedText));
+            PageCount = CreateOutput<int>(nameof(ExtractTextFromDocument.PageCount));
+            Confidence = CreateOutput<double>(nameof(ExtractTextFromDocument.Confidence));
+        }
+
+        public void InitializeForTest()
+        {
+            InitializeModel();
+        }
+
+        private static DesignInArgument<T> CreateInput<T>(string name)
+        {
+            return new DesignInArgument<T>
+            {
+                Name = name,
+                ActivityPropertyName = name,
+            };
+        }
+
+        private static DesignOutArgument<T> CreateOutput<T>(string name)
+        {
+            return new DesignOutArgument<T>
+            {
+                Name = name,
+                ActivityPropertyName = name,
+            };
+        }
     }
 }

@@ -12,7 +12,7 @@ namespace Company.UiPath.DocumentOcr.Activities.Tests;
 public sealed class Phase7PackageTests
 {
     private const string PackageId = "Company.UiPath.DocumentOcr.Activities";
-    private const string PackageVersion = "1.0.0";
+    private const string PackageVersion = "1.0.2";
     private const string TargetFramework = "net6.0";
     private const string PackageFileName = $"{PackageId}.{PackageVersion}.nupkg";
 
@@ -96,6 +96,20 @@ public sealed class Phase7PackageTests
     }
 
     [Fact]
+    public void Package_ContainsExpectedSkiaAndPdfiumNativeAssetsForUiPathExecutor()
+    {
+        using var package = OpenPackage();
+
+        AssertNative(package, $"lib/{TargetFramework}/libSkiaSharp.dll", 11_628_896, "7DEC3BA900AB353491E6446F0083739924C6F8DD668832E2F09D38EBFFDBBE1C", 0x8664);
+        AssertNative(package, $"lib/{TargetFramework}/pdfium.dll", 5_802_496, "15DF9DDDD81EDDC5A177946AA5E34CDA821EBC46A51440ECB607F91E99644895", 0x8664);
+
+        AssertNative(package, $"lib/{TargetFramework}/runtimes/win-x64/native/libSkiaSharp.dll", 11_628_896, "7DEC3BA900AB353491E6446F0083739924C6F8DD668832E2F09D38EBFFDBBE1C", 0x8664);
+        AssertNative(package, $"lib/{TargetFramework}/runtimes/win-x64/native/pdfium.dll", 5_802_496, "15DF9DDDD81EDDC5A177946AA5E34CDA821EBC46A51440ECB607F91E99644895", 0x8664);
+        AssertNative(package, $"lib/{TargetFramework}/runtimes/win-x86/native/libSkiaSharp.dll", 10_124_128, "2E49B47FF56A0F6CCF61932D33E01E9046C319DA35BBB16F9EC9572A9DCF675F", 0x014c);
+        AssertNative(package, $"lib/{TargetFramework}/runtimes/win-x86/native/pdfium.dll", 5_376_512, "83BD789C4924DEB42DB18AB42F7479BE8D0D13E8CF5363C914E53404382BAA6D", 0x014c);
+    }
+
+    [Fact]
     public void Package_ExcludesScaffoldAndDevelopmentArtifacts()
     {
         using var package = OpenPackage();
@@ -137,15 +151,26 @@ public sealed class Phase7PackageTests
         Assert.Contains("Company.UiPath.DocumentOcr.Activities.Resources.Resources.resources", assembly.GetManifestResourceNames());
         Assert.Contains("Company.UiPath.DocumentOcr.Activities.Resources.Icons.document-ocr.svg", assembly.GetManifestResourceNames());
 
+        var resourceType = assembly.GetType("Company.UiPath.DocumentOcr.Activities.Resources.Resources");
+        Assert.NotNull(resourceType);
+        Assert.True(resourceType!.IsPublic);
+        Assert.NotNull(resourceType.GetProperty("ExtractTextFromDocument_FilePath_DisplayName", BindingFlags.Public | BindingFlags.Static));
+
         using var metadataStream = assembly.GetManifestResourceStream("Company.UiPath.DocumentOcr.Activities.Resources.ActivitiesMetadata.json")
             ?? throw new InvalidOperationException("ActivitiesMetadata.json resource was not found.");
         using var metadata = JsonDocument.Parse(metadataStream);
+        Assert.Equal(new[] { "resourceManagerName", "activities" }, metadata.RootElement.EnumerateObject().Select(property => property.Name).ToArray());
+        Assert.False(metadata.RootElement.TryGetProperty("icons", out _));
         var activity = metadata.RootElement.GetProperty("activities")[0];
 
+        Assert.Equal(
+            new[] { "fullName", "shortName", "displayNameKey", "descriptionKey", "categoryKey", "viewModelType", "iconKey" },
+            activity.EnumerateObject().Select(property => property.Name).ToArray());
         Assert.Equal("Company.UiPath.DocumentOcr.Activities.ExtractTextFromDocument", activity.GetProperty("fullName").GetString());
         Assert.Equal("DocumentOcr_Category", activity.GetProperty("categoryKey").GetString());
         Assert.Equal("Company.UiPath.DocumentOcr.Activities.ViewModels.ExtractTextFromDocumentViewModel", activity.GetProperty("viewModelType").GetString());
-        Assert.Equal("document-ocr", activity.GetProperty("iconKey").GetString());
+        Assert.Equal("document-ocr.svg", activity.GetProperty("iconKey").GetString());
+        Assert.False(activity.TryGetProperty("properties", out _));
 
         using var iconStream = assembly.GetManifestResourceStream("Company.UiPath.DocumentOcr.Activities.Resources.Icons.document-ocr.svg")
             ?? throw new InvalidOperationException("SVG icon resource was not found.");

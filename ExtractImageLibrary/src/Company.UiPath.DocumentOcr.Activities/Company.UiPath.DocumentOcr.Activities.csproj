@@ -11,6 +11,18 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Update="Resources\Resources.Designer.cs">
+      <DesignTime>true</DesignTime>
+      <AutoGen>true</AutoGen>
+      <DependentUpon>Resources.resx</DependentUpon>
+    </Compile>
+
+    <EmbeddedResource Update="Resources\Resources.resx">
+      <Generator>PublicResXFileCodeGenerator</Generator>
+      <LastGenOutput>Resources.Designer.cs</LastGenOutput>
+      <CustomToolNamespace>Company.UiPath.DocumentOcr.Activities.Resources</CustomToolNamespace>
+    </EmbeddedResource>
+
     <EmbeddedResource Include="Resources\ActivitiesMetadata.json" />
     <EmbeddedResource Include="Resources\Icons\document-ocr.svg" />
   </ItemGroup>
@@ -19,6 +31,17 @@
     <PackageReference Include="System.Activities.ViewModels" Version="1.20260609.1" />
     <PackageReference Include="UiPath.Activities.Api" Version="24.10.1" PrivateAssets="All" />
     <PackageReference Include="UiPath.Workflow" Version="6.0.0-20240401-07" PrivateAssets="All" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="3.119.4" PrivateAssets="All" GeneratePathProperty="true" />
+    <PackageReference Include="bblanchon.PDFium.Win32" Version="147.0.7690" PrivateAssets="All" GeneratePathProperty="true" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(PkgSkiaSharp_NativeAssets_Win32)' != '' and '$(Pkgbblanchon_PDFium_Win32)' != ''">
+    <None Include="$(PkgSkiaSharp_NativeAssets_Win32)\runtimes\win-x64\native\libSkiaSharp.dll" Link="libSkiaSharp.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(Pkgbblanchon_PDFium_Win32)\runtimes\win-x64\native\pdfium.dll" Link="pdfium.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(PkgSkiaSharp_NativeAssets_Win32)\runtimes\win-x64\native\libSkiaSharp.dll" Link="runtimes\win-x64\native\libSkiaSharp.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(Pkgbblanchon_PDFium_Win32)\runtimes\win-x64\native\pdfium.dll" Link="runtimes\win-x64\native\pdfium.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(PkgSkiaSharp_NativeAssets_Win32)\runtimes\win-x86\native\libSkiaSharp.dll" Link="runtimes\win-x86\native\libSkiaSharp.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(Pkgbblanchon_PDFium_Win32)\runtimes\win-x86\native\pdfium.dll" Link="runtimes\win-x86\native\pdfium.dll" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
@@ -36,5 +59,25 @@
     </ItemGroup>
 
     <Copy SourceFiles="@(_ManagedTesseractWrapper)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="CopyWindowsNativeAssetsForUiPathRuntime" AfterTargets="CopyFilesToOutputDirectory">
+    <PropertyGroup>
+      <_SkiaNativePackageRoot>$(PkgSkiaSharp_NativeAssets_Win32)\</_SkiaNativePackageRoot>
+      <_PdfiumNativePackageRoot>$(Pkgbblanchon_PDFium_Win32)\</_PdfiumNativePackageRoot>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <_RootX64NativeAsset Include="$(_SkiaNativePackageRoot)runtimes\win-x64\native\libSkiaSharp.dll" />
+      <_RootX64NativeAsset Include="$(_PdfiumNativePackageRoot)runtimes\win-x64\native\pdfium.dll" />
+
+      <_WinX64NativeAsset Include="@(_RootX64NativeAsset)" />
+      <_WinX86NativeAsset Include="$(_SkiaNativePackageRoot)runtimes\win-x86\native\libSkiaSharp.dll" />
+      <_WinX86NativeAsset Include="$(_PdfiumNativePackageRoot)runtimes\win-x86\native\pdfium.dll" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(_RootX64NativeAsset)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_WinX64NativeAsset)" DestinationFolder="$(OutDir)runtimes\win-x64\native" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_WinX86NativeAsset)" DestinationFolder="$(OutDir)runtimes\win-x86\native" SkipUnchangedFiles="true" />
   </Target>
 </Project>

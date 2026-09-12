@@ -7,7 +7,7 @@
     <GeneratePackageOnBuild Condition="'$(Configuration)' == 'Release'">true</GeneratePackageOnBuild>
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <PackageId>Company.UiPath.DocumentOcr.Activities</PackageId>
-    <Version>1.0.0</Version>
+    <Version>1.0.2</Version>
     <Title>Document OCR Activities for UiPath</Title>
     <Authors>Document OCR Contributors</Authors>
     <Description>UiPath custom activity for extracting OCR text from local PDF and image documents.</Description>
@@ -29,12 +29,18 @@
     <_PackageLibAsset Include="$(ActivitiesRuntimeOutputDirectory)Company.UiPath.DocumentOcr.Activities.dll" />
     <_PackageLibAsset Include="$(ActivitiesRuntimeOutputDirectory)DocumentOcr.Core.dll" />
     <_PackageLibAsset Include="$(ActivitiesRuntimeOutputDirectory)DocumentOcr.Infrastructure.dll" />
+    <_PackageLibAsset Include="$(ActivitiesRuntimeOutputDirectory)libSkiaSharp.dll" />
+    <_PackageLibAsset Include="$(ActivitiesRuntimeOutputDirectory)pdfium.dll" />
     <_PackageLibAsset Include="$(ActivitiesRuntimeOutputDirectory)TessData\eng.traineddata" />
     <_PackageLibAsset Include="$(ActivitiesRuntimeOutputDirectory)TessData\LICENSE.tessdata_fast.txt" />
     <_PackageLibAsset Include="$(ActivitiesRuntimeOutputDirectory)x64\tesseract50.dll" />
     <_PackageLibAsset Include="$(ActivitiesRuntimeOutputDirectory)x64\leptonica-1.82.0.dll" />
     <_PackageLibAsset Include="$(ActivitiesRuntimeOutputDirectory)x86\tesseract50.dll" />
     <_PackageLibAsset Include="$(ActivitiesRuntimeOutputDirectory)x86\leptonica-1.82.0.dll" />
+    <_PackageLibAsset Include="$(ActivitiesRuntimeOutputDirectory)runtimes\win-x64\native\libSkiaSharp.dll" />
+    <_PackageLibAsset Include="$(ActivitiesRuntimeOutputDirectory)runtimes\win-x64\native\pdfium.dll" />
+    <_PackageLibAsset Include="$(ActivitiesRuntimeOutputDirectory)runtimes\win-x86\native\libSkiaSharp.dll" />
+    <_PackageLibAsset Include="$(ActivitiesRuntimeOutputDirectory)runtimes\win-x86\native\pdfium.dll" />
   </ItemGroup>
 
   <Target Name="ValidatePhase7PackageAssets" BeforeTargets="GenerateNuspec">

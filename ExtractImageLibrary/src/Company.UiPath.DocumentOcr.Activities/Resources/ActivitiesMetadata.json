@@ -8,77 +8,7 @@
       "descriptionKey": "ExtractTextFromDocument_Description",
       "categoryKey": "DocumentOcr_Category",
       "viewModelType": "Company.UiPath.DocumentOcr.Activities.ViewModels.ExtractTextFromDocumentViewModel",
-      "iconKey": "document-ocr",
-      "properties": [
-        {
-          "name": "FilePath",
-          "displayNameKey": "ExtractTextFromDocument_FilePath_DisplayName",
-          "descriptionKey": "ExtractTextFromDocument_FilePath_Description",
-          "categoryKey": "Input_Category",
-          "isPrincipal": true,
-          "order": 10
-        },
-        {
-          "name": "Language",
-          "displayNameKey": "ExtractTextFromDocument_Language_DisplayName",
-          "descriptionKey": "ExtractTextFromDocument_Language_Description",
-          "categoryKey": "Input_Category",
-          "isPrincipal": true,
-          "order": 20
-        },
-        {
-          "name": "PdfScale",
-          "displayNameKey": "ExtractTextFromDocument_PdfScale_DisplayName",
-          "descriptionKey": "ExtractTextFromDocument_PdfScale_Description",
-          "categoryKey": "Advanced_Category",
-          "order": 30
-        },
-        {
-          "name": "MaximumPages",
-          "displayNameKey": "ExtractTextFromDocument_MaximumPages_DisplayName",
-          "descriptionKey": "ExtractTextFromDocument_MaximumPages_Description",
-          "categoryKey": "Advanced_Category",
-          "order": 40
-        },
-        {
-          "name": "MaximumFileSizeMb",
-          "displayNameKey": "ExtractTextFromDocument_MaximumFileSizeMb_DisplayName",
-          "descriptionKey": "ExtractTextFromDocument_MaximumFileSizeMb_Description",
-          "categoryKey": "Advanced_Category",
-          "order": 50
-        },
-        {
-          "name": "EnablePreprocessing",
-          "displayNameKey": "ExtractTextFromDocument_EnablePreprocessing_DisplayName",
-          "descriptionKey": "ExtractTextFromDocument_EnablePreprocessing_Description",
-          "categoryKey": "Advanced_Category",
-          "order": 60
-        },
-        {
-          "name": "ExtractedText",
-          "displayNameKey": "ExtractTextFromDocument_ExtractedText_DisplayName",
-          "descriptionKey": "ExtractTextFromDocument_ExtractedText_Description",
-          "categoryKey": "Output_Category",
-          "order": 70
-        },
-        {
-          "name": "PageCount",
-          "displayNameKey": "ExtractTextFromDocument_PageCount_DisplayName",
-          "descriptionKey": "ExtractTextFromDocument_PageCount_Description",
-          "categoryKey": "Output_Category",
-          "order": 80
-        },
-        {
-          "name": "Confidence",
-          "displayNameKey": "ExtractTextFromDocument_Confidence_DisplayName",
-          "descriptionKey": "ExtractTextFromDocument_Confidence_Description",
-          "categoryKey": "Output_Category",
-          "order": 90
-        }
-      ]
+      "iconKey": "document-ocr.svg"
     }
-  ],
-  "icons": {
-    "document-ocr": "Resources/Icons/document-ocr.svg"
-  }
+  ]
 }
