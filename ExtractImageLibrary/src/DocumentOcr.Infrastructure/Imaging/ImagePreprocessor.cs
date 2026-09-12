@@ -1,6 +1,7 @@
 using DocumentOcr.Core.Abstractions;
 using DocumentOcr.Core.Exceptions;
 using DocumentOcr.Core.Models;
+using DocumentOcr.Infrastructure;
 using SkiaSharp;
 
 namespace DocumentOcr.Infrastructure.Imaging;
@@ -24,6 +25,7 @@ public sealed class ImagePreprocessor : IImagePreprocessor
 
         try
         {
+            NativeDependencyLoader.EnsureSkiaSharp();
             var inputBytes = await ReadInputBytesAsync(documentPage.ImageStream, cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
 

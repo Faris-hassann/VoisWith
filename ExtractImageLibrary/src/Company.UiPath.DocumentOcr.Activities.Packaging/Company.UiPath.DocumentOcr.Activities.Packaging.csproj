@@ -7,7 +7,7 @@
     <GeneratePackageOnBuild Condition="'$(Configuration)' == 'Release'">true</GeneratePackageOnBuild>
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <PackageId>Company.UiPath.DocumentOcr.Activities</PackageId>
-    <Version>1.0.2</Version>
+    <Version>1.0.5</Version>
     <Title>Document OCR Activities for UiPath</Title>
     <Authors>Document OCR Contributors</Authors>
     <Description>UiPath custom activity for extracting OCR text from local PDF and image documents.</Description>

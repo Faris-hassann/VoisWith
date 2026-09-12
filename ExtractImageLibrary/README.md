@@ -4,7 +4,7 @@ This repository contains a staged implementation of a UiPath custom activity tha
 
 Intended public activity name: `Extract Text From Document`
 
-Current implementation phase: Phase 7 - Packaging implemented; UiPath Studio runtime verification partial
+Current implementation phase: Phase 7 - Packaging and UiRobot runtime verified; UiPath Studio designer visual verification partial
 
 Version 1 target:
 - UiPath Studio Windows projects
@@ -65,20 +65,24 @@ Phase 6 is implemented and verified:
 - Activity coverage verifies argument shape, required/default behavior, option mapping, output mapping, metadata/resources/icon embedding, exception/cancellation propagation, build output assets, deterministic `WorkflowInvoker` execution, and real PNG/PDF workflow execution (`10` passing tests total in `Company.UiPath.DocumentOcr.Activities.Tests`).
 
 Phase 7 packaging is implemented and automatically verified:
-- The packaging project creates `artifacts/packages/Company.UiPath.DocumentOcr.Activities.1.0.0.nupkg` from a Release build.
+- The packaging project creates `artifacts/packages/Company.UiPath.DocumentOcr.Activities.1.0.5.nupkg` from a Release build.
 - The package contains `Company.UiPath.DocumentOcr.Activities.dll`, `DocumentOcr.Core.dll`, and `DocumentOcr.Infrastructure.dll` under `lib/net6.0`.
 - The package contains `TessData/eng.traineddata`, `TessData/LICENSE.tessdata_fast.txt`, and the Windows x64/x86 Tesseract and Leptonica native binaries under `lib/net6.0`.
-- Package metadata uses ID `Company.UiPath.DocumentOcr.Activities`, version `1.0.0`, title `Document OCR Activities for UiPath`, authors `Document OCR Contributors`, and repository `https://github.com/Faris-hassann/VoisWith.git`.
+- The package also carries assembly-relative x64 `libSkiaSharp.dll` and `pdfium.dll`, plus RID-specific x64/x86 Skia/PDFium native assets, so UiRobot can resolve native libraries from the NuGet package cache.
+- Package metadata uses ID `Company.UiPath.DocumentOcr.Activities`, version `1.0.5`, title `Document OCR Activities for UiPath`, authors `Document OCR Contributors`, and repository `https://github.com/Faris-hassann/VoisWith.git`.
 - The generated nuspec declares exact dependency ranges for `System.Activities.ViewModels` `1.20260609.1`, `PDFtoImage` `5.2.1`, `SkiaSharp` `3.119.4`, `BitMiracle.LibTiff.NET` `2.4.660`, and `Tesseract` `5.2.0`.
 - `UiPath.Activities.Api` and `UiPath.Workflow` remain development/private dependencies and are not declared in the final nuspec.
-- Package tests verify identity, metadata, dependencies, project assemblies, TessData path/size/hash, native DLL paths/sizes/hashes/PE architecture, exclusion of development artifacts, absence of developer absolute paths in textual package entries, and preservation of embedded activity metadata/resources/icon (`8` Phase 7 package tests).
+- Activity/package tests verify activity behavior, ViewModel metadata/resources, package identity, metadata, dependencies, project assemblies, TessData path/size/hash, native DLL paths/sizes/hashes/PE architecture, exclusion of development artifacts, absence of developer absolute paths in textual package entries, and preservation of embedded activity metadata/resources/icon (`20` tests in `Company.UiPath.DocumentOcr.Activities.Tests`).
 - A fresh consumer restore from `artifacts/local-feed`, NuGet.org, and UiPath Official succeeded and resolved the expected transitive Windows PDFium and Skia RID assets.
 - Managed NuGet vulnerability audit reported no vulnerable packages for the resolved solution graph.
 
 Phase 7 runtime status is PARTIAL:
 - UiPath Studio/Robot `26.0.201-cloud.24739` is installed locally and is x64.
-- A headless UiPath smoke project exists under ignored `artifacts/phase7/uipath-studio-smoke`, but Studio/Robot package-backed execution was not completed from the command line. Robot reported that the custom activity type could not be resolved from the hand-authored smoke workflow.
-- UiPath Studio GUI discovery, package installation through Studio Package Manager, x64 Studio runtime execution, invalid-path Studio error propagation, and log inspection are NOT TESTED.
+- A genuine Windows smoke project under ignored `artifacts/phase7/DocumentOcrSmokeTest` was published as `DocumentOcrSmokeTest.1.0.5.nupkg`.
+- UiRobot command-line execution passed PNG OCR with preprocessing enabled, PNG OCR with preprocessing disabled, two-page PDF OCR, and invalid-path validation against `Company.UiPath.DocumentOcr.Activities` `1.0.5`.
+- Robot logs show package-backed execution from the NuGet cache, loading `Company.UiPath.DocumentOcr.Activities`, `DocumentOcr.Core`, `DocumentOcr.Infrastructure`, `PDFtoImage`, `SkiaSharp`, and `Tesseract` from restored packages.
+- The restored package cache contains `TessData/eng.traineddata` at `4,113,088` bytes with SHA-256 `7D4322BD2A7749724879683FC3912CB542F19906C83BCC1A52132556427170B2`.
+- UiPath Studio GUI designer presentation is NOT VERIFIED. Visual confirmation is still required for activity discovery, category, icon, labels, tooltips, required marker, principal fields, advanced fields, and outputs.
 - x86 Robot execution is NOT TESTED.
 - Windows ARM64 remains out of scope.
 - Exact command-line .NET 6 runtime remains NOT VERIFIED because only .NET 10 is installed locally.
@@ -128,7 +132,7 @@ These packages are confined to `Company.UiPath.DocumentOcr.Activities` and its t
 
 ## Phase boundaries
 
-The repository still does not include completed UiPath Studio GUI installation/runtime validation. That remains required before Phase 7 can be marked COMPLETE.
+The repository still does not include completed UiPath Studio GUI designer validation. That visual checkpoint remains required before Phase 7 can be marked COMPLETE.
 
 ## Build and test
 
@@ -155,7 +159,7 @@ Remove-Item Env:DOTNET_ROLL_FORWARD
 The package is written to:
 
 ```text
-artifacts/packages/Company.UiPath.DocumentOcr.Activities.1.0.0.nupkg
+artifacts/packages/Company.UiPath.DocumentOcr.Activities.1.0.5.nupkg
 ```
 
 Run verified tests:
@@ -243,8 +247,8 @@ The local machine currently has the .NET 10 SDK and runtime available. Core, Inf
 
 Native execution on an exact .NET 6 runtime has not been verified yet because that runtime is not installed locally.
 
-UiPath Studio installation/runtime is NOT TESTED in this phase. Installation and final native package validation belong to Phase 7.
+UiRobot package-backed runtime execution is verified for x64 in Phase 7. UiPath Studio designer presentation remains NOT VERIFIED because Windows app control was unavailable in this environment.
 
 ## Next phase
 
-The next required work is finishing Phase 7 Studio GUI validation or moving to the next phase only after Studio package installation and image/PDF runtime checks pass.
+The next required work is finishing Phase 7 Studio GUI designer validation. Phase 8 must not start until the Studio activity card is visually confirmed for version `1.0.5`.

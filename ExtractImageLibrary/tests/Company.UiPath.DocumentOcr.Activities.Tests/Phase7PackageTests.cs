@@ -12,7 +12,7 @@ namespace Company.UiPath.DocumentOcr.Activities.Tests;
 public sealed class Phase7PackageTests
 {
     private const string PackageId = "Company.UiPath.DocumentOcr.Activities";
-    private const string PackageVersion = "1.0.2";
+    private const string PackageVersion = "1.0.5";
     private const string TargetFramework = "net6.0";
     private const string PackageFileName = $"{PackageId}.{PackageVersion}.nupkg";
 

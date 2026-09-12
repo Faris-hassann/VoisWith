@@ -2,7 +2,7 @@
 <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
   <metadata>
     <id>Company.UiPath.DocumentOcr.Activities</id>
-    <version>1.0.2</version>
+    <version>1.0.5</version>
     <title>Document OCR Activities for UiPath</title>
     <authors>Document OCR Contributors</authors>
     <readme>PACKAGE_README.md</readme>

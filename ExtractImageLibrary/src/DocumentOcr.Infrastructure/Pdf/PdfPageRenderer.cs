@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using DocumentOcr.Core.Abstractions;
 using DocumentOcr.Core.Exceptions;
 using DocumentOcr.Core.Models;
+using DocumentOcr.Infrastructure;
 using PDFtoImage;
 using SkiaSharp;
 
@@ -31,6 +32,8 @@ public sealed class PdfPageRenderer : IDocumentPageRenderer
         var dpi = checked(72 * options.PdfScale);
         var renderOptions = CreateRenderOptions(dpi);
 
+        NativeDependencyLoader.EnsurePdfium();
+        NativeDependencyLoader.EnsureSkiaSharp();
         using var pdfStream = OpenReadOnlyPdfStream(canonicalPath);
 
         int pageCount;
@@ -132,12 +135,7 @@ public sealed class PdfPageRenderer : IDocumentPageRenderer
 
     private static RenderOptions CreateRenderOptions(int dpi)
     {
-        return new RenderOptions
-        {
-            Dpi = dpi,
-            UseTiling = false,
-            Grayscale = false,
-        };
+        return new RenderOptions(Dpi: dpi, UseTiling: false, Grayscale: false);
     }
 
     private static MemoryStream EncodeRenderedPage(SKBitmap bitmap, string canonicalPath, int pageNumber)
