@@ -2,6 +2,7 @@
   <PropertyGroup>
     <RootNamespace>Company.UiPath.DocumentOcr.Activities</RootNamespace>
     <AssemblyName>Company.UiPath.DocumentOcr.Activities</AssemblyName>
+    <PackageId>Company.UiPath.DocumentOcr.Activities.Library</PackageId>
   </PropertyGroup>
 
   <ItemGroup>

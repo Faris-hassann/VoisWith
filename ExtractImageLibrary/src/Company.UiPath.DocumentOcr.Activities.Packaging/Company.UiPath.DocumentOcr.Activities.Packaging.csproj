@@ -2,11 +2,49 @@
   <PropertyGroup>
     <RootNamespace>Company.UiPath.DocumentOcr.Activities.Packaging</RootNamespace>
     <AssemblyName>Company.UiPath.DocumentOcr.Activities.Packaging</AssemblyName>
-    <IsPackable>false</IsPackable>
-    <Description>Phase 1 packaging scaffold only. UiPath-specific packaging is deferred until a supported template/toolchain is available.</Description>
+    <TargetFramework>net6.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <GeneratePackageOnBuild Condition="'$(Configuration)' == 'Release'">true</GeneratePackageOnBuild>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <PackageId>Company.UiPath.DocumentOcr.Activities</PackageId>
+    <Version>1.0.0</Version>
+    <Title>Document OCR Activities for UiPath</Title>
+    <Authors>Document OCR Contributors</Authors>
+    <Description>UiPath custom activity for extracting OCR text from local PDF and image documents.</Description>
+    <RepositoryUrl>https://github.com/Faris-hassann/VoisWith.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>UiPathActivities;UiPath;OCR;PDF;Tesseract;Documents</PackageTags>
+    <PackageOutputPath>..\..\artifacts\packages</PackageOutputPath>
+    <PackageReadmeFile>PACKAGE_README.md</PackageReadmeFile>
+    <NuspecFile>Company.UiPath.DocumentOcr.Activities.nuspec</NuspecFile>
+    <NoWarn>$(NoWarn);NU5100</NoWarn>
+    <ActivitiesRuntimeOutputDirectory Condition="'$(ActivitiesRuntimeOutputDirectory)' == ''">$(MSBuildProjectDirectory)\..\Company.UiPath.DocumentOcr.Activities\bin\$(Configuration)\$(TargetFramework)\</ActivitiesRuntimeOutputDirectory>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Company.UiPath.DocumentOcr.Activities\Company.UiPath.DocumentOcr.Activities.csproj" />
+    <ProjectReference Include="..\Company.UiPath.DocumentOcr.Activities\Company.UiPath.DocumentOcr.Activities.csproj" PrivateAssets="All" ReferenceOutputAssembly="false" />
   </ItemGroup>
+
+  <ItemGroup>
+    <_PackageLibAsset Include="$(ActivitiesRuntimeOutputDirectory)Company.UiPath.DocumentOcr.Activities.dll" />
+    <_PackageLibAsset Include="$(ActivitiesRuntimeOutputDirectory)DocumentOcr.Core.dll" />
+    <_PackageLibAsset Include="$(ActivitiesRuntimeOutputDirectory)DocumentOcr.Infrastructure.dll" />
+    <_PackageLibAsset Include="$(ActivitiesRuntimeOutputDirectory)TessData\eng.traineddata" />
+    <_PackageLibAsset Include="$(ActivitiesRuntimeOutputDirectory)TessData\LICENSE.tessdata_fast.txt" />
+    <_PackageLibAsset Include="$(ActivitiesRuntimeOutputDirectory)x64\tesseract50.dll" />
+    <_PackageLibAsset Include="$(ActivitiesRuntimeOutputDirectory)x64\leptonica-1.82.0.dll" />
+    <_PackageLibAsset Include="$(ActivitiesRuntimeOutputDirectory)x86\tesseract50.dll" />
+    <_PackageLibAsset Include="$(ActivitiesRuntimeOutputDirectory)x86\leptonica-1.82.0.dll" />
+  </ItemGroup>
+
+  <Target Name="ValidatePhase7PackageAssets" BeforeTargets="GenerateNuspec">
+    <Error Condition="'$(Configuration)' != 'Release'" Text="Phase 7 package creation is supported only for Release builds." />
+    <ItemGroup>
+      <_RequiredPackageAsset Include="@(_PackageLibAsset)" />
+      <_RequiredPackageAsset Include="$(MSBuildProjectDirectory)\PACKAGE_README.md" />
+      <_RequiredPackageAsset Include="$(MSBuildProjectDirectory)\THIRD-PARTY-NOTICES.md" />
+      <_MissingPackageAsset Include="@(_RequiredPackageAsset)" Condition="!Exists('%(Identity)')" />
+    </ItemGroup>
+    <Error Condition="'@(_MissingPackageAsset)' != ''" Text="Missing required package asset(s): @(_MissingPackageAsset, ', ')" />
+  </Target>
 </Project>

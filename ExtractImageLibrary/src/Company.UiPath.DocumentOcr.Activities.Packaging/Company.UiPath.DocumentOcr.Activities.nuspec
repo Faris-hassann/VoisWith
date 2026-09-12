@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+  <metadata>
+    <id>Company.UiPath.DocumentOcr.Activities</id>
+    <version>1.0.0</version>
+    <title>Document OCR Activities for UiPath</title>
+    <authors>Document OCR Contributors</authors>
+    <readme>PACKAGE_README.md</readme>
+    <description>UiPath custom activity for extracting OCR text from local PDF and image documents.</description>
+    <tags>UiPathActivities UiPath OCR PDF Tesseract Documents</tags>
+    <repository type="git" url="https://github.com/Faris-hassann/VoisWith.git" />
+    <dependencies>
+      <group targetFramework="net6.0">
+        <dependency id="System.Activities.ViewModels" version="[1.20260609.1]" />
+        <dependency id="PDFtoImage" version="[5.2.1]" />
+        <dependency id="SkiaSharp" version="[3.119.4]" />
+        <dependency id="BitMiracle.LibTiff.NET" version="[2.4.660]" />
+        <dependency id="Tesseract" version="[5.2.0]" />
+      </group>
+    </dependencies>
+  </metadata>
+  <files>
+    <file src="..\Company.UiPath.DocumentOcr.Activities\bin\Release\net6.0\Company.UiPath.DocumentOcr.Activities.dll" target="lib/net6.0" />
+    <file src="..\Company.UiPath.DocumentOcr.Activities\bin\Release\net6.0\DocumentOcr.Core.dll" target="lib/net6.0" />
+    <file src="..\Company.UiPath.DocumentOcr.Activities\bin\Release\net6.0\DocumentOcr.Infrastructure.dll" target="lib/net6.0" />
+    <file src="..\Company.UiPath.DocumentOcr.Activities\bin\Release\net6.0\TessData\eng.traineddata" target="lib/net6.0/TessData" />
+    <file src="..\Company.UiPath.DocumentOcr.Activities\bin\Release\net6.0\TessData\LICENSE.tessdata_fast.txt" target="lib/net6.0/TessData" />
+    <file src="..\Company.UiPath.DocumentOcr.Activities\bin\Release\net6.0\x64\tesseract50.dll" target="lib/net6.0/x64" />
+    <file src="..\Company.UiPath.DocumentOcr.Activities\bin\Release\net6.0\x64\leptonica-1.82.0.dll" target="lib/net6.0/x64" />
+    <file src="..\Company.UiPath.DocumentOcr.Activities\bin\Release\net6.0\x86\tesseract50.dll" target="lib/net6.0/x86" />
+    <file src="..\Company.UiPath.DocumentOcr.Activities\bin\Release\net6.0\x86\leptonica-1.82.0.dll" target="lib/net6.0/x86" />
+    <file src="PACKAGE_README.md" target="" />
+    <file src="THIRD-PARTY-NOTICES.md" target="docs" />
+  </files>
+</package>

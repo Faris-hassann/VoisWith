@@ -4,7 +4,7 @@ This repository contains a staged implementation of a UiPath custom activity tha
 
 Intended public activity name: `Extract Text From Document`
 
-Current implementation phase: Phase 6 - UiPath Custom Activity and ViewModel
+Current implementation phase: Phase 7 - Packaging implemented; UiPath Studio runtime verification partial
 
 Version 1 target:
 - UiPath Studio Windows projects
@@ -64,6 +64,25 @@ Phase 6 is implemented and verified:
 - `ExtractTextFromDocumentViewModel`, embedded `ActivitiesMetadata.json`, localized resource strings, and `Resources/Icons/document-ocr.svg` provide the Studio presentation metadata for display name, category, principal properties, advanced properties, outputs, ordering, and icon.
 - Activity coverage verifies argument shape, required/default behavior, option mapping, output mapping, metadata/resources/icon embedding, exception/cancellation propagation, build output assets, deterministic `WorkflowInvoker` execution, and real PNG/PDF workflow execution (`10` passing tests total in `Company.UiPath.DocumentOcr.Activities.Tests`).
 
+Phase 7 packaging is implemented and automatically verified:
+- The packaging project creates `artifacts/packages/Company.UiPath.DocumentOcr.Activities.1.0.0.nupkg` from a Release build.
+- The package contains `Company.UiPath.DocumentOcr.Activities.dll`, `DocumentOcr.Core.dll`, and `DocumentOcr.Infrastructure.dll` under `lib/net6.0`.
+- The package contains `TessData/eng.traineddata`, `TessData/LICENSE.tessdata_fast.txt`, and the Windows x64/x86 Tesseract and Leptonica native binaries under `lib/net6.0`.
+- Package metadata uses ID `Company.UiPath.DocumentOcr.Activities`, version `1.0.0`, title `Document OCR Activities for UiPath`, authors `Document OCR Contributors`, and repository `https://github.com/Faris-hassann/VoisWith.git`.
+- The generated nuspec declares exact dependency ranges for `System.Activities.ViewModels` `1.20260609.1`, `PDFtoImage` `5.2.1`, `SkiaSharp` `3.119.4`, `BitMiracle.LibTiff.NET` `2.4.660`, and `Tesseract` `5.2.0`.
+- `UiPath.Activities.Api` and `UiPath.Workflow` remain development/private dependencies and are not declared in the final nuspec.
+- Package tests verify identity, metadata, dependencies, project assemblies, TessData path/size/hash, native DLL paths/sizes/hashes/PE architecture, exclusion of development artifacts, absence of developer absolute paths in textual package entries, and preservation of embedded activity metadata/resources/icon (`8` Phase 7 package tests).
+- A fresh consumer restore from `artifacts/local-feed`, NuGet.org, and UiPath Official succeeded and resolved the expected transitive Windows PDFium and Skia RID assets.
+- Managed NuGet vulnerability audit reported no vulnerable packages for the resolved solution graph.
+
+Phase 7 runtime status is PARTIAL:
+- UiPath Studio/Robot `26.0.201-cloud.24739` is installed locally and is x64.
+- A headless UiPath smoke project exists under ignored `artifacts/phase7/uipath-studio-smoke`, but Studio/Robot package-backed execution was not completed from the command line. Robot reported that the custom activity type could not be resolved from the hand-authored smoke workflow.
+- UiPath Studio GUI discovery, package installation through Studio Package Manager, x64 Studio runtime execution, invalid-path Studio error propagation, and log inspection are NOT TESTED.
+- x86 Robot execution is NOT TESTED.
+- Windows ARM64 remains out of scope.
+- Exact command-line .NET 6 runtime remains NOT VERIFIED because only .NET 10 is installed locally.
+
 ## Current architecture
 
 - `src/DocumentOcr.Core`
@@ -73,7 +92,7 @@ Phase 6 is implemented and verified:
 - `src/Company.UiPath.DocumentOcr.Activities`
   UiPath-facing activity layer. It remains thin, maps Studio arguments to Core options, composes Infrastructure implementations, and depends on Core and Infrastructure.
 - `src/Company.UiPath.DocumentOcr.Activities.Packaging`
-  Packaging scaffold only. It is deliberately non-packable until supported UiPath packaging conventions are confirmed.
+  Release packaging project for the installable UiPath activity package.
 - `tests/DocumentOcr.Core.Tests`
   Unit tests for the implemented Core behavior.
 - `tests/DocumentOcr.Infrastructure.Tests`
@@ -109,11 +128,7 @@ These packages are confined to `Company.UiPath.DocumentOcr.Activities` and its t
 
 ## Phase boundaries
 
-The repository still does not include:
-- Final packaging or runtime-distribution work
-- UiPath Studio installation/runtime validation
-
-Those remain deferred to Phase 7 in the blueprint.
+The repository still does not include completed UiPath Studio GUI installation/runtime validation. That remains required before Phase 7 can be marked COMPLETE.
 
 ## Build and test
 
@@ -127,6 +142,20 @@ Build:
 
 ```powershell
 & 'C:\Program Files\dotnet\dotnet.exe' build DocumentOcr.UiPath.sln --no-restore
+```
+
+Create the Phase 7 package:
+
+```powershell
+$env:DOTNET_ROLL_FORWARD = 'Major'
+& 'C:\Program Files\dotnet\dotnet.exe' build DocumentOcr.UiPath.sln -c Release --no-restore
+Remove-Item Env:DOTNET_ROLL_FORWARD
+```
+
+The package is written to:
+
+```text
+artifacts/packages/Company.UiPath.DocumentOcr.Activities.1.0.0.nupkg
 ```
 
 Run verified tests:
@@ -162,8 +191,8 @@ Remove-Item Env:DOTNET_ROLL_FORWARD
 - `TessDataDirectory` overrides are intended for trusted operators only. This phase does not attempt to sandbox or authenticate externally supplied `.traineddata` files.
 - The upstream Tesseract project published `GHSA-x3vq-7rr7-5x3h` on July 15, 2026 and `GHSA-7j76-5rq5-5jg8` on August 4, 2026 for crafted `.traineddata` deserialization issues. The official `5.5.3` release tag object is `6951ffe10ce031374bcd04fe400811da1e7e04ad` and its peeled commit is `db0ec62f81b0737fbbe184d8fea40af5738f8eef`.
 - `dotnet list package --vulnerable --include-transitive` reported no vulnerable NuGet packages for the resolved managed package graph, but that scan does not account for the embedded native Tesseract / traineddata advisories documented above.
-- This repository still pins the managed wrapper package `Tesseract` `5.2.0`, so Phase 7 must re-evaluate the OCR stack against upstream `5.5.3+` before broader packaging or distribution work.
-- Until that Phase 7 review happens, treat both document inputs and TessData overrides as trusted-only deployment surfaces.
+- This repository still pins the managed wrapper package `Tesseract` `5.2.0`; no compatible patched `charlesw/Tesseract` NuGet release is available in this phase.
+- Treat external TessData overrides as trusted-only deployment surfaces.
 
 ## OCR engine behavior
 
@@ -218,4 +247,4 @@ UiPath Studio installation/runtime is NOT TESTED in this phase. Installation and
 
 ## Next phase
 
-The next planned phase is Phase 7 - packaging, Studio installation, and final runtime-distribution validation.
+The next required work is finishing Phase 7 Studio GUI validation or moving to the next phase only after Studio package installation and image/PDF runtime checks pass.
